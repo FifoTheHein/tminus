@@ -49,6 +49,18 @@ void main() {
     expect(tz.timeZoneDatabase.locations.containsKey('Asia/Calcutta'), isTrue);
   });
 
+  test('reloading the database keeps the host app\'s local zone', () {
+    addTearDown(() {
+      ensureTimeZonesLoaded();
+      tz.setLocalLocation(tz.UTC);
+    });
+    small_db.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Europe/Berlin'));
+    ensureTimeZonesLoaded();
+    expect(tz.timeZoneDatabase.locations.containsKey('Asia/Calcutta'), isTrue);
+    expect(tz.local.name, 'Europe/Berlin');
+  });
+
   group('IanaZone', () {
     final la = IanaZone(tz.getLocation('America/Los_Angeles'));
 

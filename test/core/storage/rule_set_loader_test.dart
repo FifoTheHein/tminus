@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/common.dart' show SqliteException;
 import 'package:tminus/core/model/alert.dart';
 import 'package:tminus/core/model/alert_profile.dart';
 import 'package:tminus/core/model/event_override.dart';
@@ -87,4 +88,12 @@ void main() {
       expect(rules.occurrenceOverride('good')!.enabled, isFalse);
     });
   });
+
+  test(
+    'a failing read throws its own exception, not ParallelWaitError',
+    () async {
+      await db.customStatement('DROP TABLE rules');
+      await expectLater(loader.load(), throwsA(isA<SqliteException>()));
+    },
+  );
 }

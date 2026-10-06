@@ -22,16 +22,17 @@ class RuleSetLoader {
   final SettingsRepository settings;
   final SourceRepository sources;
 
+  /// The reads run one after another: they share one connection anyway, and
+  /// a failure then surfaces as its own exception rather than a
+  /// `ParallelWaitError`.
   Future<RuleSet> load() async {
-    final (p, r, o, skip, globalDefault, quiet, s) = await (
-      profiles.all(),
-      rules.all(),
-      overrides.all(),
-      settings.skipFilters(),
-      settings.globalDefaultProfileId(),
-      settings.quietState(),
-      sources.all(),
-    ).wait;
+    final p = await profiles.all();
+    final r = await rules.all();
+    final o = await overrides.all();
+    final skip = await settings.skipFilters();
+    final globalDefault = await settings.globalDefaultProfileId();
+    final quiet = await settings.quietState();
+    final s = await sources.all();
     return RuleSet(
       profiles: p,
       rules: r,

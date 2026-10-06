@@ -29,8 +29,11 @@ class AlarmScheduler(
         val diff = store.update { old -> PlanDiff.apply(old, incoming, now).let { it.state to it } }
         diff.toCancel.forEach { cancel(it.id) }
         diff.toArm.forEach(::arm)
-        val vanished = diff.kept.filterNot(::isArmed) // e.g. after a force stop
-        vanished.forEach(::arm)
+        // Kept alerts are armed again too: the same PendingIntent replaces the alarm, so this is
+        // idempotent, and it restores an alarm that vanished even if its PendingIntent survived.
+        // One whose PendingIntent is gone too (a force stop) counts as armed rather than kept.
+        val vanished = diff.kept.filterNot(::isArmed)
+        diff.kept.forEach(::arm)
         return ApplyResult(
             armed = diff.toArm.size + vanished.size,
             cancelled = diff.toCancel.size,
@@ -72,6 +75,7 @@ class AlarmScheduler(
         operation.cancel()
     }
 
+    /** True if the alert's PendingIntent exists. The alarm itself may still be gone: see applyPlan. */
     fun isArmed(alert: PlannedAlert): Boolean = operation(alert.id, PendingIntent.FLAG_NO_CREATE) != null
 
     fun upcoming(limit: Int = 5): List<PlannedAlert> {

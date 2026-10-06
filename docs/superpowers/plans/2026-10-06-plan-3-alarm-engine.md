@@ -68,6 +68,9 @@ Accepted after the whole-branch review (2026-10-06, user decisions; these amend 
 - **Kept as planned after review:** the inexact fallback stays `setAndAllowWhileIdle`; `drainEvents` keeps clear-on-read (roadmap §3; revisit in Plan 5); pruning runs only inside `applyPlan` (Plan 4 calls it).
 - **Snooze events carry the snooze id** (`<id>:s`) as `alertId`. Plan 5's history and Dart's decision-8 single-Dismiss key must map `X:s` back to `X` (Plan 2 decision 8).
 - **An alarm that fires into a group whose heads-up is showing absorbs it** (decided during Task 15). The heads-up alerts of that group join the ringing session. The heads-up notification is withdrawn, and the alarm screen and ringing notification list the whole group, the same as a mixed-strength group that fired together.
+- **The ringing notification is colorized** (decided during Task 15). Android 16 force-groups an app's ungrouped notifications and marks them `FLAG_SILENT`, and SystemUI then suppresses their full-screen intent. A colorized foreground-service notification is never force-grouped, and mockup 6a already shows the ringing card filled.
+- **Heads-up and Missed notifications use app-defined groups with posted summaries** (`GROUP_ALERT_CHILDREN`), so Android never force-groups and silences a new heads-up while another T-Minus notification is in the shade.
+- **Plan 5 note: `AlarmEngine` delivers each event once, to the live stream or to `drainEvents`, whichever sees it first.** A second consumer of `events`, such as a UI refresh, takes events away from the history recorder. Plan 5 needs one consumer that records history and fans out to the UI (Task 15 found this in the debug panel).
 
 ## File Structure
 

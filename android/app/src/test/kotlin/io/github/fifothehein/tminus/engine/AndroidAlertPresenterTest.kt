@@ -104,6 +104,24 @@ class AndroidAlertPresenterTest {
     }
 
     @Test
+    fun `a heads-up firing into a group that is ringing joins the session and posts no heads-up`() {
+        val a = alert("a", NOW, group = "G")
+        val h = alert("h", NOW + 2_000, strength = Strength.HEADS_UP, group = "G")
+        val other = alert("o", NOW + 2_000, strength = Strength.HEADS_UP, group = "O")
+        RingingSession.add(listOf(a))
+        store.write(EngineState(presented = listOf(a, h, other))) // fire has moved h and o to presented
+        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> error("already ringing") }
+
+        presenter.present(listOf(h))
+        presenter.present(listOf(other))
+
+        assertEquals(setOf("a", "h"), RingingSession.ids)
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("O"))) // a group that is not ringing
+        assertTrue(presenter.isShowing(h))
+    }
+
+    @Test
     fun `if the ringing service cannot start the group's heads-up stays and lists the alarm`() {
         val h = alert("h", NOW, strength = Strength.HEADS_UP, group = "G")
         val factory = NotificationFactory(app)

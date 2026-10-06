@@ -161,4 +161,35 @@ class HeadsUpFlowTest {
         assertEquals(setOf("a:s", "h:s"), store.read().snoozes.map { it.id }.toSet())
         assertTrue(RingingSession.ids.isEmpty())
     }
+
+    @Test
+    fun `a heads-up firing into a group that is ringing joins the ringing session`() {
+        ShadowMediaPlayer.addMediaInfo(
+            DataSource.toDataSource(context, Settings.System.DEFAULT_ALARM_ALERT_URI),
+            ShadowMediaPlayer.MediaInfo(60_000, 0),
+        )
+        val start = now + 10 * MINUTE_MS
+        val a = alert("a", now + MINUTE_MS, start = start, title = "Sprint planning", group = "G")
+        val h = alert("h", now + MINUTE_MS + 2_000, strength = Strength.HEADS_UP, start = start, title = "Call the bank", group = "G")
+        AlarmScheduler(context, store).applyPlan(listOf(a, h))
+        AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "a"))
+        val ring = shadowOf(context as Application).nextStartedService
+        Robolectric.buildService(RingingService::class.java, ring).create().startCommand(0, 1)
+        assertEquals(setOf("a"), RingingSession.ids)
+
+        AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "h")) // h's own, later alarm
+
+        assertEquals(setOf("a", "h"), RingingSession.ids)
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+        val ringing = shadowOf(manager).getNotification(NotificationFactory.RINGING_NOTIFICATION_ID)
+        assertEquals("2 meetings starting", ringing.title())
+        assertEquals(listOf("Stop", "Snooze all", "Dismiss all"), ringing.actions.map { it.title.toString() })
+        assertEquals(listOf(EngineEventType.FIRED, EngineEventType.FIRED), EventQueue(context).drain().map { it.type })
+
+        // Stop on the session dismisses both.
+        EngineActions.create(context).dismiss(RingingSession.ids)
+        assertTrue(RingingSession.ids.isEmpty())
+        assertTrue(store.read().presented.isEmpty())
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+    }
 }

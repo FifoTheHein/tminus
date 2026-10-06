@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -24,7 +26,8 @@ import androidx.core.content.ContextCompat
 
 /**
  * Rings RingingSession: alarm-stream audio with a volume ramp, vibration and a partial wake lock,
- * as a mediaPlayback foreground service (spec §7 Firing). Stops when the session empties, or after
+ * as a mediaPlayback foreground service (spec §7 Firing). It holds transient audio focus while it
+ * rings, so other audio pauses and resumes afterwards. Stops when the session empties, or after
  * the lead alert's ring timeout, which logs `missed` and posts a Missed notification.
  */
 class RingingService : Service() {
@@ -36,6 +39,7 @@ class RingingService : Service() {
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var audioFocus: AudioFocusRequest? = null
     private var volume = 1f
 
     private val timeout = Runnable {
@@ -97,9 +101,13 @@ class RingingService : Service() {
         stopSelf()
     }
 
+    /** True while a tone is playing. */
+    internal val isSounding: Boolean get() = player != null
+
     private fun startAlerting(sound: Sound) {
         alerting = true
         acquireWakeLock(sound)
+        requestAudioFocus()
         startSound(sound)
         if (sound.vibrate) startVibration()
     }
@@ -120,6 +128,18 @@ class RingingService : Service() {
         vibrator = null
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
+        audioFocus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }
+        audioFocus = null
+    }
+
+    /** Pauses other audio while the alarm rings. If focus is denied the alarm still rings. */
+    private fun requestAudioFocus() {
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(ALARM_ATTRIBUTES)
+            .build()
+        val granted = getSystemService(AudioManager::class.java).requestAudioFocus(request)
+        if (granted != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) Log.w(TAG, "Audio focus denied ($granted); ringing anyway")
+        audioFocus = request
     }
 
     private fun startSound(sound: Sound) {
@@ -159,12 +179,7 @@ class RingingService : Service() {
     private fun openPlayer(uri: Uri): MediaPlayer {
         val mp = MediaPlayer()
         try {
-            mp.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-            )
+            mp.setAudioAttributes(ALARM_ATTRIBUTES)
             mp.setDataSource(this, uri)
             mp.isLooping = true
             mp.prepare()
@@ -212,6 +227,10 @@ class RingingService : Service() {
         private const val RAMP_STEP = 0.03f // 0.1 → 1.0 in 30 steps of 1 s
         private const val RAMP_INTERVAL_MS = 1_000L
         private val VIBRATION_PATTERN = longArrayOf(0, 800, 600)
+        private val ALARM_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
 
         fun start(context: Context, alertIds: List<String>) {
             val intent = Intent(context, RingingService::class.java)

@@ -4,10 +4,14 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.os.Looper
 import android.provider.Settings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -79,6 +83,29 @@ class RingingServiceTest {
         val service = startWith(alert("a", NOW)).get()
         RingingSession.remove(listOf("a"))
         assertTrue(shadowOf(service).isStoppedBySelf)
+    }
+
+    @Test
+    fun `ringing takes transient alarm audio focus and gives it back when it stops`() {
+        val audio = shadowOf(context.getSystemService(AudioManager::class.java))
+        startWith(alert("a", NOW))
+        val request = audio.lastAudioFocusRequest
+        assertNotNull(request)
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT, request.durationHint)
+        assertEquals(AudioAttributes.USAGE_ALARM, request.audioFocusRequest.audioAttributes.usage)
+        assertNull(audio.lastAbandonedAudioFocusRequest)
+
+        RingingSession.remove(listOf("a"))
+
+        assertSame(request.audioFocusRequest, audio.lastAbandonedAudioFocusRequest)
+    }
+
+    @Test
+    fun `an alarm denied audio focus still rings`() {
+        shadowOf(context.getSystemService(AudioManager::class.java)).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        val service = startWith(alert("a", NOW)).get()
+        assertTrue(service.isSounding)
+        assertEquals(listOf("a"), RingingSession.alerts.map { it.id })
     }
 
     @Test

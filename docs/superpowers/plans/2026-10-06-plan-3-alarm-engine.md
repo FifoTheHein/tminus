@@ -67,6 +67,7 @@ Accepted after the whole-branch review (2026-10-06, user decisions; these amend 
 - **A heads-up group that gains members after it fired is one notification.** Each post lists every presented, non-ringing alert in the group (spec §6). A notification action removes the notification only when nothing in the group is left to show.
 - **Kept as planned after review:** the inexact fallback stays `setAndAllowWhileIdle`; `drainEvents` keeps clear-on-read (roadmap §3; revisit in Plan 5); pruning runs only inside `applyPlan` (Plan 4 calls it).
 - **Snooze events carry the snooze id** (`<id>:s`) as `alertId`. Plan 5's history and Dart's decision-8 single-Dismiss key must map `X:s` back to `X` (Plan 2 decision 8).
+- **An alarm that fires into a group whose heads-up is showing absorbs it** (decided during Task 15). The heads-up alerts of that group join the ringing session. The heads-up notification is withdrawn, and the alarm screen and ringing notification list the whole group, the same as a mixed-strength group that fired together.
 
 ## File Structure
 

@@ -27,6 +27,32 @@ class EngineActions(
 ) {
     private val appContext: Context = context.applicationContext
 
+    /** The `applyPlan` channel method: diffs and arms the plan, then [reconcile]s overdue alerts. */
+    fun applyPlan(incoming: List<PlannedAlert>): ApplyResult = scheduler.applyPlan(incoming).also { reconcile() }
+
+    /** App start, boot, app update and time changes: arms every future alert, then [reconcile]s. */
+    fun rearmAll(): Int = scheduler.rearmAll().also { reconcile() }
+
+    /**
+     * Overdue alerts are never dropped silently: one whose event has not ended fires now through
+     * [fire] (coalescing, events, presenter); one whose event has ended is reported missed.
+     */
+    fun reconcile() {
+        val now = clock()
+        val expired = transition { EngineReducer.expireOverdue(it, now) }
+        expired.toCancel.forEach { scheduler.cancel(it.id) }
+        if (expired.affected.isNotEmpty()) {
+            expired.affected.forEach { emit(EngineEvent.of(EngineEventType.MISSED, it, now)) }
+            presenter.missed(expired.affected)
+        }
+        while (true) {
+            val next = store.read().scheduled.filter { it.fireAtUtcMs <= now }.minWithOrNull(EngineReducer.displayOrder) ?: break
+            val fired = fire(next.id)
+            if (fired.isEmpty()) break
+            fired.forEach { scheduler.cancel(it.id) } // a late alarm may still be pending
+        }
+    }
+
     /** An alarm went off: collects its coalesce group and presents it. Returns the collected alerts. */
     fun fire(alertId: String): List<PlannedAlert> {
         val now = clock()

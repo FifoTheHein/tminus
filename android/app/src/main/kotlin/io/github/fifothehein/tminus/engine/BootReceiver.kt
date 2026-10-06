@@ -11,7 +11,7 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in ACTIONS) return
-        AlarmScheduler(context).rearmAll()
+        EngineActions.create(context).rearmAll()
     }
 
     companion object {

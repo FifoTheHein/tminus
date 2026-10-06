@@ -38,16 +38,15 @@ class AlarmScheduler(
         )
     }
 
-    /** Re-arm triggers (spec §7) and app start: arm every future alert, drop past ones. */
+    /**
+     * Re-arm triggers (spec §7) and app start: arms every future alert. Overdue ones stay in the
+     * store for EngineActions.reconcile, which rings them or reports them missed.
+     */
     fun rearmAll(): Int {
         val now = clock()
-        val (future, past) = store.update { s ->
-            val (f, p) = s.scheduled.partition { it.fireAtUtcMs > now }
-            s.withoutScheduled(p.map { it.id }.toSet()) to (f to p)
-        }
-        past.forEach { cancel(it.id) }
+        val future = store.read().scheduled.filter { it.fireAtUtcMs > now }
         future.forEach(::arm)
-        Log.i(TAG, "Re-armed ${future.size} alerts, dropped ${past.size} past ones")
+        Log.i(TAG, "Re-armed ${future.size} alerts")
         return future.size
     }
 

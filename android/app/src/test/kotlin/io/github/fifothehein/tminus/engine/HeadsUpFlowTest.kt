@@ -27,6 +27,7 @@ class HeadsUpFlowTest {
     @Before
     fun setUp() {
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        RingingSession.clear() // in-process state another test class may have left ringing
         store = PlanStore(context).also { it.clear() }
         EventQueue(context).drain()
     }

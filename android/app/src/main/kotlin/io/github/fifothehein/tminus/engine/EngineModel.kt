@@ -35,7 +35,10 @@ data class EventSnapshot(
     val location: String?,
     val joinUrl: String?,
     val color: Long,
-)
+) {
+    /** True once the event is over: at its end, or at its start if it has no length. */
+    fun hasEnded(nowUtcMs: Long): Boolean = nowUtcMs >= maxOf(startUtcMs, endUtcMs)
+}
 
 /** Mirrors Dart `PlannedAlert`. Kotlin treats [id] as an opaque string (roadmap §3). */
 data class PlannedAlert(

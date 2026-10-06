@@ -141,7 +141,12 @@ class RulesEngine {
       final p = id == null ? null : rules.profile(id);
       if (p != null && p.alerts.isNotEmpty) return p;
     }
-    return BuiltInProfiles.meeting;
+    // The stored Meeting, so the user's edits to it apply; the constant only
+    // when the stored one has no alerts.
+    final meeting = rules.profile(BuiltInProfiles.meetingId);
+    return meeting != null && meeting.alerts.isNotEmpty
+        ? meeting
+        : BuiltInProfiles.meeting;
   }
 
   _Decision? _skipFilter(EventOccurrence o, RuleSet rules) {

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:tminus/app/di.dart';
+import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
 import 'package:tminus/core/model/keyword_rule.dart';
 import 'package:tminus/core/model/planned_alert.dart';
@@ -32,6 +33,11 @@ void main() {
     getIt<SourceRepository>();
     getIt<SourceRepository>();
     expect(opened, 1);
+  });
+
+  test('configureDependencies registers one AlarmEngine', () {
+    configureDependencies(openDatabase: openTestDatabase);
+    expect(getIt<AlarmEngine>(), same(getIt<AlarmEngine>()));
   });
 
   test('configureDependencies loads the time zone database', () {

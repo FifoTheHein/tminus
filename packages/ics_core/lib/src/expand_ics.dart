@@ -57,11 +57,12 @@ IcsResult expandIcs(
 
   final occurrences = <IcsOccurrence>[];
   for (final event in events) {
-    if (event.rrule != null) {
-      continue; // Recurring series are expanded from Task 9 on.
-    }
     try {
-      occurrences.addAll(expandSingle(event, zones, window));
+      occurrences.addAll(
+        event.rrule == null
+            ? expandSingle(event, zones, window)
+            : expandSeries(event, zones, window),
+      );
     } on Object catch (error) {
       issues.add(
         IcsIssue(uid: event.uid, line: event.line, message: _describe(error)),

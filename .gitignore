@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Raw (unscrubbed) ICS feeds are secrets (spec §10): never commit them.
+packages/ics_core/test/fixtures/private/
+*.raw.ics

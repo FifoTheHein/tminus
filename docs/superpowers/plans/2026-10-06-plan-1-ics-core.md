@@ -49,6 +49,17 @@ Inputs the spec implies but does not spell out, most likely to bite first. Each 
 - `deviceZone` that is not an IANA name, or an empty window, throws `ArgumentError` (a programming error in the caller, not bad feed data).
 - An all-day event uses DATE values only. `X-MICROSOFT-CDO-ALLDAYEVENT:TRUE` on DATE-TIME values is not treated as all-day.
 
+Added after the post-implementation review (`rrule` only checks its inputs with asserts, so release builds could hang):
+
+- `FREQ=HOURLY`, `MINUTELY` and `SECONDLY`, `INTERVAL` or `COUNT` below 1, and `BYMONTH`/`BYMONTHDAY` sets that match no real date are rejected as a per-event `IcsIssue`. Outlook never writes them.
+- A series yielding more than 10,000 instances near the window becomes one `IcsIssue` (no partial results).
+- A `BEGIN` of a calendar-level component (VEVENT, VTODO, VJOURNAL, VFREEBUSY, VTIMEZONE) closes anything still open, so one missing `END:VEVENT` only loses that event.
+- Reloading the full `timezone` database keeps the host app's `tz.local`.
+- A floating EXDATE or RECURRENCE-ID is read in the series' own DTSTART zone. An orphan override still uses the device zone.
+- A repeated fall-back wall time means the first instant, and a gap time moves forward, for both IANA and VTIMEZONE-defined zones.
+- RRULE names and values are case-insensitive.
+- Known limit: other rules that never match (e.g. an impossible BYSETPOS) are not rejected. With asserts off, `rrule` searches up to its date limit, which costs about 1–5 s for that one event; it does not hang.
+
 ## File Structure
 
 ```

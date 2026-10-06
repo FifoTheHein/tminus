@@ -33,7 +33,7 @@
 ## Review Focus
 
 1. **Force stop or a cleared alarm while the plan is unchanged.** After `adb shell am force-stop` Android drops every alarm and PendingIntent, but the next `applyPlan` sees the same ids and times. Expect the engine to notice the missing PendingIntent and arm it again (Task 5 test `a kept alert whose alarm vanished is armed again`; `MainActivity` also calls `rearmAll()` on start).
-2. **Exact-alarm access revoked.** On Android 12–13, or after the user revokes it, `setAlarmClock` throws `SecurityException`. Expect an inexact allow-while-idle alarm, not a crash and not a silent drop (Task 5 test `without exact-alarm access alerts still get an inexact alarm`).
+2. **Exact-alarm access revoked.** On Android 12–13, or after the user revokes it, `setAlarmClock` throws `SecurityException`. Expect an inexact allow-while-idle alarm, not a crash and not a silent drop (Task 5 test `without exact-alarm access alerts still get an inexact alarm`). On API 33+ `USE_EXACT_ALARM` is granted and cannot be revoked, so on the API 36 reference emulator (Task 15) this is covered by the Robolectric test only. A manual check needs an API 31–32 AVD: `adb shell appops set io.github.fifothehein.tminus SCHEDULE_EXACT_ALARM deny`, then **Test alarm**.
 3. **A snooze choice that is already in the past** ("At start" on a coalesced screen where one meeting has already started, or a notification tapped late). Expect +1 min, never a snooze alarm in the past that fires instantly (Task 9 test `a past option snoozes for one minute instead`).
 4. **The foreground service may not start** (`ForegroundServiceStartNotAllowedException` on Android 12+ outside the exact-alarm exemption, OEM quirks). Expect the alert to still appear as a heads-up notification (Task 12 test `if the ringing service cannot start the alert is posted as a heads-up`).
 5. **Missing font assets** (renamed in `pubspec.yaml`, a build flavour without Flutter assets). The alarm screen must still render in system fonts, never crash (Task 11 tests `missing font files fall back to the system families` and `every path names a font that exists in the Flutter project`).
@@ -6367,7 +6367,7 @@ Expected: `BUILD SUCCESSFUL`.
 
 - [ ] **Step 9: Run the instrumented test on a device**
 
-Needs a phone or emulator (API 26+) with USB debugging: `adb devices` must list one `device`. Then:
+Needs a phone or emulator (API 26+) with USB debugging: `adb devices` must list one `device`. If a phone and the emulator are both connected, `export ANDROID_SERIAL=emulator-5554` first; otherwise `connectedDebugAndroidTest` runs on every connected device. Then:
 
 Run (Git Bash): `cd /c/Projects/tminus/android && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.fifothehein.tminus.engine.RearmReceiversInstrumentedTest`
 (PowerShell: `cd C:\Projects\tminus\android; .\gradlew.bat :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=io.github.fifothehein.tminus.engine.RearmReceiversInstrumentedTest"`)
@@ -6397,7 +6397,7 @@ git commit -m "Re-arm alarms after reboot, app update and time changes"
 - Consumes: `getIt<AlarmEngine>()`, `AlarmEngine.testAlarm`, `getHealth`, `drainEvents`, `openPermissionSettings`, `EngineHealth`, `PermissionKind` (Task 8); `AlertStrength` (Task 1).
 - Produces: `class EngineDebugPanel extends StatefulWidget` (key `engineDebugPanel`), shown only when `kDebugMode`: a delay picker (5 s · 1 min · 3 min), **Test heads-up**, **Test alarm**, **Notification settings**, **Drain events**, a status line, **Next 5 scheduled** (from `getHealth().upcoming`) with the five health flags, and **Refresh**. When the channel is missing (widget tests, desktop) it shows "Engine unavailable" instead of throwing.
 
-The 1 min and 3 min delays exist for the device checklist (time to lock the phone, force Doze or reboot before the alarm).
+The 1 min and 3 min delays exist for the device checklist (time to lock the device, force Doze or reboot before the alarm).
 
 - [ ] **Step 1: Write the failing widget test**
 
@@ -6716,7 +6716,7 @@ Expected: `All tests passed!`
 
 - [ ] **Step 6: Smoke-test on a device**
 
-With a phone connected (`adb devices` lists it): `flutter run --debug`, scroll to "06 · Engine (debug)", tap **Test heads-up**: within ~5 s a heads-up "Now · Test heads-up" style notification appears (on Android 13+, grant notifications first with **Notification settings** or `adb shell pm grant io.github.fifothehein.tminus android.permission.POST_NOTIFICATIONS`). Tap **Test alarm**, then lock the phone: the screen turns on with the full-screen "Starts in 1 min · Test alarm" screen and rings; a volume key stops it. **Drain events** then shows e.g. `Drained 4: fired, dismissed, fired, dismissed`.
+With the device connected (`adb devices` lists it; the reference device is an API 36 emulator, see Task 15): `flutter run --debug`, scroll to "06 · Engine (debug)", tap **Test heads-up**: within ~5 s a heads-up "Now · Test heads-up" style notification appears (on Android 13+, grant notifications first with **Notification settings** or `adb shell pm grant io.github.fifothehein.tminus android.permission.POST_NOTIFICATIONS`). Tap **Test alarm**, then lock the device (`adb shell input keyevent KEYCODE_POWER`): the screen turns on with the full-screen "Starts in 1 min · Test alarm" screen and rings; a volume key stops it (emulator: the side-panel volume button or `adb shell input keyevent KEYCODE_VOLUME_DOWN`). **Drain events** then shows e.g. `Drained 4: fired, dismissed, fired, dismissed`.
 
 - [ ] **Step 7: Run the gates**
 
@@ -6733,7 +6733,9 @@ git commit -m "Add debug test-alarm buttons and the engine's next five alerts"
 
 ### Task 15: Manual device verification (spec §11 checklist)
 
-**Files:** none changed. Record results in the PR description (device model, Android version, pass/fail per row).
+**Files:** none changed. Record results in the PR description (device: AVD name, API level and system image for an emulator, or model for a phone; Android version; pass/fail per row).
+
+**Reference device:** an Android emulator, API 36. Steps that need different handling on an emulator say so.
 
 **Interfaces:** consumes the whole engine and the Task 14 panel.
 
@@ -6748,13 +6750,21 @@ adb shell monkey -p io.github.fifothehein.tminus -c android.intent.category.LAUN
 
 Useful while testing: `adb logcat -s TMinusEngine` (engine log lines, e.g. `Re-armed 1 alerts, dropped 0 past ones`) and `adb shell dumpsys alarm | grep -A 3 tminus` (the app's pending alarms; an alarm-strength alert shows as an `RTC_WAKEUP` alarm-clock entry).
 
+Emulator setup, once:
+
+- **Image:** API 36, x86_64, a **Google APIs** system image (not Google Play, so `adb root` is available if needed). Keep audio enabled: don't start it with `-no-audio`, or the ringing steps can't be heard.
+- **One target:** if a phone is also connected, `export ANDROID_SERIAL=emulator-5554` so every `adb`, `flutter` and `gradlew` command targets the emulator.
+- **Secure lock:** set a PIN before Step 2: `adb shell locksettings set-pin 1234`. Without one, Android unlocks the user automatically at boot, so Step 6 never reaches the direct-boot state, and Step 2 and Join's keyguard dismissal (Task 11) don't meet a real secure keyguard. Unlock by entering the PIN in the emulator window. Step 12 clears it.
+- **Reboots:** only with `adb reboot`. Never close and reopen the emulator instead: Quick Boot restores a snapshot, which sends neither `LOCKED_BOOT_COMPLETED` nor `BOOT_COMPLETED`, so nothing re-arms.
+- **Buttons:** power is `adb shell input keyevent KEYCODE_POWER`, volume down is `adb shell input keyevent KEYCODE_VOLUME_DOWN` (or the emulator's side panel).
+
 - [ ] **Step 1: Instrumented re-arm tests**
 
 Run the Task 13 Step 9 command. Expected: `BUILD SUCCESSFUL`, `Finished 4 tests`.
 
 - [ ] **Step 2: Locked**
 
-Panel: delay **1 min**, **Test alarm**. Press power to lock (`adb shell input keyevent KEYCODE_POWER`). Expected at fire time: the screen turns on, the full-screen alarm shows over the lock screen ("ALARM −1", "Starts in 1 min", "Test alarm", Dismiss as the primary button since there is no link), the tone ramps up and the phone vibrates. Press volume down: ringing stops, the screen closes, and **Drain events** shows `fired, dismissed`.
+Panel: delay **1 min**, **Test alarm**. Press power to lock (`adb shell input keyevent KEYCODE_POWER`). Expected at fire time: the screen turns on, the full-screen alarm shows over the lock screen ("ALARM −1", "Starts in 1 min", "Test alarm", Dismiss as the primary button since there is no link), the tone ramps up and vibration starts. An emulator can't vibrate: check instead that `adb shell dumpsys vibrator_manager` lists a recent alarm-usage vibration from T-Minus. Press volume down: ringing stops, the screen closes, and **Drain events** shows `fired, dismissed`.
 
 - [ ] **Step 3: Silent / vibrate**
 
@@ -6778,11 +6788,11 @@ Expected: `get deep` prints `IDLE`; both alerts still fire at their times (setAl
 
 - [ ] **Step 6: Reboot before unlock (direct boot)**
 
-Panel: delay **3 min**, **Test alarm**. Immediately `adb reboot`; do **not** unlock after boot. After boot, `adb shell dumpsys alarm | grep -A 3 tminus` lists the alarm (re-armed by `LOCKED_BOOT_COMPLETED`), and at fire time the alarm rings over the lock screen. Dismiss with a volume key. (The app's credential-encrypted storage is still locked; the engine only uses device-protected storage, so this works.)
+Needs the PIN from the emulator setup; without a secure lock this step does not test direct boot. Panel: delay **3 min**, **Test alarm**. Immediately `adb reboot`; do **not** unlock after boot. Wait for the boot with `adb wait-for-device shell 'while [ "$(getprop sys.boot_completed)" != 1 ]; do sleep 2; done'`. If the boot took longer than about 2½ minutes, the alert was already past when it was re-armed, so it is dropped as designed; run the step again (later boots of the same AVD are faster). After boot, `adb shell dumpsys alarm | grep -A 3 tminus` lists the alarm (re-armed by `LOCKED_BOOT_COMPLETED`), and at fire time the alarm rings over the lock screen. Dismiss with a volume key. (The app's credential-encrypted storage is still locked; the engine only uses device-protected storage, so this works.)
 
 - [ ] **Step 7: Reboot after unlock**
 
-Repeat Step 6, but unlock right after boot. Expected: the alarm still fires once (`BOOT_COMPLETED` re-arms again; re-arming is idempotent, so it never rings twice).
+Repeat Step 6, but unlock right after boot (emulator: enter the PIN in the emulator window). Expected: the alarm still fires once (`BOOT_COMPLETED` re-arms again; re-arming is idempotent, so it never rings twice).
 
 - [ ] **Step 8: Time zone change**
 
@@ -6800,11 +6810,13 @@ Panel: delay **1 min**, **Test alarm**. Open Recents and swipe T-Minus away (or 
 
 - [ ] **Step 11: Samsung (or any OEM with aggressive battery management)**
 
+**Deferred on the emulator:** this needs a physical Samsung (or other OEM) phone. Record it as `deferred (no OEM device)` in Step 12. It feeds Plan 5's Health tips and does not block Plan 4.
+
 On a Samsung phone, leave battery settings at their defaults and repeat Steps 2, 5 and 9. Then set Settings → Apps → T-Minus → Battery → **Unrestricted** (and remove T-Minus from "Sleeping apps") and repeat Step 9. Record which configuration missed alarms; this feeds the Health "phone-maker tips" in Plan 5.
 
 - [ ] **Step 12: Record the results**
 
-Write one line per step (pass/fail, device, Android version) into the PR description. Any failure becomes a bug task before Plan 4 starts.
+Write one line per step (pass/fail, device, Android version) into the PR description. Any failure becomes a bug task before Plan 4 starts. Then clear the emulator's PIN: `adb shell locksettings clear --old 1234`.
 
 ---
 

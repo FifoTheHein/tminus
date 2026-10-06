@@ -1,5 +1,6 @@
 package io.github.fifothehein.tminus.engine
 
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -70,6 +71,35 @@ class HeadsUpFlowTest {
         assertEquals(listOf("h:s"), store.read().snoozes.map { it.id })
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId(h.coalesceGroup)))
         assertEquals(listOf(EngineEventType.SNOOZED), EventQueue(context).drain().map { it.type })
+    }
+
+    private fun fireGroupOfTwo(): Pair<PlannedAlert, PlannedAlert> {
+        val a = alert("a", now + MINUTE_MS, strength = Strength.HEADS_UP, start = now + 10 * MINUTE_MS, title = "Sprint planning", group = "G")
+        val b = alert("b", now + MINUTE_MS + 20_000, strength = Strength.HEADS_UP, start = now + 10 * MINUTE_MS, title = "Call the bank", group = "G")
+        AlarmScheduler(context, store).applyPlan(listOf(a, b))
+        AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "a"))
+        AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "b")) // b's own, later alarm
+        return a to b
+    }
+
+    private fun Notification.title() = extras.getCharSequence(Notification.EXTRA_TITLE).toString()
+
+    @Test
+    fun `a heads-up firing into an already-presented group lists both`() {
+        fireGroupOfTwo()
+        val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId("G"))
+        assertEquals("2 meetings starting", n.title())
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun `Dismiss all on one alert of a group leaves a notification for the rest`() {
+        val (a, b) = fireGroupOfTwo()
+        tap(NotificationActionReceiver.ACTION_DISMISS_ALL, a)
+        val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId("G"))
+        assertNotNull(n)
+        assertTrue(n.title(), n.title().endsWith(b.event.title))
+        assertEquals(listOf("b"), store.read().presented.map { it.id })
     }
 
     @Test

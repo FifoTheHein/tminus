@@ -17,9 +17,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
             ACTION_DISMISS_ALL -> actions.dismissAll(ids)
             else -> return
         }
-        // Clears the notification even if its alerts were already pruned from PlanStore.
+        // The presenter has re-posted the group's notification for the alerts still on screen. Cancel it
+        // only when none are left, which also clears it if its alerts were already pruned from PlanStore.
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NO_NOTIFICATION_ID)
-        if (notificationId != NO_NOTIFICATION_ID) {
+        if (notificationId != NO_NOTIFICATION_ID && !AndroidAlertPresenter.headsUpRemains(PlanStore(context), notificationId)) {
             context.getSystemService(NotificationManager::class.java).cancel(notificationId)
         }
     }

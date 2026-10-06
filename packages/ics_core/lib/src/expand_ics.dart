@@ -35,6 +35,7 @@ IcsResult expandIcs(
 
   final issues = <IcsIssue>[];
   final events = <ParsedEvent>[];
+  final overridesByUid = <String, List<ParsedEvent>>{};
   for (final c in calendar.children) {
     if (c.name != 'VEVENT') {
       continue;
@@ -44,8 +45,9 @@ IcsResult expandIcs(
         throw const FormatException('VEVENT has no END:VEVENT');
       }
       final event = parseVevent(c);
-      // RECURRENCE-ID overrides are applied from Task 10 on.
-      if (event.recurrenceId == null) {
+      if (event.recurrenceId != null) {
+        overridesByUid.putIfAbsent(event.uid, () => []).add(event);
+      } else {
         events.add(event);
       }
     } on Object catch (error) {
@@ -58,14 +60,25 @@ IcsResult expandIcs(
   final occurrences = <IcsOccurrence>[];
   for (final event in events) {
     try {
-      occurrences.addAll(
-        event.rrule == null
-            ? expandSingle(event, zones, window)
-            : expandSeries(event, zones, window),
-      );
+      if (event.rrule == null) {
+        occurrences.addAll(expandSingle(event, zones, window));
+      } else {
+        // Overrides belong to the first series with their UID.
+        final overrides = overridesByUid.remove(event.uid) ?? const [];
+        occurrences.addAll(expandSeries(event, overrides, zones, window));
+      }
     } on Object catch (error) {
       issues.add(
         IcsIssue(uid: event.uid, line: event.line, message: _describe(error)),
+      );
+    }
+  }
+  for (final orphan in overridesByUid.values.expand((list) => list)) {
+    try {
+      occurrences.addAll(expandOrphanOverride(orphan, zones, window));
+    } on Object catch (error) {
+      issues.add(
+        IcsIssue(uid: orphan.uid, line: orphan.line, message: _describe(error)),
       );
     }
   }

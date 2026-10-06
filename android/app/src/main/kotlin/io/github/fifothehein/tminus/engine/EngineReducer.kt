@@ -19,7 +19,8 @@ object EngineReducer {
     const val RETENTION_MS: Long = 24 * 60 * MINUTE_MS
     private const val PRESENTED_GRACE_MS: Long = 60 * MINUTE_MS
 
-    private val displayOrder = compareBy<PlannedAlert>({ it.event.startUtcMs }, { it.event.title }, { it.id })
+    /** The order a coalesced screen or notification lists its alerts in. */
+    val displayOrder: Comparator<PlannedAlert> = compareBy({ it.event.startUtcMs }, { it.event.title }, { it.id })
 
     /**
      * Collects the fired alert and the scheduled alerts in its coalesce group that are already due

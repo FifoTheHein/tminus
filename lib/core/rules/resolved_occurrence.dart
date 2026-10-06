@@ -30,7 +30,8 @@ class ResolvedOccurrence {
   final AlertProfile profile;
 
   /// What will actually be planned: the profile's alerts, or the override's
-  /// custom alerts; empty when off, silent or silenced by a quiet mode.
+  /// custom alerts, one per offset (decision 18); empty when off, silent or
+  /// silenced by a quiet mode.
   final List<AlertSpec> alerts;
 
   /// The grey reason line, e.g. `Quick · rule: "standup"` (roadmap §4).

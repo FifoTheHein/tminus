@@ -66,6 +66,21 @@ bool sameAlerts(List<AlertSpec>? a, List<AlertSpec>? b) {
   return true;
 }
 
+/// One alert per offset, in the order each offset first appears. Two alerts
+/// with the same offset would share a `PlannedAlert` id, so the alarm wins if
+/// either is an alarm (Review Focus 1, decision 18). Shared by the rules
+/// engine and `buildPlan`.
+List<AlertSpec> onePerOffset(Iterable<AlertSpec> alerts) {
+  final byOffset = <int, AlertSpec>{};
+  for (final a in alerts) {
+    final existing = byOffset[a.offsetMinutes];
+    if (existing == null || a.strength == AlertStrength.alarm) {
+      byOffset[a.offsetMinutes] = a;
+    }
+  }
+  return byOffset.values.toList();
+}
+
 /// JSON for an alert list, shared by profile and override storage:
 /// `[{"offsetMinutes": 10, "strength": "headsUp"}, …]`.
 List<Map<String, Object?>> alertsToJson(List<AlertSpec> alerts) => [

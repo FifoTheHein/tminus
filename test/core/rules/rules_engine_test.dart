@@ -477,4 +477,52 @@ void main() {
       ),
     ], engine);
   });
+
+  group('duplicate offsets collapse (decision 18)', () {
+    test('custom alerts keep one alert per offset, the alarm winning', () {
+      final r = engine().resolve(
+        plain,
+        RuleSet(
+          overrides: [
+            onOcc(
+              plain,
+              customAlerts: const [
+                AlertSpec(5, AlertStrength.headsUp),
+                AlertSpec(10, AlertStrength.headsUp),
+                AlertSpec(5, AlertStrength.alarm),
+              ],
+            ),
+          ],
+        ),
+      );
+      expect(r.explanation, 'Custom · this event');
+      expect(r.alerts, const [
+        AlertSpec(5, AlertStrength.alarm),
+        AlertSpec(10, AlertStrength.headsUp),
+      ]);
+      expect(
+        () => r.alerts.add(const AlertSpec(1, AlertStrength.alarm)),
+        throwsUnsupportedError,
+      );
+    });
+
+    test('a profile with duplicate offsets collapses too', () {
+      final r = engine().resolve(
+        plain,
+        RuleSet(
+          profiles: [
+            BuiltInProfiles.quick.copyWith(
+              alerts: const [
+                AlertSpec(1, AlertStrength.alarm),
+                AlertSpec(1, AlertStrength.headsUp),
+                AlertSpec(1, AlertStrength.alarm),
+              ],
+            ),
+          ],
+          globalDefaultProfileId: 'quick',
+        ),
+      );
+      expect(r.alerts, const [AlertSpec(1, AlertStrength.alarm)]);
+    });
+  });
 }

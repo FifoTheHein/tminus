@@ -16,11 +16,18 @@ class LocalDate implements Comparable<LocalDate> {
     return LocalDate(local.year, local.month, local.day);
   }
 
-  /// Parses `yyyy-MM-dd`. Throws [FormatException] on anything else.
+  /// Parses `yyyy-MM-dd`. Throws [FormatException] on anything else,
+  /// including dates that don't exist such as `2026-02-30` (decision 20).
   factory LocalDate.parse(String iso) {
     final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(iso);
     if (m == null) throw FormatException('Not a yyyy-MM-dd date', iso);
-    return LocalDate(int.parse(m[1]!), int.parse(m[2]!), int.parse(m[3]!));
+    final date = LocalDate(
+      int.parse(m[1]!),
+      int.parse(m[2]!),
+      int.parse(m[3]!),
+    );
+    if (date.toIso() != iso) throw FormatException('No such date', iso);
+    return date;
   }
 
   final int year;

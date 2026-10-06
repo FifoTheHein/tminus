@@ -24,6 +24,18 @@ void main() {
       expect(LocalDate(2026, 10, 2) >= LocalDate(2026, 10, 3), isFalse);
       expect(() => LocalDate.parse('6/10/2026'), throwsFormatException);
     });
+
+    test('parse rejects impossible dates (decision 20)', () {
+      for (final iso in [
+        '2026-13-45',
+        '2026-02-30',
+        '2026-00-10',
+        '2026-04-31',
+      ]) {
+        expect(() => LocalDate.parse(iso), throwsFormatException, reason: iso);
+      }
+      expect(LocalDate.parse('2028-02-29'), LocalDate(2028, 2, 29));
+    });
   });
 
   group('Mute today', () {

@@ -417,6 +417,20 @@ void main() {
       expect(await settings.watchQuietState().first, const QuietNone());
     });
 
+    test('a vacation with an impossible date reads as none', () async {
+      await db
+          .into(db.quietStates)
+          .insert(
+            QuietStatesCompanion.insert(
+              id: const Value(1),
+              kind: QuietKind.vacation,
+              firstDay: const Value('2026-13-45'),
+              lastDay: const Value('2027-03-01'),
+            ),
+          );
+      expect(await settings.quietState(), const QuietNone());
+    });
+
     test('watchQuietState emits the current state, then changes', () async {
       final mute = MuteToday(DateTime.utc(2026, 10, 7, 5));
       final seen = <QuietState>[];

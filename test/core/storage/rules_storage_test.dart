@@ -149,6 +149,98 @@ void main() {
     });
   });
 
+  group('unreadable profile and override rows (decision 15)', () {
+    Future<void> setAlertsJson(String id, String json) => db.customStatement(
+      'UPDATE profiles SET alerts_json = ? WHERE id = ?',
+      [json, id],
+    );
+
+    const unreadableAlerts = [
+      '[{"offsetMinutes":5,"strength":"loud"}]',
+      'not json',
+      '[{"offsetMinutes":-5,"strength":"alarm"}]',
+      '{"offsetMinutes":5}',
+      '[{"offsetMinutes":"5","strength":"alarm"}]',
+    ];
+
+    test('a user profile that cannot be read is left out', () async {
+      await profiles.save(focus);
+      for (final json in unreadableAlerts) {
+        await setAlertsJson('focus', json);
+        expect((await profiles.all()).map((p) => p.id), [
+          'meeting',
+          'quick',
+          'important',
+          'silent',
+        ], reason: json);
+        expect(await profiles.byId('focus'), isNull, reason: json);
+      }
+    });
+
+    test('a user profile with unreadable sound JSON is left out', () async {
+      await profiles.save(focus);
+      await db.customStatement(
+        "UPDATE profiles SET sound_json = '{\"vibrate\":\"yes\"}' "
+        "WHERE id = 'focus'",
+      );
+      expect(await profiles.byId('focus'), isNull);
+    });
+
+    test('a built-in that cannot be read gives its definition', () async {
+      await profiles.save(
+        BuiltInProfiles.meeting.copyWith(
+          alerts: const [AlertSpec(5, AlertStrength.alarm)],
+        ),
+      );
+      for (final json in unreadableAlerts) {
+        await setAlertsJson('meeting', json);
+        expect(await profiles.byId('meeting'), BuiltInProfiles.meeting);
+        expect((await profiles.all()).first, BuiltInProfiles.meeting);
+      }
+    });
+
+    test('watchAll skips a profile that cannot be read', () async {
+      await profiles.save(focus);
+      await setAlertsJson('focus', 'not json');
+      expect((await profiles.watchAll().first).map((p) => p.id), [
+        'meeting',
+        'quick',
+        'important',
+        'silent',
+      ]);
+    });
+
+    test(
+      'an override whose custom alerts cannot be read is left out',
+      () async {
+        const good = EventOverride(
+          scope: OverrideScope.occurrence,
+          target: 'good',
+          customAlerts: [AlertSpec(2, AlertStrength.alarm)],
+        );
+        await overrides.save(good);
+        for (final json in [
+          'oops',
+          '[{"offsetMinutes":-5,"strength":"alarm"}]',
+          '[{"offsetMinutes":5,"strength":"loud"}]',
+        ]) {
+          await db.customStatement(
+            'INSERT OR REPLACE INTO overrides '
+            '(scope, target, custom_alerts_json) VALUES (?, ?, ?)',
+            ['occurrence', 'bad', json],
+          );
+          expect(await overrides.all(), [good], reason: json);
+          expect(await overrides.watchAll().first, [good], reason: json);
+          expect(
+            await overrides.find(OverrideScope.occurrence, 'bad'),
+            isNull,
+            reason: json,
+          );
+        }
+      },
+    );
+  });
+
   group('RuleRepository', () {
     KeywordRule rule(String id, int position) => KeywordRule(
       id: id,

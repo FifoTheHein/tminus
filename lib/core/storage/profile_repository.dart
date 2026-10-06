@@ -10,15 +10,20 @@ class ProfileRepository {
 
   final AppDatabase _db;
 
-  /// All profiles in display order (built-ins first, as seeded).
-  Future<List<AlertProfile>> all() => _ordered().map(profileFromRow).get();
+  /// All profiles in display order (built-ins first, as seeded). A row that
+  /// can't be read is left out, or read as its built-in definition
+  /// (decision 15).
+  Future<List<AlertProfile>> all() async => _readable(await _ordered().get());
 
-  Stream<List<AlertProfile>> watchAll() =>
-      _ordered().map(profileFromRow).watch();
+  Stream<List<AlertProfile>> watchAll() => _ordered().watch().map(_readable);
 
-  Future<AlertProfile?> byId(String id) => (_db.select(
-    _db.profiles,
-  )..where((p) => p.id.equals(id))).map(profileFromRow).getSingleOrNull();
+  /// Null when [id] is unknown or its row can't be read (unless built in).
+  Future<AlertProfile?> byId(String id) async {
+    final row = await (_db.select(
+      _db.profiles,
+    )..where((p) => p.id.equals(id))).getSingleOrNull();
+    return row == null ? null : readableProfileFromRow(row);
+  }
 
   /// Inserts or updates. A new profile goes to the end of the list. The
   /// stored `builtIn` flag always wins over [profile.builtIn], so a user
@@ -83,6 +88,10 @@ class ProfileRepository {
       await settings.setGlobalDefaultProfileId(BuiltInProfiles.defaultId);
     }
   });
+
+  static List<AlertProfile> _readable(List<ProfileRow> rows) => [
+    for (final r in rows) ?readableProfileFromRow(r),
+  ];
 
   SimpleSelectStatement<$ProfilesTable, ProfileRow> _ordered() =>
       _db.select(_db.profiles)..orderBy([

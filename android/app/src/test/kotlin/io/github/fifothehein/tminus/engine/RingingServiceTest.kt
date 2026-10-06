@@ -109,6 +109,29 @@ class RingingServiceTest {
     }
 
     @Test
+    fun `stopping covers only the starts already handled, so a newly fired alarm still rings`() {
+        val a = alert("a", NOW)
+        val b = alert("b", NOW + 30_000, title = "Design review", group = "B")
+        PlanStore(context).write(EngineState(presented = listOf(a, b)))
+        fun ring(vararg ids: String) = Intent(context, RingingService::class.java)
+            .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf(*ids))
+        val controller = Robolectric.buildService(RingingService::class.java, ring("a")).create().startCommand(0, 1)
+        val service = controller.get()
+
+        // b's alarm has called startForegroundService (start id 2 is queued) when the user stops a.
+        RingingSession.remove(listOf("a"))
+        // stopSelfResult(1) fails on a device while start 2 is pending; stopSelf() would not.
+        assertEquals(1, shadowOf(service).stopSelfResultId)
+        assertEquals(0, shadowOf(service).stopSelfId)
+
+        controller.withIntent(ring("b")).startCommand(0, 2)
+
+        assertEquals(listOf("b"), RingingSession.alerts.map { it.id })
+        assertTrue(service.isSounding)
+        assertTrue(shadowOf(service).lastForegroundNotification.title().endsWith("Design review"))
+    }
+
+    @Test
     fun `the ring timeout logs missed and posts a Missed notification`() {
         val service = startWith(alert("a", NOW, title = "Design review")).get() // ringTimeoutSec = 120
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(121))

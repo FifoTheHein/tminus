@@ -59,7 +59,7 @@ void main() {
     });
 
     test('a new source starts with an empty sync state', () async {
-      expect(await sources.syncState('personal'), const SourceSyncState());
+      expect(await sources.syncState('personal'), SourceSyncState());
     });
 
     test('delete removes the source and its occurrences', () async {

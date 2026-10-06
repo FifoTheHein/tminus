@@ -1,3 +1,5 @@
+import 'utc.dart';
+
 enum SourceKind { ics, device }
 
 /// A configured calendar source as stored in drift.
@@ -85,15 +87,22 @@ class SourceConfig {
 
 /// Per-source sync bookkeeping, kept next to [SourceConfig] in the same row.
 /// Plan 4 writes it; Plan 5 shows it ("Synced 4 min ago", red/amber state).
+/// Instants are normalised with [plainUtc] like every other model class
+/// (decision 25), so the constructor isn't const.
 class SourceSyncState {
-  const SourceSyncState({
-    this.lastAttemptUtc,
-    this.lastSuccessUtc,
+  SourceSyncState({
+    DateTime? lastAttemptUtc,
+    DateTime? lastSuccessUtc,
     this.lastError,
     this.httpEtag,
     this.httpLastModified,
     this.emptyStreak = 0,
-  });
+  }) : lastAttemptUtc = lastAttemptUtc == null
+           ? null
+           : plainUtc(lastAttemptUtc),
+       lastSuccessUtc = lastSuccessUtc == null
+           ? null
+           : plainUtc(lastSuccessUtc);
 
   final DateTime? lastAttemptUtc;
   final DateTime? lastSuccessUtc;

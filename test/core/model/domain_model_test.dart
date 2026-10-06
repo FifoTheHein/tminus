@@ -7,6 +7,7 @@ import 'package:tminus/core/model/alert_profile.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/event_override.dart';
 import 'package:tminus/core/model/skip_filters.dart';
+import 'package:tminus/core/model/source_config.dart';
 
 import '../fixtures.dart';
 
@@ -45,6 +46,19 @@ void main() {
       expect(o.startUtc.isUtc, isTrue);
       expect(o.endUtc.isUtc, isTrue);
       expect(o.originalStartUtc.isUtc, isTrue);
+    });
+  });
+
+  group('SourceSyncState (decision 25)', () {
+    test('TZDateTime instants equal the same plain UTC instants', () {
+      final utc = DateTime.utc(2026, 10, 6, 8);
+      final zoned = tz.TZDateTime.from(utc, johannesburg);
+      final a = SourceSyncState(lastAttemptUtc: zoned, lastSuccessUtc: zoned);
+      final b = SourceSyncState(lastAttemptUtc: utc, lastSuccessUtc: utc);
+      expect(a.lastAttemptUtc, isNot(isA<tz.TZDateTime>()));
+      expect(a.lastSuccessUtc, isNot(isA<tz.TZDateTime>()));
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
     });
   });
 

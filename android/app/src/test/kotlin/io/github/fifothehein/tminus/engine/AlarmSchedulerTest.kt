@@ -88,6 +88,19 @@ class AlarmSchedulerTest {
     }
 
     @Test
+    fun `a heads-up re-planned as an alarm at the same time is re-armed as an alarm clock`() {
+        val fireAt = NOW + 10 * MINUTE_MS
+        scheduler.applyPlan(listOf(alert("a", fireAt, strength = Strength.HEADS_UP)))
+        assertNull(scheduled().getValue("a").alarmClockInfo)
+
+        assertEquals(ApplyResult(armed = 1, cancelled = 1, kept = 0), scheduler.applyPlan(listOf(alert("a", fireAt))))
+
+        assertEquals(1, shadowOf(alarmManager).scheduledAlarms.size)
+        assertNotNull(scheduled().getValue("a").alarmClockInfo)
+        assertEquals(Strength.ALARM, store.read().plan.single().strength)
+    }
+
+    @Test
     fun `past alerts are never armed`() {
         val result = scheduler.applyPlan(listOf(alert("p", NOW - MINUTE_MS), alert("n", NOW), alert("f", NOW + MINUTE_MS)))
         assertEquals(ApplyResult(1, 0, 0), result)

@@ -14,7 +14,13 @@ class AndroidAlertPresenter(
 
     override fun present(alerts: List<PlannedAlert>) {
         if (alerts.none { it.strength == Strength.ALARM }) {
-            postHeadsUps(alerts)
+            // A heads-up that fires into a group that is ringing joins the ringing session. RingingService
+            // is running while the session is not empty; it re-posts the ringing notification and the
+            // alarm screen lists the new alert. The ring timeout keeps running from the alarm.
+            val ringingGroups = RingingSession.alerts.map { it.coalesceGroup }.toSet()
+            val (joining, own) = alerts.partition { it.coalesceGroup in ringingGroups }
+            if (joining.isNotEmpty()) RingingSession.add(joining)
+            postHeadsUps(own)
             return
         }
         // An alarm absorbs its group's heads-up: the alerts that notification shows ring with it.

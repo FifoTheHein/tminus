@@ -127,7 +127,12 @@ Duration parseIcsDuration(String value) {
 ///   writes WKST=SU). This only changes results for weekly rules with
 ///   INTERVAL > 1 whose BYDAY days straddle Sunday.
 ///
-/// Throws [FormatException] if the rule is malformed.
+/// Rules `package:rrule` would expand forever, or for thousands of years,
+/// once asserts are off (a release build) are rejected too: INTERVAL or
+/// COUNT below 1, HOURLY/MINUTELY/SECONDLY frequencies (Outlook never
+/// writes them) and BYMONTH/BYMONTHDAY pairs that never fall on a real date.
+///
+/// Throws [FormatException] if the rule is malformed or rejected.
 RecurrenceRule parseRrule(
   String value, {
   required DateTime Function(DateTime untilUtc) untilUtcToWall,
@@ -140,6 +145,7 @@ RecurrenceRule parseRrule(
   String? until;
   var hasCount = false;
   final kept = <String>[];
+  final values = <String, String>{};
   for (final part in body.split(';')) {
     if (part.trim().isEmpty) {
       continue;
@@ -156,11 +162,15 @@ RecurrenceRule parseRrule(
     if (key == 'COUNT') {
       hasCount = true;
     }
+    if (eq >= 0) {
+      values[key] = part.substring(eq + 1).trim().toUpperCase();
+    }
     kept.add(part.trim());
   }
   if (until != null && hasCount) {
     throw const FormatException('RRULE has both UNTIL and COUNT');
   }
+  _rejectEndless(values);
   final rule = RecurrenceRule.fromString('RRULE:${kept.join(';')}');
   if (until == null) {
     return rule;
@@ -178,3 +188,45 @@ RecurrenceRule parseRrule(
   }
   return rule.copyWith(until: wallUntil);
 }
+
+/// Longest each month can be (February in a leap year).
+const _maxDaysInMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/// Throws [FormatException] for the rules [parseRrule] refuses to expand.
+void _rejectEndless(Map<String, String> values) {
+  final freq = values['FREQ'];
+  if (freq == 'HOURLY' || freq == 'MINUTELY' || freq == 'SECONDLY') {
+    throw FormatException('RRULE FREQ=$freq is not supported');
+  }
+  for (final key in ['INTERVAL', 'COUNT']) {
+    final raw = values[key];
+    if (raw == null) {
+      continue;
+    }
+    final n = int.tryParse(raw);
+    if (n == null || n < 1) {
+      throw FormatException('RRULE $key must be at least 1: "$raw"');
+    }
+  }
+  final monthDays = _intList(values['BYMONTHDAY']);
+  if (monthDays.isEmpty) {
+    return;
+  }
+  final months = _intList(values['BYMONTH']);
+  final maxDays = [
+    for (final m in months.isEmpty ? [1] : months)
+      if (m >= 1 && m <= 12) _maxDaysInMonth[m - 1],
+  ];
+  final matches = monthDays.any(
+    (d) => d != 0 && maxDays.any((max) => d.abs() <= max),
+  );
+  if (!matches) {
+    throw const FormatException('RRULE BYMONTH/BYMONTHDAY never match a date');
+  }
+}
+
+/// The integers in a comma-separated list; unparsable items are skipped
+/// (package:rrule reports those itself).
+List<int> _intList(String? raw) => [
+  for (final item in (raw ?? '').split(',')) ?int.tryParse(item.trim()),
+];

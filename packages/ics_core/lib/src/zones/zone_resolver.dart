@@ -21,9 +21,26 @@ class ResolvedZone {
 /// names such as `Asia/Calcutta`, which the smaller `latest` database lacks.
 /// The check looks for such a link rather than keeping a flag, so it reloads
 /// if other code later replaces the global database with a smaller one.
+///
+/// Reloading resets `tz.local` to UTC, so the host app's local zone (set
+/// with `tz.setLocalLocation`) is put back afterwards.
 void ensureTimeZonesLoaded() {
-  if (!tz.timeZoneDatabase.locations.containsKey('Asia/Calcutta')) {
-    tzdata.initializeTimeZones();
+  if (tz.timeZoneDatabase.locations.containsKey('Asia/Calcutta')) {
+    return;
+  }
+  String? localName;
+  try {
+    localName = tz.local.name;
+  } on Error {
+    // No database was ever loaded, so there is no local zone to keep.
+  }
+  tzdata.initializeTimeZones();
+  if (localName != null) {
+    try {
+      tz.setLocalLocation(tz.getLocation(localName));
+    } on tz.LocationNotFoundException {
+      // Not in the full database either; leave UTC.
+    }
   }
 }
 

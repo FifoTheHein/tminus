@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-06
 - **Status:** Approved in brainstorming, pending written-spec review
-- **Store name:** T-Minus: Meeting Alarm · **Project/package:** `tminus`
+- **Store name:** T-Minus: Meeting Alarm · **Project/package:** `tminus` · **Application ID:** `io.github.fifothehein.tminus`
 - **Platform:** Android (Flutter UI + native Kotlin alarm engine). iOS is backlog.
 
 ## 1. Purpose
@@ -173,7 +173,7 @@ The window is **now − 1 h to now + 7 days**.
 |---|---|---|
 | Meeting (global default) | headsUp −10, alarm −1 | no |
 | Quick | alarm −1 | no |
-| Important | headsUp −15, alarm −5, alarm 0 | **yes** |
+| Important | headsUp −30, headsUp −10, alarm −2 | **yes** |
 | Silent | none (event still listed) | n/a |
 
 ### Resolution order

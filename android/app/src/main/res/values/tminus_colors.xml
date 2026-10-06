@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  T-Minus design-system colour tokens for native code (the Compose
+  AlarmActivity, notifications). Names are tminus_<mode>_<token>, using
+  the token names from T-Minus Design System.dc.html.
+
+  Must match lib/app/theme/. test/native_tokens_test.dart fails if they
+  drift apart.
+-->
+<resources>
+    <!-- Dark -->
+    <!-- Material roles -->
+    <color name="tminus_dark_primary">#B9CCE0</color>
+    <color name="tminus_dark_onPrimary">#111214</color>
+    <color name="tminus_dark_primaryContainer">#2E3A47</color>
+    <color name="tminus_dark_onPrimaryContainer">#DDE7F2</color>
+    <color name="tminus_dark_surface">#111214</color>
+    <color name="tminus_dark_onSurface">#E6E7EA</color>
+    <color name="tminus_dark_onSurfaceVariant">#9A9EA6</color>
+    <color name="tminus_dark_surfaceContainerLow">#16181B</color>
+    <color name="tminus_dark_surfaceContainer">#1A1C20</color>
+    <color name="tminus_dark_surfaceContainerHigh">#1E2125</color>
+    <color name="tminus_dark_surfaceContainerHighest">#262A30</color>
+    <color name="tminus_dark_outline">#5E6470</color>
+    <color name="tminus_dark_outlineVariant">#24272C</color>
+    <color name="tminus_dark_error">#FFB4AB</color>
+    <color name="tminus_dark_onError">#3A0B07</color>
+    <color name="tminus_dark_errorContainer">#2C1715</color>
+    <color name="tminus_dark_onErrorContainer">#FFDAD5</color>
+    <color name="tminus_dark_inverseSurface">#E6E7EA</color>
+    <color name="tminus_dark_onInverseSurface">#111214</color>
+    <color name="tminus_dark_scrim">#040507</color>
+    <!-- Calendar colours -->
+    <color name="tminus_dark_calendarBlue">#6AA0F5</color>
+    <color name="tminus_dark_calendarGreen">#5BC48A</color>
+    <color name="tminus_dark_calendarPurple">#B48CF0</color>
+    <color name="tminus_dark_calendarOrange">#E89A5B</color>
+    <color name="tminus_dark_calendarPink">#E07AA8</color>
+    <color name="tminus_dark_calendarTeal">#7FC7D9</color>
+    <!-- Status (health &amp; sync only) -->
+    <color name="tminus_dark_statusOk">#5BC48A</color>
+    <color name="tminus_dark_statusOkContainer">#132619</color>
+    <color name="tminus_dark_onStatusOkContainer">#C8F2D6</color>
+    <color name="tminus_dark_statusWarn">#E8B04B</color>
+    <color name="tminus_dark_statusWarnContainer">#2A2210</color>
+    <color name="tminus_dark_onStatusWarnContainer">#F2CB7A</color>
+    <color name="tminus_dark_statusError">#F07B6E</color>
+    <!-- Alert strength -->
+    <color name="tminus_dark_headsUpChipBorder">#5E6470</color>
+    <color name="tminus_dark_headsUpChipFg">#C9CDD4</color>
+    <color name="tminus_dark_alarmChipBg">#E6E7EA</color>
+    <color name="tminus_dark_alarmChipFg">#111214</color>
+    <color name="tminus_dark_tertiaryText">#80858F</color>
+
+    <!-- Light -->
+    <!-- Material roles -->
+    <color name="tminus_light_primary">#3D5A78</color>
+    <color name="tminus_light_onPrimary">#FFFFFF</color>
+    <color name="tminus_light_primaryContainer">#D3DEEA</color>
+    <color name="tminus_light_onPrimaryContainer">#16202B</color>
+    <color name="tminus_light_surface">#F4F5F7</color>
+    <color name="tminus_light_onSurface">#16181B</color>
+    <color name="tminus_light_onSurfaceVariant">#5E636B</color>
+    <color name="tminus_light_surfaceContainerLow">#FAFBFC</color>
+    <color name="tminus_light_surfaceContainer">#FFFFFF</color>
+    <color name="tminus_light_surfaceContainerHigh">#E9ECF0</color>
+    <color name="tminus_light_surfaceContainerHighest">#ECEEF1</color>
+    <color name="tminus_light_outline">#9AA0A8</color>
+    <color name="tminus_light_outlineVariant">#DADDE2</color>
+    <color name="tminus_light_error">#BA1A1A</color>
+    <color name="tminus_light_onError">#FFFFFF</color>
+    <color name="tminus_light_errorContainer">#FFDAD6</color>
+    <color name="tminus_light_onErrorContainer">#410002</color>
+    <color name="tminus_light_inverseSurface">#16181B</color>
+    <color name="tminus_light_onInverseSurface">#FFFFFF</color>
+    <color name="tminus_light_scrim">#040507</color>
+    <!-- Calendar colours -->
+    <color name="tminus_light_calendarBlue">#2F6FD6</color>
+    <color name="tminus_light_calendarGreen">#1E8A52</color>
+    <color name="tminus_light_calendarPurple">#7A4FC9</color>
+    <color name="tminus_light_calendarOrange">#B4621F</color>
+    <color name="tminus_light_calendarPink">#B23F75</color>
+    <color name="tminus_light_calendarTeal">#2B8197</color>
+    <!-- Status (health &amp; sync only) -->
+    <color name="tminus_light_statusOk">#1E8A52</color>
+    <color name="tminus_light_statusOkContainer">#DDF3E5</color>
+    <color name="tminus_light_onStatusOkContainer">#145C37</color>
+    <color name="tminus_light_statusWarn">#9A6A00</color>
+    <color name="tminus_light_statusWarnContainer">#FBEFCF</color>
+    <color name="tminus_light_onStatusWarnContainer">#6B4A00</color>
+    <color name="tminus_light_statusError">#BA1A1A</color>
+    <!-- Alert strength -->
+    <color name="tminus_light_headsUpChipBorder">#9AA0A8</color>
+    <color name="tminus_light_headsUpChipFg">#3A3F46</color>
+    <color name="tminus_light_alarmChipBg">#16181B</color>
+    <color name="tminus_light_alarmChipFg">#FFFFFF</color>
+    <color name="tminus_light_tertiaryText">#6B7078</color>
+</resources>

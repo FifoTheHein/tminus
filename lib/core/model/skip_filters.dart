@@ -46,6 +46,15 @@ class SkipFilters {
     declined: j['declined'] as bool? ?? true,
   );
 
+  /// [fromJson] for JSON that may not be a skip-filter object (decision 15):
+  /// null unless [j] is an object whose known keys are booleans or missing.
+  static SkipFilters? tryFromJson(Object? j) {
+    if (j is! Map<String, Object?>) return null;
+    const keys = ['allDay', 'free', 'tentative', 'cancelled', 'declined'];
+    if (keys.any((k) => j[k] != null && j[k] is! bool)) return null;
+    return SkipFilters.fromJson(j);
+  }
+
   @override
   bool operator ==(Object other) =>
       other is SkipFilters &&

@@ -82,16 +82,38 @@ class SettingsRepository {
     _db.settings,
   )..where((s) => s.name.equals(name))).map((r) => r.value);
 
-  SimpleSelectStatement<$QuietStatesTable, QuietStateRow> _quietRow() =>
-      _db.select(_db.quietStates)..where((q) => q.id.equals(1));
+  /// Reads the row's raw columns rather than a [QuietStateRow], whose `kind`
+  /// converter throws on a name this build doesn't know.
+  Selectable<_RawQuiet> _quietRow() {
+    final q = _db.quietStates;
+    return (_db.selectOnly(q)
+          ..addColumns([q.kind, q.untilUtcMs, q.firstDay, q.lastDay])
+          ..where(q.id.equals(1)))
+        .map(
+          (r) => (
+            kind: QuietKind.values.asNameMap()[r.read(q.kind)],
+            untilUtcMs: r.read(q.untilUtcMs),
+            firstDay: r.read(q.firstDay),
+            lastDay: r.read(q.lastDay),
+          ),
+        );
+  }
 
-  static SkipFilters _decodeSkip(String? json) => json == null
-      ? const SkipFilters()
-      : SkipFilters.fromJson((jsonDecode(json) as Map).cast<String, Object?>());
+  /// Text that isn't a skip-filter object reads as all filters on
+  /// (decision 15); a missing key still reads as on.
+  static SkipFilters _decodeSkip(String? json) {
+    if (json == null) return const SkipFilters();
+    try {
+      return SkipFilters.tryFromJson(jsonDecode(json)) ?? const SkipFilters();
+    } on FormatException {
+      return const SkipFilters();
+    }
+  }
 
-  /// A row that can't be read (e.g. a vacation with no dates) counts as
-  /// "no quiet mode" rather than crashing the sync.
-  static QuietState _decodeQuiet(QuietStateRow? r) {
+  /// A row that can't be read (e.g. a vacation with no dates, or a kind this
+  /// build doesn't know) counts as "no quiet mode" rather than crashing the
+  /// sync (decision 15).
+  static QuietState _decodeQuiet(_RawQuiet? r) {
     DateTime? until() => r?.untilUtcMs == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(r!.untilUtcMs!, isUtc: true);
@@ -114,3 +136,11 @@ class SettingsRepository {
     }
   }
 }
+
+/// A `quiet_state` row with `kind` null when its name is unknown.
+typedef _RawQuiet = ({
+  QuietKind? kind,
+  int? untilUtcMs,
+  String? firstDay,
+  String? lastDay,
+});

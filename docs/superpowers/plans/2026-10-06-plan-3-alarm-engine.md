@@ -57,6 +57,17 @@
 - **PlanStore persists two lists the roadmap does not name:** `presented` (fired alerts awaiting the user, needed to act on notification buttons after the process died) and `tests`.
 - **Calendar name and organiser** ("Work Outlook", "Thandi M." in the mockups) are not in `EventSnapshot`, so the alarm screen does not show them.
 
+Accepted after the whole-branch review (2026-10-06, user decisions; these amend the decisions above where they conflict):
+
+- **Coalescing collects only alerts already due** (amends the first decision). When an alarm fires, `EngineReducer.fire` collects the scheduled alerts in the same `coalesceGroup` whose `fireAtUtcMs <= now`, and cancels only those siblings' alarms. A same-minute alert that comes due later fires on its own alarm and joins the ringing session, or the group's heads-up notification, when it fires. No alert rings before its own time.
+- **PlanDiff re-arms when the strength changes** (amends the first decision's diff key). The diff compares `id + fireAtUtcMs + strength`, so a heads-up that becomes an alarm at the same time gets the alarm-clock AlarmManager call.
+- **Overdue and orphaned alerts ring if their event has not ended.** An alert counts as overdue if its fire time has passed but it never fired (a late inexact alarm, a reboot that spans the fire time, a plan that arrives inside that window). An alert counts as orphaned if it is in `presented` after process death, a reboot or an app update. When the engine next runs (app start, boot, package replaced, time change, `applyPlan`), it treats both the same way. If the event has not ended, the alert is presented now; the screen then shows "Started N min ago". If the event has ended, the engine emits `missed` and posts a Missed notification. Overdue alerts are never dropped silently.
+- **A ringing alarm takes transient audio focus** (`AUDIOFOCUS_GAIN_TRANSIENT`, `USAGE_ALARM`). Other audio pauses while the alarm rings and resumes when it stops.
+- **A snooze whose occurrence moved is dropped.** If `applyPlan` brings an occurrence back with the same `occurrenceKey` but a different start, its pending snooze is cancelled. The re-planned alerts for the new time take over.
+- **A heads-up group that gains members after it fired is one notification.** Each post lists every presented, non-ringing alert in the group (spec §6). A notification action removes the notification only when nothing in the group is left to show.
+- **Kept as planned after review:** the inexact fallback stays `setAndAllowWhileIdle`; `drainEvents` keeps clear-on-read (roadmap §3; revisit in Plan 5); pruning runs only inside `applyPlan` (Plan 4 calls it).
+- **Snooze events carry the snooze id** (`<id>:s`) as `alertId`. Plan 5's history and Dart's decision-8 single-Dismiss key must map `X:s` back to `X` (Plan 2 decision 8).
+
 ## File Structure
 
 Kotlin (`android/app/src/main/kotlin/io/github/fifothehein/tminus/`):

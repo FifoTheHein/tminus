@@ -196,7 +196,7 @@ Applied after the profile is resolved:
 
 | Mode | Lets through |
 |---|---|
-| Mute today, Pause until… | Profiles with `ringsInQuietMode`, and events turned on with an occurrence override |
+| Mute today (until 07:00 the next day), Pause until… (presets plus a time picker) | Profiles with `ringsInQuietMode`, and events turned on with an occurrence override |
 | Vacation (date range) | Only events turned on with an occurrence override; **Important is silenced too** |
 
 Quiet modes can be set from the Agenda header and from the "Mute today" quick-settings tile.
@@ -207,13 +207,18 @@ Every planned occurrence records the step that decided it, e.g. `Quick · rule: 
 
 ### Alarm behaviour
 
-- **Dismiss all:** any user action on an alert of an occurrence (dismiss, join, dismiss-all) cancels that occurrence's remaining alerts.
+- **Dismiss vs Dismiss all:**
+  - **Dismiss** (or **Stop** on the notification) ends only the current alert. Later alerts for the same occurrence still fire. For example, dismissing the −10 heads-up still leaves the −1 alarm.
+  - **Dismiss all** and **Join** cancel every remaining alert for that occurrence.
   - The acknowledgement is stored as (key, startUtc).
   - If the start time changes, the occurrence's alerts are re-armed.
 - **Smart snooze:** the options are +1 min, +5 min, "1 min before start" and "at start".
   - Options already in the past are hidden.
   - A snoozed alert keeps its strength.
 - **Coalescing:** alerts firing within the same minute merge into one notification or screen that lists every event.
+  - Each event has its own Join / Dismiss.
+  - The screen adds **Snooze all** and **Dismiss all**. Dismiss all acts as Dismiss all for every listed occurrence.
+  - The coalesced notification shows "N meetings starting", with actions Stop · Snooze all · Dismiss all.
 - **Join:** opens `joinUrl` (Teams app, otherwise the browser) and counts as dismissing the occurrence.
 
 ## 7. Alarm engine (Kotlin)
@@ -257,8 +262,12 @@ The snapshot lets an alarm ring and show its screen without Flutter.
    - vibrates and holds a partial wake lock
    - stops on its own at the timeout and logs `missed` (user did not respond), plus a "Missed" notification
 3. The service posts a notification with `setFullScreenIntent` pointing at `AlarmActivity` (Compose, `showWhenLocked`, `turnScreenOn`).
-4. The notification always carries the **Stop / Snooze / Join (if link) / Dismiss all** actions. Volume keys in `AlarmActivity` stop ringing.
-5. `headsUp` alerts post on a high-importance channel with Join / Snooze / Dismiss all. There's no full-screen screen and no foreground service.
+4. Android shows at most **3 actions** on a notification, so:
+   - The ringing notification shows **Stop · Snooze · Join** when the event has a link, otherwise **Stop · Snooze · Dismiss all**.
+   - The full-screen `AlarmActivity` always offers every action.
+   - Volume keys in `AlarmActivity` act like Stop.
+   - The 4-action ringing notification in mockup `6a` is superseded by this rule.
+5. `headsUp` alerts post on a high-importance channel with Join (if link) · Snooze · Dismiss all. There's no full-screen screen and no foreground service.
 
 ### Re-arm triggers
 
@@ -297,6 +306,17 @@ For battery optimisation, the app opens `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETT
 ## 8. Screens
 
 Material 3, dark theme first, with a light theme too; calendar colours used as accents. Bottom navigation: **Agenda · Alerts · Sources · Health**; Settings sits in the overflow menu. Full content is in `docs/design-brief.md`.
+
+**Approved mockups:** `docs/design/` (26 screens plus `design-system.png`), and the [Claude Design project](https://claude.ai/design/p/b3ee1986-af3e-4399-9aeb-efd063edfd49). Where a mockup and this spec disagree on behaviour, the spec wins; where they disagree on visuals, the mockup wins.
+
+**Theme implementation:**
+- Material 3 `ColorScheme` and `TextTheme`, plus two `ThemeExtension`s:
+  - `TMinusColors`: calendar, status and alert-chip tokens
+  - `TMinusType`: countdown, time and chip numerals
+- Spacing and corner radii come from the `TMinusSpacing` / `TMinusRadii` constants, using the token names on the design-system sheet.
+- The native Compose `AlarmActivity` uses the same hex values.
+- **Fonts:** IBM Plex Sans (UI) and IBM Plex Mono (times, countdowns, chips).
+  - They're **bundled as app assets**, not fetched at runtime with `google_fonts`. That keeps the promise "no servers, your calendar never leaves your phone" and works offline at first launch.
 
 1. Onboarding: welcome → add source → permissions → test alarm → done
 2. Agenda (home)

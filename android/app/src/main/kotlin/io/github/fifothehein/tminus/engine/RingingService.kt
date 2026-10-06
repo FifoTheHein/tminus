@@ -40,6 +40,8 @@ class RingingService : Service() {
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocus: AudioFocusRequest? = null
+    /** The newest start id handled; stopping with it fails if a newer start is still queued. */
+    private var lastStartId = 0
     private var volume = 1f
 
     private val timeout = Runnable {
@@ -63,6 +65,7 @@ class RingingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         val ids = intent?.getStringArrayListExtra(EXTRA_ALERT_IDS).orEmpty().toSet()
         val alerts = PlanStore(this).read().presented.filter { it.id in ids }
         val session = (RingingSession.alerts + alerts).distinctBy { it.id }
@@ -98,7 +101,8 @@ class RingingService : Service() {
         stopAlerting()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         inForeground = false
-        stopSelf()
+        // Not stopSelf(): a newly fired alarm's startForegroundService may be queued behind this.
+        stopSelfResult(lastStartId)
     }
 
     /** True while a tone is playing. */

@@ -1,0 +1,17 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:folded@examp
+ le.com
+SUMMARY:Quarterly planning: goals\, ri
+ sks and next steps
+ORGANIZER;CN="Than
+ di M.":mailto:thandi@example.com
+LOCATION:Room 4\; Building B
+DESCRIPTION:Agenda:\n1. Goals\n2. Risks\N3. Join<https://teams.microsof
+ t.com/l/meetup-join/19%3ameeting_FOLD%40thread.v2/0?context=%7b%7d>
+DTSTART;TZID=South Africa Standard Time:20261014T090000
+DTEND;TZID=South Africa Stand
+ ard Time:20261014T100000
+END:VEVENT
+END:VCALENDAR

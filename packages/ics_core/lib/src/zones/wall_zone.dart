@@ -31,28 +31,14 @@ class UtcZone implements WallZone {
 ///
 /// A wall time inside a spring-forward gap moves forward by the gap
 /// (02:30 becomes 03:30); an ambiguous fall-back time uses the first
-/// (daylight) offset. This is `TZDateTime`'s behaviour.
+/// instant (RFC 5545 §3.3.5), i.e. the offset in force before the change.
 class IanaZone implements WallZone {
   IanaZone(this.location);
 
   final tz.Location location;
 
   @override
-  DateTime wallToUtc(DateTime wall) {
-    final local = tz.TZDateTime(
-      location,
-      wall.year,
-      wall.month,
-      wall.day,
-      wall.hour,
-      wall.minute,
-      wall.second,
-    );
-    return DateTime.fromMillisecondsSinceEpoch(
-      local.millisecondsSinceEpoch,
-      isUtc: true,
-    );
-  }
+  DateTime wallToUtc(DateTime wall) => _instantOf(wall, utcToWall);
 
   @override
   DateTime utcToWall(DateTime utc) {
@@ -90,7 +76,7 @@ class _Observance {
 ///
 /// Supports STANDARD/DAYLIGHT blocks with DTSTART, TZOFFSETFROM, TZOFFSETTO
 /// and an optional yearly RRULE (which is what Outlook writes). RDATE is
-/// not supported.
+/// not supported. Gaps and repeated hours are handled like [IanaZone].
 class VtimezoneZone implements WallZone {
   VtimezoneZone._(this._observances);
 
@@ -194,15 +180,32 @@ class VtimezoneZone implements WallZone {
       });
 
   @override
-  DateTime wallToUtc(DateTime wall) {
-    final guess = offsetAt(wall);
-    final utc = wall.subtract(guess);
-    final actual = offsetAt(utc);
-    return actual == guess ? utc : wall.subtract(actual);
-  }
+  DateTime wallToUtc(DateTime wall) => _instantOf(wall, utcToWall);
 
   @override
   DateTime utcToWall(DateTime utc) => utc.toUtc().add(offsetAt(utc));
+}
+
+/// The UTC instant of [wall] in the zone [utcToWall] describes.
+///
+/// Tries the offsets in force a day either side of [wall] (read as UTC,
+/// which is within a day of the real instant). Of those that map back to
+/// [wall], the larger offset gives the earlier instant, which RFC 5545
+/// §3.3.5 picks for a time repeated at a fall-back change. If neither does,
+/// [wall] is in a spring-forward gap, and the offset from before the change
+/// moves it forward by the gap.
+DateTime _instantOf(DateTime wall, DateTime Function(DateTime) utcToWall) {
+  Duration offsetAt(DateTime utc) => utcToWall(utc).difference(utc);
+  const day = Duration(days: 1);
+  final before = offsetAt(wall.subtract(day));
+  final after = offsetAt(wall.add(day));
+  for (final offset in before >= after ? [before, after] : [after, before]) {
+    final utc = wall.subtract(offset);
+    if (utcToWall(utc) == wall) {
+      return utc;
+    }
+  }
+  return wall.subtract(before);
 }
 
 final _offsetPattern = RegExp(r'^([+-])(\d{2})(\d{2})(\d{2})?$');

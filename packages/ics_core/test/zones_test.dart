@@ -34,6 +34,21 @@ TZOFFSETTO:+0300
 END:STANDARD
 END:VTIMEZONE
 BEGIN:VTIMEZONE
+TZID:Custom Central Europe
+BEGIN:STANDARD
+DTSTART:16010101T030000
+TZOFFSETFROM:+0200
+TZOFFSETTO:+0100
+RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=-1SU;BYMONTH=10
+END:STANDARD
+BEGIN:DAYLIGHT
+DTSTART:16010101T020000
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0200
+RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=-1SU;BYMONTH=3
+END:DAYLIGHT
+END:VTIMEZONE
+BEGIN:VTIMEZONE
 TZID:Broken Zone
 END:VTIMEZONE
 END:VCALENDAR
@@ -82,6 +97,43 @@ void main() {
       );
     });
 
+    test('an ambiguous fall-back wall time uses the first instant', () {
+      DateTime utcOf(String zone, DateTime wall) =>
+          IanaZone(tz.getLocation(zone)).wallToUtc(wall);
+      // 02:30 happens at 00:30Z (CEST) and again at 01:30Z (CET).
+      expect(
+        utcOf('Europe/Berlin', DateTime.utc(2026, 10, 25, 2, 30)),
+        DateTime.utc(2026, 10, 25, 0, 30),
+      );
+      // 01:30 happens at 00:30Z (BST) and again at 01:30Z (GMT).
+      expect(
+        utcOf('Europe/London', DateTime.utc(2026, 10, 25, 1, 30)),
+        DateTime.utc(2026, 10, 25, 0, 30),
+      );
+      // 01:30 happens at 05:30Z (EDT) and again at 06:30Z (EST).
+      expect(
+        utcOf('America/New_York', DateTime.utc(2026, 11, 1, 1, 30)),
+        DateTime.utc(2026, 11, 1, 5, 30),
+      );
+      // Just outside the repeated hour nothing changes.
+      expect(
+        utcOf('Europe/Berlin', DateTime.utc(2026, 10, 25, 3)),
+        DateTime.utc(2026, 10, 25, 2),
+      );
+      expect(
+        utcOf('Europe/Berlin', DateTime.utc(2026, 10, 25, 1, 59)),
+        DateTime.utc(2026, 10, 24, 23, 59),
+      );
+    });
+
+    test('a spring-forward gap still moves forward east of UTC', () {
+      expect(
+        IanaZone(tz.getLocation('Europe/Berlin'))
+            .wallToUtc(DateTime.utc(2026, 3, 29, 2, 30)),
+        DateTime.utc(2026, 3, 29, 1, 30),
+      );
+    });
+
     test('converts UTC back to wall time', () {
       expect(
         la.utcToWall(DateTime.utc(2026, 11, 2, 17)),
@@ -114,6 +166,44 @@ void main() {
       expect(
         zone.utcToWall(DateTime.utc(2026, 7, 1, 16)),
         DateTime.utc(2026, 7, 1, 9),
+      );
+    });
+
+    test('an ambiguous fall-back wall time uses the first instant', () {
+      final cet = VtimezoneZone.fromComponent(
+        zoneNamed('Custom Central Europe'),
+      );
+      expect(
+        cet.wallToUtc(DateTime.utc(2026, 10, 25, 2, 30)),
+        DateTime.utc(2026, 10, 25, 0, 30),
+      );
+      expect(
+        cet.wallToUtc(DateTime.utc(2026, 10, 25, 3)),
+        DateTime.utc(2026, 10, 25, 2),
+      );
+      final pacific = VtimezoneZone.fromComponent(
+        zoneNamed('Customized Time Zone'),
+      );
+      expect(
+        pacific.wallToUtc(DateTime.utc(2026, 11, 1, 1, 30)),
+        DateTime.utc(2026, 11, 1, 8, 30),
+      );
+    });
+
+    test('a spring-forward gap moves forward', () {
+      final cet = VtimezoneZone.fromComponent(
+        zoneNamed('Custom Central Europe'),
+      );
+      expect(
+        cet.wallToUtc(DateTime.utc(2026, 3, 29, 2, 30)),
+        DateTime.utc(2026, 3, 29, 1, 30),
+      );
+      final pacific = VtimezoneZone.fromComponent(
+        zoneNamed('Customized Time Zone'),
+      );
+      expect(
+        pacific.wallToUtc(DateTime.utc(2026, 3, 8, 2, 30)),
+        DateTime.utc(2026, 3, 8, 10, 30),
       );
     });
 

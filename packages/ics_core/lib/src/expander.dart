@@ -1,4 +1,5 @@
 import 'model.dart';
+import 'values.dart';
 import 'vevent.dart';
 import 'zones/zone_resolver.dart';
 
@@ -76,6 +77,11 @@ _Timing _timingOf(ParsedEvent e, ZoneResolver zones) {
   return _Timing(startUtc, endUtc, warnings);
 }
 
+/// The UTC instant a RECURRENCE-ID or EXDATE value names.
+DateTime _instantOf(IcsTime t, ZoneResolver zones) => t.isDate
+    ? zones.device.wallToUtc(_date(t.wall))
+    : zones.forTime(t).zone.wallToUtc(t.wall);
+
 IcsOccurrence _occurrence(
   ParsedEvent e,
   _Timing timing, {
@@ -113,4 +119,68 @@ List<IcsOccurrence> expandSingle(
   return [
     _occurrence(e, timing, originalStartUtc: timing.startUtc, recurring: false),
   ];
+}
+
+/// An RRULE series.
+///
+/// The rule is expanded in the event's own wall-clock zone, so a 09:00
+/// meeting stays at 09:00 local time across DST changes, then each instance
+/// is converted to UTC. EXDATEs remove instances. A cancelled series yields
+/// nothing.
+///
+/// Throws [FormatException] (or whatever `package:rrule` throws) for a bad rule.
+List<IcsOccurrence> expandSeries(
+  ParsedEvent master,
+  ZoneResolver zones,
+  IcsWindow window,
+) {
+  if (master.cancelled) {
+    return const [];
+  }
+  final allDay = master.allDay;
+  final masterTiming = _timingOf(master, zones);
+  final zone = allDay ? zones.device : zones.forTime(master.start).zone;
+  final rule = parseRrule(
+    master.rrule!,
+    untilUtcToWall: zone.utcToWall,
+    startIsDate: allDay,
+  );
+  final startWall = allDay ? _date(master.start.wall) : master.start.wall;
+  final length = masterTiming.endUtc.difference(masterTiming.startUtc);
+  final allDayDays = allDay ? _allDayLength(master) : 0;
+  final margin = const Duration(days: 2);
+  final afterWall = zone.utcToWall(window.start).subtract(length + margin);
+  final beforeWall = zone.utcToWall(window.end).add(margin);
+
+  final excluded = {for (final ex in master.exdates) _instantOf(ex, zones)};
+
+  final result = <IcsOccurrence>[];
+  for (final wall in rule.getInstances(
+    start: startWall,
+    after: afterWall.isAfter(startWall) ? afterWall : null,
+    includeAfter: true,
+    before: beforeWall,
+    includeBefore: true,
+  )) {
+    final startUtc = zone.wallToUtc(wall);
+    if (excluded.contains(startUtc)) {
+      continue;
+    }
+    final endUtc = allDay
+        ? zone.wallToUtc(wall.add(Duration(days: allDayDays)))
+        : startUtc.add(length);
+    if (!window.overlaps(startUtc, endUtc)) {
+      continue;
+    }
+    result.add(
+      _occurrence(
+        master,
+        _Timing(startUtc, endUtc, masterTiming.warnings),
+        originalStartUtc: startUtc,
+        recurring: true,
+      ),
+    );
+  }
+
+  return result;
 }

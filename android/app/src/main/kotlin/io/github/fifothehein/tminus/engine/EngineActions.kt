@@ -94,4 +94,9 @@ class EngineActions(
         store.update { s -> block(s).let { it.state to it } }
 
     private fun emit(event: EngineEvent) = EngineEvents.emit(appContext, event)
+
+    companion object {
+        /** EngineActions with the real presenter, for receivers, services and activities. */
+        fun create(context: Context): EngineActions = EngineActions(context, AndroidAlertPresenter(context))
+    }
 }

@@ -52,6 +52,48 @@ void main() {
     expect(cal.children.map((c) => c.terminated), [true, false]);
   });
 
+  test('a VEVENT missing END:VEVENT mid-feed does not swallow later ones', () {
+    final cal = parseCalendar(
+      [
+        'BEGIN:VCALENDAR',
+        'BEGIN:VEVENT',
+        'UID:open',
+        'BEGIN:VEVENT',
+        'UID:second',
+        'BEGIN:VALARM',
+        'TRIGGER:-PT15M',
+        'END:VALARM',
+        'END:VEVENT',
+        'BEGIN:VTIMEZONE',
+        'TZID:Custom',
+        'BEGIN:STANDARD',
+        'TZOFFSETTO:+0200',
+        'END:STANDARD',
+        'END:VTIMEZONE',
+        'BEGIN:VEVENT',
+        'UID:third',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n'),
+    );
+    expect(cal.children.map((c) => c.name), [
+      'VEVENT',
+      'VEVENT',
+      'VTIMEZONE',
+      'VEVENT',
+    ]);
+    expect(cal.children.map((c) => c.first('UID')?.value), [
+      'open',
+      'second',
+      null,
+      'third',
+    ]);
+    expect(cal.children.map((c) => c.terminated), [false, true, true, true]);
+    expect(cal.children[0].children, isEmpty);
+    expect(cal.children[1].children.single.name, 'VALARM');
+    expect(cal.children[2].children.single.name, 'STANDARD');
+  });
+
   test('text before BEGIN:VCALENDAR is ignored', () {
     final cal = parseCalendar('garbage\nX:1\nBEGIN:VCALENDAR\nEND:VCALENDAR');
     expect(cal.properties, isEmpty);

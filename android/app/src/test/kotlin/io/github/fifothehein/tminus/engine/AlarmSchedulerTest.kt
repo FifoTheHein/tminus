@@ -1,10 +1,12 @@
 package io.github.fifothehein.tminus.engine
 
 import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import io.github.fifothehein.tminus.MainActivity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -14,7 +16,19 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAlarmManager
+
+/** An AlarmManager that refuses exact alarms the way Android 12–13 does without SCHEDULE_EXACT_ALARM. */
+@Implements(AlarmManager::class)
+class RefusingAlarmClockShadow : ShadowAlarmManager() {
+    @Implementation
+    override fun setAlarmClock(info: AlarmManager.AlarmClockInfo, operation: PendingIntent) {
+        throw SecurityException("Caller needs SCHEDULE_EXACT_ALARM")
+    }
+}
 
 @RunWith(RobolectricTestRunner::class)
 class AlarmSchedulerTest {
@@ -253,7 +267,22 @@ class AlarmSchedulerTest {
         val a = scheduled().getValue("a")
         assertNull(a.alarmClockInfo)
         assertTrue(a.isAllowWhileIdle)
+        assertNotEquals(ShadowAlarmManager.WINDOW_EXACT, a.windowLengthMs) // setAndAllowWhileIdle, not the exact variant
         assertFalse(scheduler.canScheduleExactAlarms())
+    }
+
+    @Test
+    @Config(shadows = [RefusingAlarmClockShadow::class])
+    fun `if setAlarmClock throws SecurityException the alert still gets an inexact alarm`() {
+        assertTrue(scheduler.canScheduleExactAlarms()) // access looks granted, but the call is refused
+
+        assertEquals(ApplyResult(armed = 1, cancelled = 0, kept = 0), scheduler.applyPlan(listOf(alert("a", NOW + 10 * MINUTE_MS))))
+
+        val a = scheduled().getValue("a")
+        assertEquals(NOW + 10 * MINUTE_MS, a.triggerAtMs)
+        assertNull(a.alarmClockInfo)
+        assertTrue(a.isAllowWhileIdle)
+        assertNotEquals(ShadowAlarmManager.WINDOW_EXACT, a.windowLengthMs)
     }
 
     @Test

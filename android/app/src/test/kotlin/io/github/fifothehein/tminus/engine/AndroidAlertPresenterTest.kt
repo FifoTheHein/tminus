@@ -84,4 +84,37 @@ class AndroidAlertPresenterTest {
         assertEquals(setOf("b"), RingingSession.ids)
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("H")))
     }
+
+    @Test
+    fun `an alarm firing into a group whose heads-up is showing rings it too and withdraws the heads-up`() {
+        val h = alert("h", NOW, strength = Strength.HEADS_UP, group = "G")
+        val other = alert("o", NOW, strength = Strength.HEADS_UP, group = "O")
+        val factory = NotificationFactory(app)
+        factory.postHeadsUp(listOf(h))
+        factory.postHeadsUp(listOf(other))
+        val a = alert("a", NOW + 2_000, group = "G")
+        store.write(EngineState(presented = listOf(h, other, a))) // fire has moved a to presented
+        val started = mutableListOf<List<String>>()
+
+        AndroidAlertPresenter(app, store, factory) { _, ids -> started.add(ids) }.present(listOf(a))
+
+        assertEquals(listOf(listOf("a", "h")), started)
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("O"))) // another group keeps its own
+    }
+
+    @Test
+    fun `if the ringing service cannot start the group's heads-up stays and lists the alarm`() {
+        val h = alert("h", NOW, strength = Strength.HEADS_UP, group = "G")
+        val factory = NotificationFactory(app)
+        factory.postHeadsUp(listOf(h))
+        val a = alert("a", NOW + 2_000, group = "G")
+        store.write(EngineState(presented = listOf(h, a)))
+
+        AndroidAlertPresenter(app, store, factory) { _, _ -> throw IllegalStateException("not allowed") }.present(listOf(a))
+
+        val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId("G"))
+        assertNotNull(n)
+        assertEquals("2 meetings starting", n.extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString())
+    }
 }

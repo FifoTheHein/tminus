@@ -28,7 +28,11 @@ class ProfileRepository {
   /// Inserts or updates. A new profile goes to the end of the list. The
   /// stored `builtIn` flag always wins over [profile.builtIn], so a user
   /// profile can't become built-in and an edited built-in stays built-in.
-  Future<void> save(AlertProfile profile) => _db.transaction(() async {
+  /// Silent is always stored with no alerts (decision 16).
+  Future<void> save(AlertProfile p) => _db.transaction(() async {
+    final profile = p.id == BuiltInProfiles.silentId
+        ? p.copyWith(alerts: const [])
+        : p;
     final existing = await (_db.select(
       _db.profiles,
     )..where((p) => p.id.equals(profile.id))).getSingleOrNull();

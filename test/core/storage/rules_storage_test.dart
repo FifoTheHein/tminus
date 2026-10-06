@@ -79,6 +79,18 @@ void main() {
       expect(all.first.alerts, const [AlertSpec(5, AlertStrength.alarm)]);
     });
 
+    test('saving Silent with alerts stores it with none', () async {
+      await profiles.save(
+        BuiltInProfiles.silent.copyWith(
+          name: 'Hush',
+          alerts: const [AlertSpec(5, AlertStrength.alarm)],
+        ),
+      );
+      final silent = (await profiles.byId('silent'))!;
+      expect(silent.alerts, isEmpty);
+      expect(silent.name, 'Hush');
+    });
+
     test('built-ins cannot be deleted', () async {
       expect(() => profiles.delete('meeting'), throwsStateError);
     });

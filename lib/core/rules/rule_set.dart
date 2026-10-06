@@ -18,7 +18,11 @@ class RuleSet {
   }) : _profiles = {
          for (final p in BuiltInProfiles.all) p.id: p,
          // Stored profiles win, so an edited built-in replaces the constant.
-         for (final p in profiles) p.id: p,
+         // Silent never has alerts, whatever its row says (decision 16).
+         for (final p in profiles)
+           p.id: p.id == BuiltInProfiles.silentId && p.alerts.isNotEmpty
+               ? p.copyWith(alerts: const [])
+               : p,
        },
        _occurrenceOverrides = {
          for (final o in overrides)

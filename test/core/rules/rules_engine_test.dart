@@ -380,4 +380,47 @@ void main() {
       expect(r.profile, BuiltInProfiles.meeting);
     });
   });
+
+  group('Silent never has alerts (decision 16)', () {
+    final loudSilent = BuiltInProfiles.silent.copyWith(
+      alerts: const [AlertSpec(5, AlertStrength.alarm)],
+    );
+
+    test('a skip filter resolves to Silent with no alerts', () {
+      final r = engine().resolve(tentative, RuleSet(profiles: [loudSilent]));
+      expect(r.explanation, 'Silent · tentative');
+      expect(r.alerts, isEmpty);
+      expect(r.profile.alerts, isEmpty);
+    });
+
+    test('a default or rule naming Silent gives no alerts', () {
+      final rules = [
+        RuleSet(profiles: [loudSilent], globalDefaultProfileId: 'silent'),
+        RuleSet(profiles: [loudSilent], sourceDefaults: {'work': 'silent'}),
+        RuleSet(profiles: [loudSilent], rules: [titleRule('Sprint', 'silent')]),
+        RuleSet(
+          profiles: [loudSilent],
+          overrides: [onOcc(plain, profileId: 'silent')],
+        ),
+      ];
+      for (final rs in rules) {
+        final r = engine().resolve(plain, rs);
+        expect(r.profile.id, 'silent', reason: r.explanation);
+        expect(r.alerts, isEmpty, reason: r.explanation);
+      }
+    });
+
+    test('a turned-on event never picks Silent', () {
+      final r = engine().resolve(
+        plain,
+        RuleSet(
+          profiles: [loudSilent],
+          globalDefaultProfileId: 'silent',
+          overrides: [onOcc(plain, enabled: true)],
+        ),
+      );
+      expect(r.explanation, 'Meeting · this event');
+      expect(r.alerts, meetingAlerts);
+    });
+  });
 }

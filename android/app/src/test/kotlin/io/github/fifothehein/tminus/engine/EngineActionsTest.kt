@@ -209,6 +209,21 @@ class EngineActionsTest {
     }
 
     @Test
+    fun `a snoozed alert is not re-armed by the next applyPlan`() {
+        // Presented before its own fire time (e.g. collected with an earlier coalesce sibling).
+        val x = alert("x", NOW + 30_000)
+        store.write(EngineState(presented = listOf(x)))
+        actions.snooze(listOf("x"), SnoozeOption.PLUS_5_MIN)
+
+        assertEquals(ApplyResult(armed = 0, cancelled = 0, kept = 0), actions.applyPlan(listOf(x)))
+
+        assertFalse(scheduler.isArmed(x))
+        assertTrue(store.read().plan.isEmpty())
+        assertEquals(listOf("x:s"), store.read().snoozes.map { it.id })
+        assertEquals(listOf(Dismissal("x", NOW + 30_000)), store.read().dismissed)
+    }
+
+    @Test
     fun `snooze without an option uses the notification default`() {
         val start = NOW + 3 * MINUTE_MS // sooner than +5 min, so At start
         store.write(EngineState(presented = listOf(alert("a", NOW, start = start))))

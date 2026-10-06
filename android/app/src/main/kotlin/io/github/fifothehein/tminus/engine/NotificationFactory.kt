@@ -55,6 +55,8 @@ class NotificationFactory(
 
     fun cancelHeadsUp(group: String) = manager.cancel(headsUpId(group))
 
+    fun isHeadsUpPosted(group: String): Boolean = manager.activeNotifications.any { it.id == headsUpId(group) }
+
     fun postMissed(alert: PlannedAlert) {
         ensureChannels()
         notify(missedId(alert.id), missed(alert))

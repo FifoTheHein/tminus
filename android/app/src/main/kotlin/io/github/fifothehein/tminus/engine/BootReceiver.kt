@@ -11,7 +11,11 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in ACTIONS) return
-        EngineActions.create(context).rearmAll()
+        // The process died with the device or the update: show again what was on screen, then re-arm.
+        EngineActions.create(context).run {
+            recoverPresented()
+            rearmAll()
+        }
     }
 
     companion object {

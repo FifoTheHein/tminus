@@ -25,7 +25,9 @@ class EngineActionsTest {
         val presented = mutableListOf<List<PlannedAlert>>()
         val withdrawn = mutableListOf<PlannedAlert>()
         val missed = mutableListOf<PlannedAlert>()
+        val showing = mutableSetOf<String>()
         override fun present(alerts: List<PlannedAlert>) { presented.add(alerts) }
+        override fun isShowing(alert: PlannedAlert) = alert.id in showing
         override fun withdraw(alerts: List<PlannedAlert>) { withdrawn.addAll(alerts) }
         override fun missed(alerts: List<PlannedAlert>) { missed.addAll(alerts) }
     }
@@ -150,6 +152,35 @@ class EngineActionsTest {
         assertEquals(listOf(EngineEventType.MISSED to "e"), queued.filter { it.type == EngineEventType.MISSED }.map { it.type to it.alertId })
         assertEquals(setOf("due", "s:s", "test-1"), queued.filter { it.type == EngineEventType.FIRED }.map { it.alertId }.toSet())
         assertEquals(4, queued.size)
+    }
+
+    @Test
+    fun `recoverPresented shows orphaned alerts again by group and reports ended ones missed`() {
+        val a = alert("a", NOW - MINUTE_MS, group = "G") // its event runs until NOW + 30 min
+        val b = alert("b", NOW - MINUTE_MS, strength = Strength.HEADS_UP, group = "G")
+        val ended = alert("e", NOW - HOUR)
+        store.write(EngineState(presented = listOf(a, b, ended)))
+
+        actions.recoverPresented()
+
+        assertEquals(listOf(listOf(a, b)), presenter.presented)
+        assertEquals(listOf(ended), presenter.missed)
+        assertEquals(listOf(EngineEventType.MISSED to "e"), events().map { it.type to it.alertId }) // a and b already fired
+        assertEquals(listOf("a", "b"), store.read().presented.map { it.id })
+    }
+
+    @Test
+    fun `recoverPresented leaves alerts that are still on screen alone`() {
+        val ringing = alert("r", NOW - MINUTE_MS)
+        val headsUp = alert("h", NOW - MINUTE_MS, strength = Strength.HEADS_UP, group = "H")
+        store.write(EngineState(presented = listOf(ringing, headsUp)))
+        presenter.showing += setOf("r", "h")
+
+        actions.recoverPresented()
+
+        assertTrue(presenter.presented.isEmpty())
+        assertTrue(presenter.missed.isEmpty())
+        assertTrue(events().isEmpty())
     }
 
     @Test

@@ -12,6 +12,9 @@ interface AlertPresenter {
 
     /** [alerts] rang until the ring timeout. */
     fun missed(alerts: List<PlannedAlert>)
+
+    /** True while [alert] is ringing or its heads-up notification is still posted. */
+    fun isShowing(alert: PlannedAlert): Boolean
 }
 
 /**
@@ -51,6 +54,22 @@ class EngineActions(
             if (fired.isEmpty()) break
             fired.forEach { scheduler.cancel(it.id) } // a late alarm may still be pending
         }
+    }
+
+    /**
+     * Boot, app update and app start: an alert left in `presented` after the process died (a crash,
+     * an update, a reboot) has no screen or notification any more. If its event has not ended it is
+     * presented again, group by group, without a second `fired` event; otherwise it is reported
+     * missed. Alerts that are still ringing or still have their heads-up posted are left alone.
+     * Call it before [rearmAll], so alerts that [reconcile] fires are not presented twice.
+     */
+    fun recoverPresented() {
+        val now = clock()
+        val orphans = store.read().presented.filterNot(presenter::isShowing)
+        if (orphans.isEmpty()) return
+        val (ended, live) = orphans.partition { it.event.hasEnded(now) }
+        if (ended.isNotEmpty()) missed(ended.map { it.id })
+        live.groupBy { it.coalesceGroup }.values.forEach { presenter.present(it.sortedWith(EngineReducer.displayOrder)) }
     }
 
     /** An alarm went off: collects its coalesce group and presents it. Returns the collected alerts. */

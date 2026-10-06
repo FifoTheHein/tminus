@@ -1,0 +1,16 @@
+name: ics_core
+description: Parses ICS calendar feeds and expands occurrences in a time window.
+publish_to: none
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  rrule: ^0.2.18
+  timezone: ^0.11.1
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.31.1

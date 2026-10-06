@@ -16,7 +16,7 @@
 - Scope: `lib/core/model`, `lib/core/storage`, `lib/core/rules`, `lib/core/planner`, plus registration in `lib/app/di.dart`. No widgets, no HTTP, no `MethodChannel`.
 - `lib/core/model/alert.dart` and `lib/core/model/planned_alert.dart` are **byte-for-byte** roadmap §3. Never edit them, and **never run `dart format` on them** (their long lines would be rewrapped). Run `dart format` only on the files a task lists, never on `lib/` as a whole.
 - Built-in profile ids are exactly `meeting`, `quick`, `important`, `silent` (roadmap §4). Alerts per spec §6: Meeting = headsUp 10, alarm 1. Quick = alarm 1. Important = headsUp 30, headsUp 10, alarm 2, `ringsInQuietMode: true`. Silent = none.
-- Explanation strings are exactly roadmap §4: `<Profile name> · <reason>` with U+00B7 MIDDLE DOT between single spaces. Reasons are `this event`, `series`, `all-day`, `free`, `tentative`, `cancelled`, `declined`, `rule: "<pattern>"`, `source default` and `default`. Other forms are `Off · this event`, `Silenced · Mute today`, `Silenced · Paused until HH:mm` (local time) and `Silenced · Vacation`.
+- Explanation strings are exactly roadmap §4: `<Profile name> · <reason>` with U+00B7 MIDDLE DOT between single spaces. Reasons are `this event`, `series`, `all-day`, `free`, `tentative`, `cancelled`, `declined`, `rule: "<pattern>"`, `source default` and `default`. Other forms are `Off · this event`, `Silenced · Mute today`, `Silenced · Paused until HH:mm` (local time; with the day when the pause doesn't end today, decision 22) and `Silenced · Vacation`.
 - Occurrence key = `'$sourceId|$uid|${originalStartUtc.toUtc().toIso8601String()}'`.
 - Skip filters default to on (roadmap §5.3).
 - The plan lists **every alert of an occurrence until the occurrence ends** (`endUtc > now`), including alerts whose `fireAtUtc` has passed. Kotlin never arms past alerts, but an `occurrenceKey` missing from the plan tells Kotlin the meeting is gone, and it then drops that occurrence's snoozes (roadmap §3 "Engine rules"). Ended occurrences are dropped entirely.
@@ -50,6 +50,21 @@
 11. **Settings live in a key/value `settings` table** (skip filters as JSON, global default id; Plan 5 adds the theme mode). The quiet mode has its own one-row `quiet_state` table, as spec §5 lists it.
 12. **`sources` also stores sync bookkeeping** (`last_attempt_utc_ms`, `last_success_utc_ms`, `last_error`, `http_etag`, `http_last_modified`, `empty_streak`). Plan 4 needs these, and having them now means schema 1 needs no migration for them.
 13. **Spec §11 "snooze options in the past are hidden"** is not in this plan. The options are computed by Kotlin's alarm screen (Plan 3), and Plan 2 has no snooze code.
+
+**Accepted after the post-implementation deep review (2026-10-06):**
+
+14. **Concurrent connections wait instead of failing.** `AppDatabase` sets `PRAGMA busy_timeout = 5000` and `PRAGMA journal_mode = WAL` on every connection, so the UI isolate and Plan 4's headless sync isolate can both write. `AlertHistoryRepository.record` uses `INSERT OR IGNORE` on the de-dup key, so a concurrent duplicate returns `false` instead of throwing.
+15. **Stored rows that can't be read are skipped, never fatal.** A profile whose `alerts_json` can't be decoded (bad JSON, unknown strength, negative offset) is left out of the `RuleSet` unless its id is built in, in which case the built-in definition is used. An override whose `custom_alerts_json` can't be decoded is skipped. Resolution then falls through as for a deleted profile (decision 7). Skip-filter JSON that can't be read reads as all filters on, and an unknown quiet `kind` reads as no quiet mode.
+16. **Silent never has alerts.** `ProfileRepository.save` stores `silent` with no alerts, and the rules engine treats Silent as having no alerts even if a stored row says otherwise (spec §6).
+17. **An empty custom-alert list means no custom alerts.** An override whose `customAlerts` is `[]` behaves as if it had none: its profile (or the lower steps) decides, and the explanation never reads `Custom · …` with nothing to ring.
+18. **Duplicate offsets collapse in the engine too.** `ResolvedOccurrence.alerts` keeps one alert per offset, and the alarm wins (the same rule as `buildPlan`, Review Focus 1), so the Agenda and Event detail list exactly what is planned.
+19. **Occurrences stay in the plan until 15 minutes after they end.** `buildPlan` keeps an occurrence while `max(end, start) + 15 min > now`. Past alerts are still listed but never armed. This keeps snoozes alive for events with no duration (no DTEND) and for snoozes that run past the end.
+20. **Impossible dates are rejected.** `LocalDate.parse` throws `FormatException` when the parsed date doesn't round-trip (e.g. `2026-13-45`, `2026-02-30`), so a corrupt vacation row reads as no quiet mode.
+21. **Mute today keeps the spec's literal rule.** It always ends at 07:00 on the next local calendar day, even when set after midnight.
+22. **The pause label says the day when the pause doesn't end today.** `Paused until 14:00` when it ends today (local), `Paused until Wed 09:00` when it ends within the next 6 local days, and `Paused until 14 Oct 09:00` beyond that. English names, no `intl`. Roadmap §4 is updated to match.
+23. **`Vacation.isActive` stays "not ended yet".** It is true before `firstDay`, so nothing clears a scheduled vacation. Plan 5's banner copy handles the not-started case (e.g. "Vacation from 1 Dec").
+24. **A re-delivered engine event keeps the first row.** `record` de-duplicates on the event's identity, and a later copy with different field values is ignored. Roadmap §3 delivers identical duplicates.
+25. **Instants are normalised to whole milliseconds.** `plainUtc()` truncates sub-millisecond parts so an occurrence key is the same before and after a database round trip. `SourceSyncState` normalises its instants like every other model class.
 
 ## File Structure
 

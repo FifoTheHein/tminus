@@ -6,8 +6,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+// Pinned to a CLDR release tag so regenerating gives the same table. To pick
+// up newer Windows zones, bump the tag, regenerate, and check that every IANA
+// target still exists in the pinned `timezone` package (windows_zones_test).
+const cldrTag = 'release-48-2';
 const sourceUrl =
-    'https://raw.githubusercontent.com/unicode-org/cldr/main/common/supplemental/windowsZones.xml';
+    'https://raw.githubusercontent.com/unicode-org/cldr/$cldrTag/common/supplemental/windowsZones.xml';
 const outputPath = 'lib/src/zones/windows_zones.g.dart';
 
 final _mapZone = RegExp(r'<mapZone\s([^>]*?)/?>');

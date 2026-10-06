@@ -21,10 +21,15 @@ object EngineReducer {
 
     private val displayOrder = compareBy<PlannedAlert>({ it.event.startUtcMs }, { it.event.title }, { it.id })
 
-    /** Collects every scheduled alert in the fired alert's coalesce group (one alarm per alert, collected at fire). */
-    fun fire(state: EngineState, alertId: String): Transition {
+    /**
+     * Collects the fired alert and the scheduled alerts in its coalesce group that are already due
+     * (one alarm per alert, collected at fire). A sibling that is not due yet keeps its own alarm.
+     */
+    fun fire(state: EngineState, alertId: String, nowUtcMs: Long): Transition {
         val hit = state.scheduled.firstOrNull { it.id == alertId } ?: return Transition(state)
-        val group = state.scheduled.filter { it.coalesceGroup == hit.coalesceGroup }.sortedWith(displayOrder)
+        val group = state.scheduled
+            .filter { it.id == alertId || (it.coalesceGroup == hit.coalesceGroup && it.fireAtUtcMs <= nowUtcMs) }
+            .sortedWith(displayOrder)
         val ids = group.map { it.id }.toSet()
         return Transition(
             state = state.withoutScheduled(ids).copy(presented = state.presented.filterNot { it.id in ids } + group),

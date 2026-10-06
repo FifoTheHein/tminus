@@ -44,11 +44,11 @@ class EngineActionsTest {
     private fun events() = EventQueue(context).drain()
 
     @Test
-    fun `fire presents the whole coalesce group and queues fired events`() {
+    fun `fire presents the due coalesce group and queues fired events`() {
         val a = alert("a", NOW + MINUTE_MS, group = "G")
         val b = alert("b", NOW + MINUTE_MS + 20_000, group = "G")
         scheduler.applyPlan(listOf(a, b))
-        now = NOW + MINUTE_MS
+        now = NOW + MINUTE_MS + 20_000 // a's alarm arrives late: b is due as well
 
         assertEquals(listOf("a", "b"), actions.fire("a").map { it.id })
 
@@ -58,6 +58,25 @@ class EngineActionsTest {
         assertEquals(listOf(EngineEventType.FIRED, EngineEventType.FIRED), queued.map { it.type })
         assertEquals(listOf("a", "b"), queued.map { it.alertId })
         assertEquals(listOf(now, now), queued.map { it.atUtcMs })
+        assertEquals(setOf("a", "b"), store.read().presented.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `a later sibling is not collected and is still armed`() {
+        val a = alert("a", NOW + MINUTE_MS, group = "G")
+        val b = alert("b", NOW + MINUTE_MS + 20_000, group = "G")
+        scheduler.applyPlan(listOf(a, b))
+        now = NOW + MINUTE_MS
+
+        assertEquals(listOf("a"), actions.fire("a").map { it.id })
+
+        assertEquals(listOf(listOf(a)), presenter.presented)
+        assertTrue(scheduler.isArmed(b))
+        assertEquals(listOf("b"), store.read().plan.map { it.id })
+
+        now = NOW + MINUTE_MS + 20_000 // b's own alarm
+        assertEquals(listOf("b"), actions.fire("b").map { it.id })
+        assertEquals(listOf(listOf(a), listOf(b)), presenter.presented)
         assertEquals(setOf("a", "b"), store.read().presented.map { it.id }.toSet())
     }
 

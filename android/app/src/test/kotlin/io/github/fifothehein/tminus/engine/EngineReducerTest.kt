@@ -7,11 +7,12 @@ import org.junit.Test
 
 class EngineReducerTest {
     @Test
-    fun `fire moves the alert and its coalesce siblings to presented`() {
+    fun `fire moves the alert and its due coalesce siblings to presented`() {
         val a = alert("a", NOW, start = NOW + MINUTE_MS, title = "Sprint planning", group = "G")
         val b = alert("b", NOW + 20_000, start = NOW + MINUTE_MS, title = "Architecture review", group = "G")
         val other = alert("c", NOW + 10 * MINUTE_MS)
-        val t = EngineReducer.fire(EngineState(plan = listOf(a, other), snoozes = listOf(b)), "a")
+        // a's alarm was delivered late, so b is already due too: both ring together.
+        val t = EngineReducer.fire(EngineState(plan = listOf(a, other), snoozes = listOf(b)), "a", NOW + 20_000)
 
         assertEquals(listOf("b", "a"), t.affected.map { it.id }) // same start, then by title
         assertEquals(listOf("b"), t.toCancel.map { it.id }) // the sibling's own alarm must not ring again
@@ -21,9 +22,21 @@ class EngineReducerTest {
     }
 
     @Test
+    fun `fire leaves a sibling that is not due yet scheduled`() {
+        val a = alert("a", NOW, group = "G")
+        val later = alert("b", NOW + 20_000, group = "G")
+        val t = EngineReducer.fire(EngineState(plan = listOf(a, later)), "a", NOW)
+
+        assertEquals(listOf("a"), t.affected.map { it.id })
+        assertTrue(t.toCancel.isEmpty()) // b keeps its own alarm and rings at its own time
+        assertEquals(listOf("b"), t.state.plan.map { it.id })
+        assertEquals(listOf("a"), t.state.presented.map { it.id })
+    }
+
+    @Test
     fun `fire also finds snoozes and test alerts`() {
         val test = alert("test-1", NOW, occurrenceKey = "test|1")
-        val t = EngineReducer.fire(EngineState(tests = listOf(test)), "test-1")
+        val t = EngineReducer.fire(EngineState(tests = listOf(test)), "test-1", NOW)
         assertEquals(listOf(test), t.affected)
         assertTrue(t.state.tests.isEmpty())
     }
@@ -31,7 +44,7 @@ class EngineReducerTest {
     @Test
     fun `firing an id that is gone changes nothing`() {
         val state = EngineState(plan = listOf(alert("a", NOW)))
-        val t = EngineReducer.fire(state, "missing")
+        val t = EngineReducer.fire(state, "missing", NOW)
         assertSame(state, t.state)
         assertTrue(t.affected.isEmpty())
     }

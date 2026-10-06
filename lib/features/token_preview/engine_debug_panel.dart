@@ -30,6 +30,11 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
   String? _status;
   StreamSubscription<EngineEvent>? _events;
 
+  /// Events the live stream delivered since the last drain, in arrival order. The
+  /// engine hands each event to either the live stream or `drainEvents()`, never
+  /// both, so the panel keeps what it received live for the drain line to show.
+  final List<EngineEvent> _pending = [];
+
   @override
   void initState() {
     super.initState();
@@ -62,7 +67,10 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
   /// Every engine event (fired, snoozed, dismissed …) changes what is scheduled.
   void _listenToEngine() {
     if (_events != null || !mounted) return;
-    _events = _engine.events.listen((_) => _reload(), onError: (Object _) {});
+    _events = _engine.events.listen((event) {
+      _pending.add(event);
+      _reload();
+    }, onError: (Object _) {});
   }
 
   void _reload() {
@@ -95,7 +103,9 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
   }
 
   Future<String> _drain() async {
-    final events = await _engine.drainEvents();
+    final drained = await _engine.drainEvents();
+    final events = [..._pending, ...drained];
+    _pending.clear();
     if (events.isEmpty) return 'No new engine events';
     return 'Drained ${events.length}: ${events.map((e) => e.type.name).join(', ')}';
   }

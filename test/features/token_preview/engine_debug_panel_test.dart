@@ -14,7 +14,17 @@ void main() {
   const events = EventChannel(AlarmEngine.eventChannelName);
   final calls = <MethodCall>[];
   var upcoming = <Map<String, Object?>>[];
+  var drained = <Map<String, Object?>>[];
   MockStreamHandlerEventSink? eventSink;
+
+  Map<String, Object?> event(String type) => {
+    'type': type,
+    'alertId': 'a',
+    'occurrenceKey': 'src|a|occ',
+    'startUtcMs': 1790000060000,
+    'atUtcMs': 1790000000000,
+    'snoozeUntilUtcMs': null,
+  };
 
   void mockEngine() {
     upcoming = [
@@ -25,6 +35,7 @@ void main() {
         'title': 'Sprint planning',
       },
     ];
+    drained = [event('fired')];
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       return switch (call.method) {
@@ -36,16 +47,7 @@ void main() {
           'alarmStreamMuted': false,
           'upcoming': upcoming,
         },
-        'drainEvents' => [
-          {
-            'type': 'fired',
-            'alertId': 'a',
-            'occurrenceKey': 'src|a|occ',
-            'startUtcMs': 1790000060000,
-            'atUtcMs': 1790000000000,
-            'snoozeUntilUtcMs': null,
-          },
-        ],
+        'drainEvents' => drained,
         _ => null,
       };
     });
@@ -169,6 +171,31 @@ void main() {
     await tester.tap(find.text('Drain events'));
     await tester.pumpAndSettle();
     expect(find.text('Drained 1: fired'), findsOneWidget);
+  });
+
+  testWidgets('Drain events includes the events already seen live', (
+    tester,
+  ) async {
+    await pumpPanel(tester);
+    // The engine de-duplicates: events the live stream delivered are dropped when
+    // drained again, so the panel itself must remember them. The native side still
+    // returns the same two events (same dedup keys) from drainEvents.
+    final live = [event('fired'), event('dismissed')];
+    drained = live;
+    await tester.runAsync(() async {
+      for (final e in live) {
+        eventSink!.success(e);
+      }
+      await Future<void>.delayed(Duration.zero);
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Drain events'));
+    await tester.pumpAndSettle();
+    expect(find.text('Drained 2: fired, dismissed'), findsOneWidget);
+
+    await tester.tap(find.text('Drain events'));
+    await tester.pumpAndSettle();
+    expect(find.text('No new engine events'), findsOneWidget);
   });
 
   testWidgets(

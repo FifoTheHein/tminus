@@ -136,8 +136,9 @@ class AlarmSchedulerTest {
 
     @Test
     fun `snoozes survive while their occurrence is still planned`() {
-        val planned = alert("a", NOW + 20 * MINUTE_MS, occurrenceKey = "src|m|occ")
-        val snooze = alert("z:s", NOW + 5 * MINUTE_MS, occurrenceKey = "src|m|occ")
+        val start = NOW + 21 * MINUTE_MS
+        val planned = alert("a", NOW + 20 * MINUTE_MS, occurrenceKey = "src|m|occ", start = start)
+        val snooze = alert("z:s", NOW + 5 * MINUTE_MS, occurrenceKey = "src|m|occ", start = start)
         store.write(EngineState(snoozes = listOf(snooze)))
         scheduler.arm(snooze)
 
@@ -170,6 +171,22 @@ class AlarmSchedulerTest {
         assertEquals(ApplyResult(1, 1, 0), scheduler.applyPlan(listOf(alert("other", NOW + HOUR))))
         assertTrue(store.read().snoozes.isEmpty())
         assertFalse(scheduler.isArmed(snooze))
+    }
+
+    @Test
+    fun `a snooze whose occurrence moved is dropped`() {
+        val start = NOW + 10 * MINUTE_MS
+        val snooze = alert("x:s", NOW + 5 * MINUTE_MS, occurrenceKey = "src|m|occ", start = start)
+        store.write(EngineState(snoozes = listOf(snooze)))
+        scheduler.arm(snooze)
+        val moved = alert("x", start + 29 * MINUTE_MS, occurrenceKey = "src|m|occ", start = start + 30 * MINUTE_MS)
+
+        assertEquals(ApplyResult(armed = 1, cancelled = 1, kept = 0), scheduler.applyPlan(listOf(moved)))
+
+        assertTrue(store.read().snoozes.isEmpty())
+        assertFalse(scheduler.isArmed(snooze))
+        assertTrue(scheduler.isArmed(moved))
+        assertEquals(setOf("x"), scheduled().keys)
     }
 
     @Test

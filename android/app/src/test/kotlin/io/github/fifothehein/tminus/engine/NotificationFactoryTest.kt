@@ -112,6 +112,79 @@ class NotificationFactoryTest {
             assertNotNull(n.fullScreenIntent)
         }
         assertEquals(alarm.event.color.toInt(), factory.ringing(listOf(alarm)).color) // the calendar colour fills it
+        assertNull(factory.ringing(listOf(alarm)).group) // outside the heads-up and missed groups
+    }
+
+    private fun Notification.isSummary() = flags and Notification.FLAG_GROUP_SUMMARY != 0
+
+    private fun assertChildWithSummary(child: Notification, group: String, summaryId: Int, channel: String) {
+        // Android 16 force-groups (and marks FLAG_SILENT) an app's ungrouped notifications, and a group
+        // child without a posted summary. An app group with its summary is left alone.
+        assertEquals(group, child.group)
+        assertFalse(child.isSummary())
+        assertEquals(Notification.GROUP_ALERT_CHILDREN, child.groupAlertBehavior) // the child alerts
+        val summary = shadowOf(manager).getNotification(summaryId)
+        assertNotNull("summary posted", summary)
+        assertEquals(group, summary.group)
+        assertTrue(summary.isSummary())
+        assertEquals(Notification.GROUP_ALERT_CHILDREN, summary.groupAlertBehavior) // the summary never alerts
+        assertEquals(channel, summary.channelId)
+        assertFalse(summary.flags and FLAG_SILENT != 0)
+        assertFalse(child.flags and FLAG_SILENT != 0)
+    }
+
+    @Test
+    fun `a heads-up is a child of the heads-up group and the group's summary is posted`() {
+        val a = meeting()
+        factory.postHeadsUp(listOf(a))
+        val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId(a.coalesceGroup))
+        assertChildWithSummary(n, NotificationFactory.GROUP_HEADS_UP, NotificationFactory.HEADS_UP_SUMMARY_ID, NotificationFactory.CHANNEL_HEADS_UP)
+        assertEquals(NotificationFactory.CHANNEL_HEADS_UP, n.channelId)
+        assertEquals(listOf("Snooze", "Dismiss all"), n.actionTitles()) // still at most 3 actions
+        assertEquals(NotificationActionReceiver.ACTION_DISMISS, shadowOf(n.deleteIntent).savedIntent.action)
+    }
+
+    @Test
+    fun `a silent re-post stays in the heads-up group`() {
+        val a = meeting()
+        factory.postHeadsUp(listOf(a), silent = true)
+        val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId(a.coalesceGroup))
+        assertEquals(NotificationFactory.GROUP_HEADS_UP, n.group)
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID))
+    }
+
+    @Test
+    fun `a missed notification is a child of the missed group and the group's summary is posted`() {
+        val d = alert("d", start - MINUTE_MS, start = start + 4 * HOUR, title = "Design review")
+        factory.postMissed(d)
+        val n = shadowOf(manager).getNotification(NotificationFactory.missedId("d"))
+        assertChildWithSummary(n, NotificationFactory.GROUP_MISSED, NotificationFactory.MISSED_SUMMARY_ID, NotificationFactory.CHANNEL_MISSED)
+    }
+
+    @Test
+    fun `cancelling the last heads-up cancels the group summary`() {
+        val a = alert("a", start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, start = start, group = "A")
+        val b = alert("b", start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, start = start, group = "B")
+        factory.postHeadsUp(listOf(a))
+        factory.postHeadsUp(listOf(b))
+        factory.postMissed(alert("d", start - MINUTE_MS, start = start + 4 * HOUR))
+
+        factory.cancelHeadsUp("A")
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID)) // b is still showing
+
+        factory.cancelHeadsUp("B")
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID))
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.MISSED_SUMMARY_ID)) // the missed group is separate
+    }
+
+    @Test
+    fun `cancelling several heads-ups at once cancels the summary when none is left`() {
+        val a = alert("a", start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, start = start, group = "A")
+        val b = alert("b", start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, start = start, group = "B")
+        factory.postHeadsUp(listOf(a))
+        factory.postHeadsUp(listOf(b))
+        factory.cancelHeadsUpNotifications(listOf(NotificationFactory.headsUpId("A"), NotificationFactory.headsUpId("B")))
+        assertTrue(shadowOf(manager).allNotifications.isEmpty())
     }
 
     private companion object {

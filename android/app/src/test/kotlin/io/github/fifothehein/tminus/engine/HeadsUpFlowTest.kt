@@ -64,8 +64,20 @@ class HeadsUpFlowTest {
         EventQueue(context).drain()
         tap(NotificationActionReceiver.ACTION_DISMISS_ALL, h)
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId(h.coalesceGroup)))
+        assertTrue(shadowOf(manager).allNotifications.isEmpty()) // the group summary went with its last child
         assertEquals(listOf(EngineEventType.DISMISSED_ALL), EventQueue(context).drain().map { it.type })
         assertEquals(listOf(Ack(h.occurrenceKey, h.event.startUtcMs)), store.read().acks)
+    }
+
+    @Test
+    fun `swiping the last heads-up away is a single Dismiss and clears the group summary`() {
+        val h = fireHeadsUp()
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID))
+        EventQueue(context).drain()
+        val swipe = shadowOf(manager).getNotification(NotificationFactory.headsUpId(h.coalesceGroup)).deleteIntent
+        NotificationActionReceiver().onReceive(context, shadowOf(swipe).savedIntent)
+        assertEquals(listOf(EngineEventType.DISMISSED), EventQueue(context).drain().map { it.type })
+        assertTrue(shadowOf(manager).allNotifications.isEmpty())
     }
 
     @Test
@@ -94,7 +106,11 @@ class HeadsUpFlowTest {
         fireGroupOfTwo()
         val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId("G"))
         assertEquals("2 meetings starting", n.title())
-        assertEquals(1, shadowOf(manager).allNotifications.size)
+        // One heads-up for the group, plus the heads-up group's summary.
+        assertEquals(
+            listOf(NotificationFactory.headsUpId("G"), NotificationFactory.HEADS_UP_SUMMARY_ID).sorted(),
+            manager.activeNotifications.map { it.id }.sorted(),
+        )
     }
 
     @Test

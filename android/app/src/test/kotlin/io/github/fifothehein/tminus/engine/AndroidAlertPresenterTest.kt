@@ -83,6 +83,31 @@ class AndroidAlertPresenterTest {
         AndroidAlertPresenter(app, store).withdraw(listOf(a, h))
         assertEquals(setOf("b"), RingingSession.ids)
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("H")))
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID)) // its last child went
+    }
+
+    @Test
+    fun `withdrawing one of two heads-ups keeps the group summary`() {
+        val h = alert("h", NOW, strength = Strength.HEADS_UP, group = "H")
+        val k = alert("k", NOW, strength = Strength.HEADS_UP, group = "K")
+        NotificationFactory(app).postHeadsUp(listOf(h))
+        NotificationFactory(app).postHeadsUp(listOf(k))
+        store.write(EngineState(presented = listOf(k)))
+        AndroidAlertPresenter(app, store).withdraw(listOf(h))
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("H")))
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("K")))
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID))
+    }
+
+    @Test
+    fun `an alarm absorbing the only heads-up cancels the heads-up summary too`() {
+        val h = alert("h", NOW, strength = Strength.HEADS_UP, group = "G")
+        val factory = NotificationFactory(app)
+        factory.postHeadsUp(listOf(h))
+        val a = alert("a", NOW + 2_000, group = "G")
+        store.write(EngineState(presented = listOf(h, a)))
+        AndroidAlertPresenter(app, store, factory) { _, _ -> }.present(listOf(a))
+        assertTrue(shadowOf(manager).allNotifications.isEmpty())
     }
 
     @Test
@@ -101,6 +126,7 @@ class AndroidAlertPresenterTest {
         assertEquals(listOf(listOf("a", "h")), started)
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
         assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("O"))) // another group keeps its own
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.HEADS_UP_SUMMARY_ID)) // and the summary
     }
 
     @Test

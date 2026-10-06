@@ -8,7 +8,9 @@ import android.net.Uri
 /** AlarmManager's target for every alert alarm. */
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // Task 10 connects this to EngineActions.fire.
+        if (intent.action != ACTION_FIRE) return
+        val alertId = intent.getStringExtra(EXTRA_ALERT_ID) ?: return
+        EngineActions.create(context).fire(alertId)
     }
 
     companion object {

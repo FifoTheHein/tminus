@@ -99,17 +99,73 @@ void main() {
     expect(oneMinuteBeforeEnd, hasLength(2));
   });
 
-  test('every alert of an occurrence that has ended is dropped', () {
+  test('every alert of an occurrence that ended 15 min ago is dropped', () {
+    // Decision 19: kept while max(end, start) + 15 min > now.
     expect(
-      buildPlan([resolved(planning)], now: DateTime.utc(2026, 10, 6, 8, 30)),
+      buildPlan([resolved(planning)], now: DateTime.utc(2026, 10, 6, 8, 45)),
       isEmpty,
-      reason: 'endUtc == now counts as ended',
+      reason: 'endUtc + 15 min == now counts as gone',
     );
     final plan = buildPlan([
       resolved(planning),
-      resolved(standup), // 06:45–07:15, ended
-    ], now: DateTime.utc(2026, 10, 6, 7, 20));
+      resolved(standup), // 06:45–07:15, gone at 07:30
+    ], now: DateTime.utc(2026, 10, 6, 7, 30));
     expect(plan.map((a) => a.occurrenceKey).toSet(), {planning.key});
+  });
+
+  group('kept until 15 min after the end (decision 19)', () {
+    test('a normal event 14 minutes after its end is kept', () {
+      // planning ends 08:30.
+      final plan = buildPlan([
+        resolved(planning),
+      ], now: DateTime.utc(2026, 10, 6, 8, 44));
+      expect(plan.map((a) => a.offsetMinutes), [10, 1]);
+    });
+
+    test('an event that has just ended is kept', () {
+      expect(
+        buildPlan([resolved(planning)], now: DateTime.utc(2026, 10, 6, 8, 30)),
+        hasLength(2),
+      );
+    });
+
+    final zeroLength = occ(
+      uid: 'zero',
+      start: DateTime.utc(2026, 10, 6, 8),
+      length: Duration.zero,
+    );
+
+    test('a zero-length event 10 minutes after its start is kept', () {
+      final plan = buildPlan([
+        resolved(zeroLength),
+      ], now: DateTime.utc(2026, 10, 6, 8, 10));
+      expect(plan.map((a) => a.offsetMinutes), [10, 1]);
+    });
+
+    test('a zero-length event 15 minutes after its start is dropped', () {
+      expect(
+        buildPlan([
+          resolved(zeroLength),
+        ], now: DateTime.utc(2026, 10, 6, 8, 15)),
+        isEmpty,
+      );
+    });
+
+    test('an end before the start counts from the start', () {
+      final backwards = occ(
+        uid: 'backwards',
+        start: DateTime.utc(2026, 10, 6, 8),
+        length: const Duration(minutes: -30),
+      );
+      expect(
+        buildPlan([resolved(backwards)], now: DateTime.utc(2026, 10, 6, 8, 14)),
+        hasLength(2),
+      );
+      expect(
+        buildPlan([resolved(backwards)], now: DateTime.utc(2026, 10, 6, 8, 15)),
+        isEmpty,
+      );
+    });
   });
 
   test('acks still drop past alerts of a running occurrence', () {

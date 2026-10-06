@@ -22,6 +22,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
 import org.robolectric.shadows.ShadowMediaPlayer
+import org.robolectric.shadows.ShadowPowerManager
 import org.robolectric.shadows.util.DataSource
 import java.time.Duration
 
@@ -129,6 +130,26 @@ class RingingServiceTest {
         assertEquals(listOf("b"), RingingSession.alerts.map { it.id })
         assertTrue(service.isSounding)
         assertTrue(shadowOf(service).lastForegroundNotification.title().endsWith("Design review"))
+    }
+
+    @Test
+    fun `the ring timeout and wake lock restart from the newest alert's ringTimeoutSec`() {
+        val a = alert("a", NOW) // ringTimeoutSec = 120
+        val b = alert("b", NOW + 30_000, group = "B").let { it.copy(sound = it.sound.copy(ringTimeoutSec = 300)) }
+        PlanStore(context).write(EngineState(presented = listOf(a, b)))
+        fun ring(id: String) = Intent(context, RingingService::class.java)
+            .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf(id))
+        val controller = Robolectric.buildService(RingingService::class.java, ring("a")).create().startCommand(0, 1)
+        val looper = shadowOf(Looper.getMainLooper())
+        looper.idleFor(Duration.ofSeconds(60))
+
+        controller.withIntent(ring("b")).startCommand(0, 2) // b joins the session
+        looper.idleFor(Duration.ofSeconds(200)) // past a's 120 s, inside b's 300 s
+
+        assertTrue(EventQueue(context).peek().none { it.type == EngineEventType.MISSED })
+        assertTrue(ShadowPowerManager.getLatestWakeLock().isHeld)
+        looper.idleFor(Duration.ofSeconds(101))
+        assertEquals(setOf("a", "b"), EventQueue(context).drain().filter { it.type == EngineEventType.MISSED }.map { it.alertId }.toSet())
     }
 
     @Test

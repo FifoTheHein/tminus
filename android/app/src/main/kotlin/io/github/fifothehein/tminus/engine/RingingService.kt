@@ -81,9 +81,11 @@ class RingingService : Service() {
         }
         RingingSession.add(alerts)
         val lead = session.firstOrNull { it.strength == Strength.ALARM } ?: session.first()
-        if (!alerting) startAlerting(lead.sound)
+        // The ring timeout and the wake lock restart from the newest alert (the ones this start added).
+        val newest = alerts.firstOrNull { it.strength == Strength.ALARM } ?: alerts.firstOrNull() ?: lead
+        if (!alerting) startAlerting(lead.sound) else holdWakeLock(newest.sound)
         handler.removeCallbacks(timeout)
-        handler.postDelayed(timeout, lead.sound.ringTimeoutSec * 1_000L)
+        handler.postDelayed(timeout, newest.sound.ringTimeoutSec * 1_000L)
         return START_NOT_STICKY
     }
 
@@ -110,7 +112,7 @@ class RingingService : Service() {
 
     private fun startAlerting(sound: Sound) {
         alerting = true
-        acquireWakeLock(sound)
+        holdWakeLock(sound)
         requestAudioFocus()
         startSound(sound)
         if (sound.vibrate) startVibration()
@@ -212,13 +214,13 @@ class RingingService : Service() {
         vibrator = v
     }
 
-    private fun acquireWakeLock(sound: Sound) {
-        wakeLock = getSystemService(PowerManager::class.java)
+    /** Acquires the wake lock, or extends it, until 30 s after [sound]'s ring timeout. */
+    private fun holdWakeLock(sound: Sound) {
+        val lock = wakeLock ?: getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tminus:ringing")
-            .apply {
-                setReferenceCounted(false)
-                acquire((sound.ringTimeoutSec + 30) * 1_000L)
-            }
+            .apply { setReferenceCounted(false) }
+        lock.acquire((sound.ringTimeoutSec + 30) * 1_000L) // not reference counted: restarts the timeout
+        wakeLock = lock
     }
 
     private fun foregroundType(): Int =

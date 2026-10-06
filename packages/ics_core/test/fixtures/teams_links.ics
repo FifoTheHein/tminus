@@ -1,0 +1,48 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:Microsoft Exchange Server 2010
+BEGIN:VEVENT
+UID:outlook-desc
+SUMMARY:Sprint planning
+DESCRIPTION:\n___________________________________________________________________
+ _____________\nMicrosoft Teams meeting\nJoin on your computer\, mobile ap
+ p or room device\nClick here to join the meeting<https://teams.microsoft.com
+ /l/meetup-join/19%3ameeting_NjA1ZTI4%40thread.v2/0?context=%7b%22Tid%22%3a
+ %22t%22%7d>\nMeeting ID: 123 456 789\nPasscode: abc123\n
+LOCATION:Microsoft Teams Meeting
+ORGANIZER;CN="Thandi M.":mailto:thandi@example.com
+DTSTART;TZID=South Africa Standard Time:20261013T100000
+DTEND;TZID=South Africa Standard Time:20261013T110000
+X-MICROSOFT-CDO-BUSYSTATUS:BUSY
+END:VEVENT
+BEGIN:VEVENT
+UID:location-only
+SUMMARY:Location link
+LOCATION:https://teams.microsoft.com/l/meetup-join/19%3ameeting_LOC%40thread.v2/0?context=%7b%7d.
+DTSTART;TZID=South Africa Standard Time:20261013T110000
+DTEND;TZID=South Africa Standard Time:20261013T113000
+END:VEVENT
+BEGIN:VEVENT
+UID:safelinks
+SUMMARY:Safe Links
+DESCRIPTION:Join: <https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fteams.microsoft.com%2Fl%2Fmeetup-join%2F19%253ameeting_SAFE%2540thread.v2%2F0&data=05%7C01>
+DTSTART;TZID=South Africa Standard Time:20261013T120000
+DTEND;TZID=South Africa Standard Time:20261013T123000
+END:VEVENT
+BEGIN:VEVENT
+UID:both
+SUMMARY:Description wins
+DESCRIPTION:<https://teams.microsoft.com/l/meetup-join/19%3ameeting_DESC%40thread.v2/0>
+LOCATION:https://teams.microsoft.com/l/meetup-join/19%3ameeting_OTHER%40thread.v2/0
+DTSTART;TZID=South Africa Standard Time:20261013T130000
+DTEND;TZID=South Africa Standard Time:20261013T133000
+END:VEVENT
+BEGIN:VEVENT
+UID:none
+SUMMARY:In person
+DESCRIPTION:Bring snacks. Zoom backup: https://zoom.us/j/1
+LOCATION:Boardroom
+DTSTART;TZID=South Africa Standard Time:20261013T140000
+DTEND;TZID=South Africa Standard Time:20261013T150000
+END:VEVENT
+END:VCALENDAR

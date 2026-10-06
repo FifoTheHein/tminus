@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../model/alert.dart';
 import '../model/alert_profile.dart';
 import '../model/event_override.dart';
 import 'app_database.dart';
@@ -11,18 +12,22 @@ class OverrideRepository {
 
   final AppDatabase _db;
 
-  Future<List<EventOverride>> all() =>
-      _db.select(_db.overrides).map(_fromRow).get();
+  /// Rows whose custom alerts can't be read are left out (decision 15).
+  Future<List<EventOverride>> all() async =>
+      _readable(await _db.select(_db.overrides).get());
 
   Stream<List<EventOverride>> watchAll() =>
-      _db.select(_db.overrides).map(_fromRow).watch();
+      _db.select(_db.overrides).watch().map(_readable);
 
-  Future<EventOverride?> find(OverrideScope scope, String target) =>
-      (_db.select(
-            _db.overrides,
-          )..where((o) => o.scope.equalsValue(scope) & o.target.equals(target)))
-          .map(_fromRow)
-          .getSingleOrNull();
+  /// Null when there is no row, or its custom alerts can't be read.
+  Future<EventOverride?> find(OverrideScope scope, String target) async {
+    final row =
+        await (_db.select(_db.overrides)..where(
+              (o) => o.scope.equalsValue(scope) & o.target.equals(target),
+            ))
+            .getSingleOrNull();
+    return row == null ? null : _fromRow(row);
+  }
 
   /// Upserts; an empty override (nothing set) deletes the row instead.
   Future<void> save(EventOverride o) {
@@ -64,13 +69,26 @@ class OverrideRepository {
         );
       });
 
-  static EventOverride _fromRow(OverrideRow r) => EventOverride(
-    scope: r.scope,
-    target: r.target,
-    profileId: r.profileId,
-    customAlerts: r.customAlertsJson == null
-        ? null
-        : alertsFromJson(jsonDecode(r.customAlertsJson!) as List<Object?>),
-    enabled: r.enabled,
-  );
+  static List<EventOverride> _readable(List<OverrideRow> rows) => [
+    for (final r in rows) ?_fromRow(r),
+  ];
+
+  /// Null when the custom alerts can't be read.
+  static EventOverride? _fromRow(OverrideRow r) {
+    final List<AlertSpec>? customAlerts;
+    try {
+      customAlerts = r.customAlertsJson == null
+          ? null
+          : alertsFromJson(jsonDecode(r.customAlertsJson!));
+    } on FormatException {
+      return null;
+    }
+    return EventOverride(
+      scope: r.scope,
+      target: r.target,
+      profileId: r.profileId,
+      customAlerts: customAlerts,
+      enabled: r.enabled,
+    );
+  }
 }

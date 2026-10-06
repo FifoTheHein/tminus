@@ -73,13 +73,24 @@ List<Map<String, Object?>> alertsToJson(List<AlertSpec> alerts) => [
     {'offsetMinutes': a.offsetMinutes, 'strength': a.strength.name},
 ];
 
-List<AlertSpec> alertsFromJson(List<Object?> json) => [
-  for (final raw in json.cast<Map<String, Object?>>())
-    AlertSpec(
-      raw['offsetMinutes'] as int,
-      AlertStrength.values.byName(raw['strength'] as String),
-    ),
-];
+/// Reads [alertsToJson] output. Throws [FormatException] for anything else,
+/// including an unknown strength or a negative offset, so stored JSON never
+/// trips [AlertSpec]'s assert (decision 15).
+List<AlertSpec> alertsFromJson(Object? json) {
+  if (json is! List<Object?>) {
+    throw FormatException('Alert list is not a JSON array', json);
+  }
+  return [
+    for (final raw in json)
+      switch (raw) {
+        {'offsetMinutes': final int offset, 'strength': final String name}
+            when offset >= 0 &&
+                AlertStrength.values.asNameMap()[name] != null =>
+          AlertSpec(offset, AlertStrength.values.byName(name)),
+        _ => throw FormatException('Not an alert', raw),
+      },
+  ];
+}
 
 /// The four built-in profiles from spec §6. The ids are part of the roadmap
 /// contract (§4) and never change.

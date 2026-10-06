@@ -17,13 +17,37 @@ ProfilesCompanion profileToCompanion(AlertProfile p, {required int position}) =>
       position: position,
     );
 
+/// Throws [FormatException] when [r]'s alert or sound JSON can't be read.
 AlertProfile profileFromRow(ProfileRow r) => AlertProfile(
   id: r.id,
   name: r.name,
-  alerts: alertsFromJson(jsonDecode(r.alertsJson) as List<Object?>),
-  sound: SoundSettings.fromJson(
-    (jsonDecode(r.soundJson) as Map).cast<String, Object?>(),
-  ),
+  alerts: alertsFromJson(jsonDecode(r.alertsJson)),
+  sound: _soundFromJson(jsonDecode(r.soundJson)),
   ringsInQuietMode: r.ringsInQuietMode,
   builtIn: r.builtIn,
 );
+
+/// [profileFromRow] for reads that must not fail (decision 15): a row that
+/// can't be read gives the built-in definition for a built-in id, and null
+/// (leave it out) for any other profile.
+AlertProfile? readableProfileFromRow(ProfileRow r) {
+  try {
+    return profileFromRow(r);
+  } on FormatException {
+    for (final p in BuiltInProfiles.all) {
+      if (p.id == r.id) return p;
+    }
+    return null;
+  }
+}
+
+SoundSettings _soundFromJson(Object? j) {
+  if (j is Map<String, Object?> &&
+      j['toneUri'] is String? &&
+      j['vibrate'] is bool &&
+      j['gradualVolume'] is bool &&
+      j['ringTimeoutSec'] is int) {
+    return SoundSettings.fromJson(j);
+  }
+  throw FormatException('Not sound settings', j);
+}

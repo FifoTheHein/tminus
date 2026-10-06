@@ -4768,19 +4768,19 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SettingsTable settings = $SettingsTable(this);
   late final Index occurrencesStart = Index(
     'occurrences_start',
-    'CREATE INDEX occurrences_start ON occurrences (start_utc_ms)',
+    'CREATE INDEX IF NOT EXISTS occurrences_start ON occurrences (start_utc_ms)',
   );
   late final Index occurrencesSource = Index(
     'occurrences_source',
-    'CREATE INDEX occurrences_source ON occurrences (source_id)',
+    'CREATE INDEX IF NOT EXISTS occurrences_source ON occurrences (source_id)',
   );
   late final Index alertHistoryStart = Index(
     'alert_history_start',
-    'CREATE INDEX alert_history_start ON alert_history (start_utc_ms)',
+    'CREATE INDEX IF NOT EXISTS alert_history_start ON alert_history (start_utc_ms)',
   );
   late final Index syncLogAt = Index(
     'sync_log_at',
-    'CREATE INDEX sync_log_at ON sync_log (at_utc_ms)',
+    'CREATE INDEX IF NOT EXISTS sync_log_at ON sync_log (at_utc_ms)',
   );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>

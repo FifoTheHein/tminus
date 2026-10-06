@@ -1,5 +1,8 @@
+import 'dart:io' show sleep;
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:sqlite3/common.dart';
 
 import '../model/alert_history_entry.dart';
 import '../model/alert_profile.dart';
@@ -30,12 +33,49 @@ part 'app_database.g.dart';
 )
 class AppDatabase extends _$AppDatabase {
   /// Tests pass `DatabaseConnection(NativeDatabase.memory(),
-  /// closeStreamsSynchronously: true)`.
+  /// closeStreamsSynchronously: true)`. A file-backed executor should pass
+  /// [configureConnection] as its `setup` so the pragmas also cover the
+  /// schema check and migrations that run before [MigrationStrategy.beforeOpen].
   AppDatabase(super.executor);
 
   /// The on-device database (`tminus.sqlite` in the app's documents
   /// directory). Works in the UI isolate and in the headless sync isolate.
-  factory AppDatabase.open() => AppDatabase(driftDatabase(name: 'tminus'));
+  factory AppDatabase.open() => AppDatabase(
+    driftDatabase(
+      name: 'tminus',
+      native: const DriftNativeOptions(setup: configureConnection),
+    ),
+  );
+
+  /// How long a connection waits for another connection's write lock before
+  /// failing with `SQLITE_BUSY` (decision 14).
+  static const busyTimeoutMs = 5000;
+
+  /// Pragmas every connection needs so the UI isolate and the headless sync
+  /// isolate can both write (decision 14): wait for a lock instead of failing,
+  /// and use WAL so readers never block the writer. On `:memory:` the journal
+  /// mode stays `memory`, which is fine.
+  static void configureConnection(CommonDatabase raw) {
+    raw.execute('PRAGMA busy_timeout = $busyTimeoutMs');
+    // Switching to WAL can fail with SQLITE_BUSY without waiting on the busy
+    // timeout while another connection is opening the same file, so retry
+    // for up to the same timeout.
+    final deadline = DateTime.now().add(
+      const Duration(milliseconds: busyTimeoutMs),
+    );
+    while (true) {
+      try {
+        raw.execute('PRAGMA journal_mode = WAL');
+        return;
+      } on SqliteException catch (e) {
+        if (e.resultCode != SqlError.SQLITE_BUSY ||
+            DateTime.now().isAfter(deadline)) {
+          rethrow;
+        }
+        sleep(const Duration(milliseconds: 10));
+      }
+    }
+  }
 
   @override
   int get schemaVersion => 1;
@@ -49,6 +89,9 @@ class AppDatabase extends _$AppDatabase {
       throw UnsupportedError('No migration from schema $from to $to');
     },
     beforeOpen: (details) async {
+      // Repeats [configureConnection] for executors opened without it.
+      await customStatement('PRAGMA busy_timeout = $busyTimeoutMs');
+      await customStatement('PRAGMA journal_mode = WAL');
       await customStatement('PRAGMA foreign_keys = ON');
       await seedBuiltInProfiles();
     },

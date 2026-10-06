@@ -14,36 +14,29 @@ class AlertHistoryRepository {
   static const ackWindow = Duration(hours: 24);
 
   /// Inserts [entry] unless the same (type, alertId, atUtc) is already stored
-  /// (an event can arrive both live and from `drainEvents`). Returns true when
-  /// a row was inserted.
-  Future<bool> record(AlertHistoryEntry entry) => _db.transaction(() async {
-    final at = entry.atUtc.millisecondsSinceEpoch;
-    final duplicate =
-        await (_db.select(_db.alertHistory)..where(
-              (h) =>
-                  h.type.equalsValue(entry.type) &
-                  h.alertId.equals(entry.alertId) &
-                  h.atUtcMs.equals(at),
-            ))
-            .getSingleOrNull();
-    if (duplicate != null) return false;
-    await _db
+  /// (an event can arrive both live and from `drainEvents`). The first row
+  /// wins (decision 24). Returns true when a row was inserted. One
+  /// `INSERT OR IGNORE` on the unique key, so a concurrent duplicate from
+  /// another connection returns false instead of throwing (decision 14).
+  Future<bool> record(AlertHistoryEntry entry) async {
+    final inserted = await _db
         .into(_db.alertHistory)
-        .insert(
+        .insertReturningOrNull(
           AlertHistoryCompanion.insert(
             type: entry.type,
             alertId: entry.alertId,
             occurrenceKey: entry.occurrenceKey,
             startUtcMs: entry.startUtc.millisecondsSinceEpoch,
-            atUtcMs: at,
+            atUtcMs: entry.atUtc.millisecondsSinceEpoch,
             snoozeUntilUtcMs: Value(
               entry.snoozeUntilUtc?.millisecondsSinceEpoch,
             ),
             title: Value(entry.title),
           ),
+          mode: InsertMode.insertOrIgnore,
         );
-    return true;
-  });
+    return inserted != null;
+  }
 
   /// Newest first.
   Future<List<AlertHistoryEntry>> recent({int limit = 100}) =>

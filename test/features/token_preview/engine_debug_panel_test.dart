@@ -11,9 +11,20 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   const channel = MethodChannel(AlarmEngine.methodChannelName);
+  const events = EventChannel(AlarmEngine.eventChannelName);
   final calls = <MethodCall>[];
+  var upcoming = <Map<String, Object?>>[];
+  MockStreamHandlerEventSink? eventSink;
 
   void mockEngine() {
+    upcoming = [
+      {
+        'id': 'a',
+        'fireAtUtcMs': 1790000000000,
+        'strength': 'alarm',
+        'title': 'Sprint planning',
+      },
+    ];
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       return switch (call.method) {
@@ -23,14 +34,7 @@ void main() {
           'canScheduleExactAlarms': true,
           'ignoringBatteryOptimizations': false,
           'alarmStreamMuted': false,
-          'upcoming': [
-            {
-              'id': 'a',
-              'fireAtUtcMs': 1790000000000,
-              'strength': 'alarm',
-              'title': 'Sprint planning',
-            },
-          ],
+          'upcoming': upcoming,
         },
         'drainEvents' => [
           {
@@ -45,7 +49,20 @@ void main() {
         _ => null,
       };
     });
+    messenger.setMockStreamHandler(
+      events,
+      MockStreamHandler.inline(
+        onListen: (arguments, sink) {
+          eventSink = sink;
+        },
+        onCancel: (arguments) {
+          eventSink = null;
+        },
+      ),
+    );
   }
+
+  int healthCalls() => calls.where((c) => c.method == 'getHealth').length;
 
   setUp(() {
     configureDependencies();
@@ -55,6 +72,8 @@ void main() {
   tearDown(() {
     calls.clear();
     messenger.setMockMethodCallHandler(channel, null);
+    messenger.setMockStreamHandler(events, null);
+    eventSink = null;
     getIt.reset();
   });
 
@@ -106,6 +125,43 @@ void main() {
       'delaySec': 5,
     });
     expect(find.text('Heads-up in 5 s'), findsOneWidget);
+  });
+
+  testWidgets('an engine event reloads the scheduled alerts', (tester) async {
+    await pumpPanel(tester);
+    expect(find.textContaining('Alarm · Sprint planning'), findsOneWidget);
+    expect(healthCalls(), 1);
+
+    upcoming = []; // the alarm fired, so nothing is scheduled any more
+    // Platform messages are delivered outside the test's fake async zone.
+    await tester.runAsync(() async {
+      eventSink!.success({
+        'type': 'fired',
+        'alertId': 'a',
+        'occurrenceKey': 'src|a|occ',
+        'startUtcMs': 1790000060000,
+        'atUtcMs': 1790000000000,
+        'snoozeUntilUtcMs': null,
+      });
+      await Future<void>.delayed(Duration.zero);
+    });
+    await tester.pumpAndSettle();
+
+    expect(healthCalls(), 2);
+    expect(find.text('Nothing scheduled'), findsOneWidget);
+  });
+
+  testWidgets('returning to the app reloads the scheduled alerts', (
+    tester,
+  ) async {
+    await pumpPanel(tester);
+    upcoming = [];
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(healthCalls(), 2);
+    expect(find.text('Nothing scheduled'), findsOneWidget);
   });
 
   testWidgets('Drain events reports what was drained', (tester) async {

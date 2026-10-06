@@ -7,7 +7,10 @@ data class PlanDiffResult(
     val kept: List<PlannedAlert>,
 )
 
-/** The applyPlan diff (spec §7, roadmap §3 engine rules). Pure: AlarmScheduler carries out the result. */
+/**
+ * The applyPlan diff by `id + fireAtUtcMs + strength` (spec §7, roadmap §3 engine rules).
+ * Pure: AlarmScheduler carries out the result.
+ */
 object PlanDiff {
     fun apply(old: EngineState, incoming: List<PlannedAlert>, nowUtcMs: Long): PlanDiffResult {
         val base = EngineReducer.prune(old, nowUtcMs)
@@ -17,7 +20,9 @@ object PlanDiff {
                 !base.isDismissed(a.id, a.fireAtUtcMs) &&
                 base.presented.none { it.id == a.id && it.fireAtUtcMs == a.fireAtUtcMs }
         }
-        fun sameAlarm(a: PlannedAlert, b: PlannedAlert) = a.id == b.id && a.fireAtUtcMs == b.fireAtUtcMs
+        // Strength is part of the key: a heads-up that becomes an alarm needs setAlarmClock, not its old alarm.
+        fun sameAlarm(a: PlannedAlert, b: PlannedAlert) =
+            a.id == b.id && a.fireAtUtcMs == b.fireAtUtcMs && a.strength == b.strength
         val armedBefore = base.plan.filter { it.fireAtUtcMs > nowUtcMs }
         val kept = wanted.filter { w -> armedBefore.any { sameAlarm(it, w) } }
         val newOrMoved = wanted.filter { w -> armedBefore.none { sameAlarm(it, w) } }

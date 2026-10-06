@@ -19,7 +19,7 @@
 - Explanation strings are exactly roadmap §4: `<Profile name> · <reason>` with U+00B7 MIDDLE DOT between single spaces. Reasons are `this event`, `series`, `all-day`, `free`, `tentative`, `cancelled`, `declined`, `rule: "<pattern>"`, `source default` and `default`. Other forms are `Off · this event`, `Silenced · Mute today`, `Silenced · Paused until HH:mm` (local time; with the day when the pause doesn't end today, decision 22) and `Silenced · Vacation`.
 - Occurrence key = `'$sourceId|$uid|${originalStartUtc.toUtc().toIso8601String()}'`.
 - Skip filters default to on (roadmap §5.3).
-- The plan lists **every alert of an occurrence until the occurrence ends** (`endUtc > now`), including alerts whose `fireAtUtc` has passed. Kotlin never arms past alerts, but an `occurrenceKey` missing from the plan tells Kotlin the meeting is gone, and it then drops that occurrence's snoozes (roadmap §3 "Engine rules"). Ended occurrences are dropped entirely.
+- The plan lists **every alert of an occurrence until 15 minutes after the occurrence ends** (`max(endUtc, startUtc) + 15 min > now`, decision 19), including alerts whose `fireAtUtc` has passed. Kotlin never arms past alerts, but an `occurrenceKey` missing from the plan tells Kotlin the meeting is gone, and it then drops that occurrence's snoozes (roadmap §3 "Engine rules"). After that grace period the occurrence is dropped entirely.
 - The drift database never stores an ICS URL. Sources keep only a `secureStorageKey` (spec §3, §10).
 - Instants are stored as INTEGER UTC milliseconds (`…UtcMs` columns). Model constructors normalise every `DateTime` with `plainUtc()`.
 - `flutter analyze` reports "No issues found!" and `flutter test` passes at the end of every task.

@@ -22,14 +22,16 @@ class AlarmEngineChannel internal constructor(
     context: Context,
     private val store: PlanStore = PlanStore(context),
     private val scheduler: AlarmScheduler = AlarmScheduler(context, store),
+    presenter: AlertPresenter = AndroidAlertPresenter(context, store),
     private val clock: () -> Long = System::currentTimeMillis,
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private val appContext: Context = context.applicationContext
+    private val actions = EngineActions(context, presenter, store, scheduler, clock)
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
-                "applyPlan" -> result.success(scheduler.applyPlan(EngineJson.parsePlan(call.mapArgs())).toMap())
+                "applyPlan" -> result.success(actions.applyPlan(EngineJson.parsePlan(call.mapArgs())).toMap())
                 "getHealth" -> result.success(health())
                 "testAlarm" -> {
                     testAlarm(call.mapArgs())

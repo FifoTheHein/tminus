@@ -201,7 +201,7 @@ class AlarmSchedulerTest {
     }
 
     @Test
-    fun `rearmAll arms every future alert and drops past ones`() {
+    fun `rearmAll arms every future alert and leaves overdue ones for EngineActions`() {
         store.write(
             EngineState(
                 plan = listOf(alert("f", NOW + MINUTE_MS), alert("p", NOW - MINUTE_MS)),
@@ -211,7 +211,8 @@ class AlarmSchedulerTest {
         )
         assertEquals(3, scheduler.rearmAll())
         assertEquals(setOf("f", "s:s", "test-1"), scheduled().keys)
-        assertEquals(listOf("f"), store.read().plan.map { it.id })
+        // p is overdue: EngineActions.reconcile rings it or reports it missed (never dropped silently).
+        assertEquals(listOf("f", "p"), store.read().plan.map { it.id })
     }
 
     @Test

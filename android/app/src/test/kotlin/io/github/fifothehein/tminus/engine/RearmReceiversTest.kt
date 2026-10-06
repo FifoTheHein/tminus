@@ -1,11 +1,14 @@
 package io.github.fifothehein.tminus.engine
 
 import android.app.AlarmManager
+import android.app.Application
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -19,6 +22,8 @@ import org.robolectric.shadows.ShadowAlarmManager
 class RearmReceiversTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private val alarmManager: AlarmManager = context.getSystemService(AlarmManager::class.java)
+    private val app: Application = RuntimeEnvironment.getApplication()
+    private val manager: NotificationManager = context.getSystemService(NotificationManager::class.java)
     private val now = System.currentTimeMillis() // the receivers use the real clock
     private lateinit var store: PlanStore
 
@@ -54,6 +59,34 @@ class RearmReceiversTest {
     @Test
     fun `every time trigger re-arms future alerts and drops past ones`() {
         TimeChangeReceiver.ACTIONS.forEach { assertRearms(TimeChangeReceiver(), it) }
+    }
+
+    @Test
+    fun `after a reboot or an update an overdue alarm rings and one whose event ended is reported missed`() {
+        for (action in BootReceiver.ACTIONS) {
+            store.clear()
+            EventQueue(context).drain()
+            RingingSession.clear()
+            manager.cancelAll()
+            while (shadowOf(app).nextStartedService != null) Unit
+            val due = alert("due", now - MINUTE_MS) // the phone was off when it was due; the event runs until now + 30 min
+            val ended = alert("ended", now - HOUR)
+            store.write(EngineState(plan = listOf(due, ended)))
+
+            BootReceiver().onReceive(context, Intent(action))
+
+            assertEquals(action, listOf("due"), store.read().presented.map { it.id })
+            val ringing = shadowOf(app).nextStartedService
+            assertEquals(action, RingingService::class.java.name, ringing.component!!.className)
+            assertEquals(action, arrayListOf("due"), ringing.getStringArrayListExtra(RingingService.EXTRA_ALERT_IDS))
+            assertNotNull(action, shadowOf(manager).getNotification(NotificationFactory.missedId("ended")))
+            assertEquals(
+                action,
+                listOf(EngineEventType.MISSED to "ended", EngineEventType.FIRED to "due"),
+                EventQueue(context).drain().map { it.type to it.alertId },
+            )
+            assertTrue(action, store.read().scheduled.isEmpty())
+        }
     }
 
     @Test

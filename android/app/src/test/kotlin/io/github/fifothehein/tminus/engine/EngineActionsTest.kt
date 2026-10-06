@@ -81,6 +81,78 @@ class EngineActionsTest {
     }
 
     @Test
+    fun `an overdue alert still fires when a plan arrives before its alarm is delivered`() {
+        val a = alert("a", NOW + MINUTE_MS)
+        actions.applyPlan(listOf(a))
+        now = NOW + MINUTE_MS + 10_000 // the alarm is late (inexact, Doze) and the next plan comes first
+
+        actions.applyPlan(listOf(a)) // Dart keeps listing a until its occurrence ends
+
+        assertEquals(listOf(listOf(a)), presenter.presented)
+        assertEquals(listOf(EngineEventType.FIRED to "a"), events().map { it.type to it.alertId })
+        assertEquals(listOf("a"), store.read().presented.map { it.id })
+        assertTrue(store.read().plan.isEmpty())
+    }
+
+    @Test
+    fun `an overdue alert whose event has ended is reported missed`() {
+        val ended = alert("e", NOW - HOUR) // its event ran from 59 to 29 minutes ago
+        store.write(EngineState(plan = listOf(ended)))
+
+        actions.applyPlan(emptyList()) // an occurrence that has ended is no longer planned
+
+        assertEquals(listOf(ended), presenter.missed)
+        assertTrue(presenter.presented.isEmpty())
+        assertEquals(listOf(EngineEventType.MISSED to "e"), events().map { it.type to it.alertId })
+        assertTrue(store.read().plan.isEmpty())
+    }
+
+    @Test
+    fun `an overdue alert of a meeting the plan no longer lists is dropped, not rung`() {
+        val cancelled = alert("c", NOW - MINUTE_MS) // the event runs from now for 30 min
+        store.write(EngineState(plan = listOf(cancelled)))
+
+        actions.applyPlan(listOf(alert("other", NOW + HOUR)))
+
+        assertTrue(presenter.presented.isEmpty())
+        assertTrue(presenter.missed.isEmpty())
+        assertEquals(listOf("other"), store.read().plan.map { it.id })
+    }
+
+    @Test
+    fun `rearmAll rings overdue alerts, reports ended ones missed and drops handled ones`() {
+        val start = NOW + 5 * MINUTE_MS
+        val due = alert("due", NOW - MINUTE_MS, occurrenceKey = "K", start = start)
+        val dueSnooze = alert("s:s", NOW - 30_000, occurrenceKey = "K2", start = start)
+        val test = alert("test-1", NOW - 10_000, occurrenceKey = "test|1")
+        val ended = alert("e", NOW - HOUR)
+        val acked = alert("ack", NOW - MINUTE_MS, occurrenceKey = "A", start = start)
+        val dismissed = alert("dis", NOW - MINUTE_MS)
+        val future = alert("f", NOW + HOUR)
+        store.write(
+            EngineState(
+                plan = listOf(due, ended, acked, dismissed, future),
+                snoozes = listOf(dueSnooze),
+                tests = listOf(test),
+                acks = listOf(Ack("A", start)),
+                dismissed = listOf(Dismissal("dis", NOW - MINUTE_MS)),
+            ),
+        )
+
+        actions.rearmAll()
+
+        assertEquals(listOf(ended), presenter.missed)
+        assertEquals(setOf("due", "s:s", "test-1"), presenter.presented.flatten().map { it.id }.toSet())
+        assertEquals(setOf("due", "s:s", "test-1"), store.read().presented.map { it.id }.toSet())
+        assertEquals(listOf("f"), store.read().scheduled.map { it.id })
+        assertTrue(scheduler.isArmed(future))
+        val queued = events()
+        assertEquals(listOf(EngineEventType.MISSED to "e"), queued.filter { it.type == EngineEventType.MISSED }.map { it.type to it.alertId })
+        assertEquals(setOf("due", "s:s", "test-1"), queued.filter { it.type == EngineEventType.FIRED }.map { it.alertId }.toSet())
+        assertEquals(4, queued.size)
+    }
+
+    @Test
     fun `firing an alert that is gone does nothing`() {
         assertTrue(actions.fire("nope").isEmpty())
         assertTrue(presenter.presented.isEmpty())

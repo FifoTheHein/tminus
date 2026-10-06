@@ -39,6 +39,25 @@ object EngineReducer {
         )
     }
 
+    /**
+     * Overdue alerts are scheduled alerts whose fire time has passed but that never fired (a late
+     * inexact alarm, a reboot across the fire time, a plan that arrived first). This removes the
+     * acknowledged or dismissed ones, and expires the ones whose event has ended: they are
+     * [Transition.affected] and must be reported missed. The rest stay scheduled for [fire].
+     */
+    fun expireOverdue(state: EngineState, nowUtcMs: Long): Transition {
+        val overdue = state.scheduled.filter { it.fireAtUtcMs <= nowUtcMs }
+        val handled = overdue.filter { state.isAcked(it.occurrenceKey, it.event.startUtcMs) || state.isDismissed(it.id, it.fireAtUtcMs) }
+        val ended = overdue.filter { it !in handled && it.event.hasEnded(nowUtcMs) }
+        val removed = handled + ended
+        if (removed.isEmpty()) return Transition(state)
+        return Transition(
+            state = state.withoutScheduled(removed.map { it.id }.toSet()),
+            affected = ended,
+            toCancel = removed,
+        )
+    }
+
     fun snoozeIdFor(alertId: String): String = alertId.removeSuffix(SNOOZE_SUFFIX) + SNOOZE_SUFFIX
 
     fun snooze(state: EngineState, alertIds: Collection<String>, untilFor: (PlannedAlert) -> Long): Transition {

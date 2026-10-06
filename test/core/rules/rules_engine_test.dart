@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tminus/core/model/alert.dart';
 import 'package:tminus/core/model/alert_profile.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/keyword_rule.dart';
@@ -343,5 +344,40 @@ void main() {
       'Quick · rule: "standup"',
       'Meeting · default',
     ]);
+  });
+
+  group('turned-on fallback to Meeting (decision 2)', () {
+    test('uses the stored Meeting, not the constant', () {
+      final edited = BuiltInProfiles.meeting.copyWith(
+        alerts: const [AlertSpec(15, AlertStrength.alarm)],
+        sound: const SoundSettings(vibrate: false),
+      );
+      final r = engine().resolve(
+        plain,
+        RuleSet(
+          profiles: [edited],
+          globalDefaultProfileId: 'silent',
+          overrides: [onOcc(plain, enabled: true)],
+        ),
+      );
+      expect(r.explanation, 'Meeting · this event');
+      expect(r.alerts, const [AlertSpec(15, AlertStrength.alarm)]);
+      expect(r.profile, edited);
+      expect(r.profile.sound.vibrate, isFalse);
+    });
+
+    test('uses the constant when the stored Meeting has no alerts', () {
+      final r = engine().resolve(
+        plain,
+        RuleSet(
+          profiles: [BuiltInProfiles.meeting.copyWith(alerts: const [])],
+          globalDefaultProfileId: 'silent',
+          overrides: [onOcc(plain, enabled: true)],
+        ),
+      );
+      expect(r.explanation, 'Meeting · this event');
+      expect(r.alerts, meetingAlerts);
+      expect(r.profile, BuiltInProfiles.meeting);
+    });
   });
 }

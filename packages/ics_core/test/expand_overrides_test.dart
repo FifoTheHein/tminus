@@ -1,3 +1,4 @@
+import 'package:ics_core/ics_core.dart';
 import 'package:test/test.dart';
 
 import 'support.dart';
@@ -76,5 +77,31 @@ void main() {
 
   test('a cancelled series drops its overrides too', () {
     expect(byUid(r, 'cancelled-series@example.com'), isEmpty);
+  });
+
+  test('a series that starts after the window keeps an override moved in', () {
+    final r = expandIcs(
+      calendar('''
+BEGIN:VEVENT
+UID:later
+SUMMARY:Series
+DTSTART;TZID=Europe/London:20261201T090000
+RRULE:FREQ=WEEKLY;COUNT=4
+END:VEVENT
+BEGIN:VEVENT
+UID:later
+SUMMARY:Moved early
+RECURRENCE-ID;TZID=Europe/London:20261201T090000
+DTSTART;TZID=Europe/London:20261005T090000
+END:VEVENT'''),
+      windowStartUtc: DateTime.utc(2026, 10, 1),
+      windowEndUtc: DateTime.utc(2026, 10, 8),
+      deviceZone: 'Africa/Johannesburg',
+    );
+    expect(r.issues, isEmpty);
+    final moved = r.occurrences.single;
+    expect(moved.title, 'Moved early');
+    expect(moved.startUtc, DateTime.utc(2026, 10, 5, 8));
+    expect(moved.originalStartUtc, DateTime.utc(2026, 12, 1, 9));
   });
 }

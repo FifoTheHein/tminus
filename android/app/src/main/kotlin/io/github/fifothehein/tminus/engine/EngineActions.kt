@@ -29,10 +29,10 @@ class EngineActions(
 
     /** An alarm went off: collects its coalesce group and presents it. Returns the collected alerts. */
     fun fire(alertId: String): List<PlannedAlert> {
-        val t = transition { EngineReducer.fire(it, alertId) }
+        val now = clock()
+        val t = transition { EngineReducer.fire(it, alertId, now) }
         if (t.affected.isEmpty()) return emptyList()
         t.toCancel.forEach { scheduler.cancel(it.id) }
-        val now = clock()
         t.affected.forEach { emit(EngineEvent.of(EngineEventType.FIRED, it, now)) }
         presenter.present(t.affected)
         return t.affected

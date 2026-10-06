@@ -223,4 +223,28 @@ END:VEVENT'''),
     expect(r.issues.single.uid, 'bad-rrule');
     expect(r.issues.single.line, 9);
   });
+
+  test('a series with too many instances in the window becomes an issue', () {
+    // 1440 instances a day for 8 days: past the 10,000 cap.
+    final minutes = List.generate(60, (m) => '$m').join(',');
+    final hours = List.generate(24, (h) => '$h').join(',');
+    final r = expandIcs(
+      calendar('''
+BEGIN:VEVENT
+UID:good
+DTSTART:20261013T090000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:every-minute
+DTSTART:20261012T000000Z
+RRULE:FREQ=DAILY;BYHOUR=$hours;BYMINUTE=$minutes
+END:VEVENT'''),
+      windowStartUtc: DateTime.utc(2026, 10, 12),
+      windowEndUtc: DateTime.utc(2026, 10, 20),
+      deviceZone: 'Africa/Johannesburg',
+    );
+    expect(r.occurrences.map((o) => o.uid), ['good']);
+    expect(r.issues.single.uid, 'every-minute');
+    expect(r.issues.single.message, contains('10000'));
+  });
 }

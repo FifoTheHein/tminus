@@ -145,6 +145,11 @@ List<IcsOccurrence> expandOrphanOverride(
   ];
 }
 
+/// The most instances one series may have around the window. `rrule`
+/// already stops at the window end; this bounds rules such as one with
+/// BYHOUR and BYMINUTE lists that yield thousands of instances a day.
+const maxInstancesPerSeries = 10000;
+
 /// An RRULE series plus its RECURRENCE-ID overrides.
 ///
 /// The rule is expanded in the event's own wall-clock zone, so a 09:00
@@ -154,7 +159,8 @@ List<IcsOccurrence> expandOrphanOverride(
 /// lands); cancelled overrides just remove it. A cancelled series yields
 /// nothing.
 ///
-/// Throws [FormatException] (or whatever `package:rrule` throws) for a bad rule.
+/// Throws [FormatException] (or whatever `package:rrule` throws) for a bad
+/// rule, or one with more than [maxInstancesPerSeries] instances.
 List<IcsOccurrence> expandSeries(
   ParsedEvent master,
   List<ParsedEvent> overrides,
@@ -185,6 +191,7 @@ List<IcsOccurrence> expandSeries(
   };
 
   final result = <IcsOccurrence>[];
+  var iterated = 0;
   for (final wall in rule.getInstances(
     start: startWall,
     after: afterWall.isAfter(startWall) ? afterWall : null,
@@ -192,6 +199,11 @@ List<IcsOccurrence> expandSeries(
     before: beforeWall,
     includeBefore: true,
   )) {
+    if (++iterated > maxInstancesPerSeries) {
+      throw const FormatException(
+        'RRULE has more than $maxInstancesPerSeries instances in the window',
+      );
+    }
     final startUtc = zone.wallToUtc(wall);
     if (excluded.contains(startUtc) || overridden.contains(startUtc)) {
       continue;

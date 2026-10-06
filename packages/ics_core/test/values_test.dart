@@ -1,5 +1,6 @@
 import 'package:ics_core/src/content_line.dart';
 import 'package:ics_core/src/values.dart';
+import 'package:rrule/rrule.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -146,6 +147,51 @@ void main() {
         ),
         throwsFormatException,
       );
+    });
+
+    // Each of these makes package:rrule loop forever (or for millennia)
+    // when asserts are off, as in a release build.
+    void expectRejected(String rule) => expect(
+      () => parseRrule(rule, untilUtcToWall: plusTwo, startIsDate: false),
+      throwsFormatException,
+      reason: rule,
+    );
+
+    test('rejects INTERVAL and COUNT below 1', () {
+      expectRejected('FREQ=DAILY;INTERVAL=0');
+      expectRejected('FREQ=WEEKLY;INTERVAL=-2;BYDAY=MO');
+      expectRejected('FREQ=DAILY;COUNT=0');
+      expectRejected('FREQ=DAILY;COUNT=-3');
+      expectRejected('FREQ=DAILY;INTERVAL=x');
+    });
+
+    test('rejects HOURLY, MINUTELY and SECONDLY rules', () {
+      expectRejected('FREQ=HOURLY');
+      expectRejected('FREQ=MINUTELY;INTERVAL=15');
+      expectRejected('FREQ=SECONDLY;COUNT=5');
+    });
+
+    test('rejects BYMONTH/BYMONTHDAY combinations that never match', () {
+      expectRejected('FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30');
+      expectRejected('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-30');
+      expectRejected('FREQ=MONTHLY;BYMONTHDAY=31;BYMONTH=4,6,9,11');
+      expectRejected('FREQ=MONTHLY;BYMONTHDAY=32');
+    });
+
+    test('accepts BYMONTH/BYMONTHDAY combinations that sometimes match', () {
+      for (final ok in [
+        'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29',
+        'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-29',
+        'FREQ=MONTHLY;BYMONTHDAY=31;BYMONTH=4,5',
+        'FREQ=MONTHLY;BYMONTHDAY=30,31;BYMONTH=6',
+        'FREQ=MONTHLY;BYMONTHDAY=-31',
+      ]) {
+        expect(
+          parseRrule(ok, untilUtcToWall: plusTwo, startIsDate: false),
+          isA<RecurrenceRule>(),
+          reason: ok,
+        );
+      }
     });
   });
 }

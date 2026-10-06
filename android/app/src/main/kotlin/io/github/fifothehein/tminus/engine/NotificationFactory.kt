@@ -47,19 +47,40 @@ class NotificationFactory(
         manager.createNotificationChannels(listOf(ringing, headsUp, missed))
     }
 
+    /**
+     * Heads-up and Missed notifications are children of two app groups, each with a posted summary.
+     * Android 16 force-groups an app's ungrouped notifications, and a group child without a summary,
+     * and marks each one it groups FLAG_SILENT, so a new heads-up would neither peek nor sound while
+     * another T-Minus notification is in the shade. An app group with its summary is left alone (two
+     * groups stay below GroupHelper's sparse-group count). GROUP_ALERT_CHILDREN: the children alert
+     * and the summary never does.
+     */
     fun postHeadsUp(alerts: List<PlannedAlert>, silent: Boolean = false) {
         if (alerts.isEmpty()) return
         ensureChannels()
         notify(headsUpId(alerts.first().coalesceGroup), headsUp(alerts, silent))
+        notify(HEADS_UP_SUMMARY_ID, summary(CHANNEL_HEADS_UP, GROUP_HEADS_UP, "Meeting reminders"))
     }
 
-    fun cancelHeadsUp(group: String) = manager.cancel(headsUpId(group))
+    fun cancelHeadsUp(group: String) = cancelHeadsUpNotifications(listOf(headsUpId(group)))
+
+    /** Cancels these heads-up notifications, and the group summary once no heads-up is left. */
+    fun cancelHeadsUpNotifications(ids: Collection<Int>) {
+        ids.forEach(manager::cancel)
+        // A cancel is applied asynchronously, so the ones just cancelled may still be listed.
+        val left = manager.activeNotifications.any {
+            it.notification.group == GROUP_HEADS_UP && !it.notification.isSummary() && it.id !in ids
+        }
+        if (!left) manager.cancel(HEADS_UP_SUMMARY_ID)
+    }
 
     fun isHeadsUpPosted(group: String): Boolean = manager.activeNotifications.any { it.id == headsUpId(group) }
 
+    /** The user removes Missed notifications; SystemUI dismisses the summary with its only child. */
     fun postMissed(alert: PlannedAlert) {
         ensureChannels()
         notify(missedId(alert.id), missed(alert))
+        notify(MISSED_SUMMARY_ID, summary(CHANNEL_MISSED, GROUP_MISSED, "Missed alarms"))
     }
 
     /** Single: Join (if link) · Snooze · Dismiss all. Coalesced: Dismiss · Snooze all · Dismiss all. */
@@ -67,6 +88,8 @@ class NotificationFactory(
         val ids = ArrayList(alerts.map { it.id })
         val notificationId = headsUpId(alerts.first().coalesceGroup)
         val b = base(CHANNEL_HEADS_UP, alerts.first())
+            .setGroup(GROUP_HEADS_UP)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSilent(silent)
@@ -88,6 +111,8 @@ class NotificationFactory(
     }
 
     fun missed(alert: PlannedAlert): Notification = base(CHANNEL_MISSED, alert)
+        .setGroup(GROUP_MISSED)
+        .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
         .setContentTitle(text.missedTitle(alert))
         .setContentText(text.detail(alert.event))
         .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -137,6 +162,21 @@ class NotificationFactory(
     }
 
     fun notifyRinging(alerts: List<PlannedAlert>) = notify(RINGING_NOTIFICATION_ID, ringing(alerts))
+
+    /** A group's summary: it never alerts (GROUP_ALERT_CHILDREN) and opens the app. */
+    private fun summary(channel: String, group: String, title: String): Notification =
+        NotificationCompat.Builder(appContext, channel)
+            .setSmallIcon(R.drawable.ic_stat_tminus)
+            .setContentTitle(title)
+            .setContentIntent(openApp())
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setGroup(group)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            .build()
+
+    private fun Notification.isSummary(): Boolean = flags and Notification.FLAG_GROUP_SUMMARY != 0
 
     private fun base(channel: String, lead: PlannedAlert): NotificationCompat.Builder =
         NotificationCompat.Builder(appContext, channel)
@@ -197,6 +237,10 @@ class NotificationFactory(
         const val CHANNEL_HEADS_UP = "heads_up"
         const val CHANNEL_MISSED = "missed"
         const val RINGING_NOTIFICATION_ID = 1001
+        const val GROUP_HEADS_UP = "io.github.fifothehein.tminus.HEADS_UP"
+        const val GROUP_MISSED = "io.github.fifothehein.tminus.MISSED"
+        const val HEADS_UP_SUMMARY_ID = 1002
+        const val MISSED_SUMMARY_ID = 1003
         private const val OPEN_REQUEST_CODE = 0x5102
         private const val ALARM_REQUEST_CODE = 0x5103
         private const val TAG = "TMinusEngine"

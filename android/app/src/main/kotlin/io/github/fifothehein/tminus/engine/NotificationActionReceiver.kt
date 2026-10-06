@@ -1,6 +1,5 @@
 package io.github.fifothehein.tminus.engine
 
-import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -21,7 +20,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         // only when none are left, which also clears it if its alerts were already pruned from PlanStore.
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NO_NOTIFICATION_ID)
         if (notificationId != NO_NOTIFICATION_ID && !AndroidAlertPresenter.headsUpRemains(PlanStore(context), notificationId)) {
-            context.getSystemService(NotificationManager::class.java).cancel(notificationId)
+            NotificationFactory(context).cancelHeadsUpNotifications(listOf(notificationId))
         }
     }
 

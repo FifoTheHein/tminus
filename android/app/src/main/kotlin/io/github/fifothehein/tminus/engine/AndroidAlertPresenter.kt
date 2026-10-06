@@ -36,7 +36,7 @@ class AndroidAlertPresenter(
             postHeadsUps(alerts)
             return
         }
-        groups.forEach(notifications::cancelHeadsUp)
+        notifications.cancelHeadsUpNotifications(groups.map(NotificationFactory::headsUpId))
     }
 
     override fun withdraw(alerts: List<PlannedAlert>) {
@@ -71,10 +71,12 @@ class AndroidAlertPresenter(
     private fun refreshHeadsUps(alerts: List<PlannedAlert>) {
         val presented = store.read().presented
         val ringing = RingingSession.ids
+        val emptied = mutableListOf<Int>()
         alerts.map { it.coalesceGroup }.distinct().forEach { group ->
             val remaining = headsUpMembers(presented, ringing, group)
-            if (remaining.isEmpty()) notifications.cancelHeadsUp(group) else notifications.postHeadsUp(remaining, silent = true)
+            if (remaining.isEmpty()) emptied += NotificationFactory.headsUpId(group) else notifications.postHeadsUp(remaining, silent = true)
         }
+        if (emptied.isNotEmpty()) notifications.cancelHeadsUpNotifications(emptied)
     }
 
     companion object {

@@ -14,6 +14,9 @@ import '../model/sync_log_entry.dart';
 // - Enums are stored by name (`textEnum`), so appending a value is safe and
 //   renaming one is a migration.
 // - Row classes end in `Row` so they never clash with the domain classes.
+// - Indexes are `CREATE INDEX IF NOT EXISTS`, like drift's tables, so two
+//   connections opening a new file at once both finish `onCreate`
+//   (decision 14).
 
 /// Configured calendar sources (spec §5). Never stores an ICS URL; only the
 /// key under which Plan 4 keeps it in flutter_secure_storage.
@@ -40,8 +43,12 @@ class Sources extends Table {
 
 /// The occurrence cache: the latest good fetch per source (spec §5).
 @DataClassName('OccurrenceRow')
-@TableIndex(name: 'occurrences_start', columns: {#startUtcMs})
-@TableIndex(name: 'occurrences_source', columns: {#sourceId})
+@TableIndex.sql(
+  'CREATE INDEX IF NOT EXISTS occurrences_start ON occurrences (start_utc_ms)',
+)
+@TableIndex.sql(
+  'CREATE INDEX IF NOT EXISTS occurrences_source ON occurrences (source_id)',
+)
 class Occurrences extends Table {
   TextColumn get occurrenceKey => text()();
   TextColumn get sourceId =>
@@ -148,7 +155,10 @@ class QuietStates extends Table {
 /// Engine events drained from Kotlin (spec §7), plus `missedSystem` rows
 /// Plan 4 adds. De-duplicated on (type, alertId, atUtcMs) (roadmap §3).
 @DataClassName('AlertHistoryRow')
-@TableIndex(name: 'alert_history_start', columns: {#startUtcMs})
+@TableIndex.sql(
+  'CREATE INDEX IF NOT EXISTS alert_history_start '
+  'ON alert_history (start_utc_ms)',
+)
 class AlertHistory extends Table {
   @override
   String get tableName => 'alert_history';
@@ -172,7 +182,9 @@ class AlertHistory extends Table {
 
 /// One row per source per sync attempt (spec §5, §9).
 @DataClassName('SyncLogRow')
-@TableIndex(name: 'sync_log_at', columns: {#atUtcMs})
+@TableIndex.sql(
+  'CREATE INDEX IF NOT EXISTS sync_log_at ON sync_log (at_utc_ms)',
+)
 class SyncLog extends Table {
   @override
   String get tableName => 'sync_log';

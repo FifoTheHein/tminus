@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -14,7 +16,8 @@ class EngineDebugPanel extends StatefulWidget {
   State<EngineDebugPanel> createState() => _EngineDebugPanelState();
 }
 
-class _EngineDebugPanelState extends State<EngineDebugPanel> {
+class _EngineDebugPanelState extends State<EngineDebugPanel>
+    with WidgetsBindingObserver {
   static const _delays = <Duration>[
     Duration(seconds: 5),
     Duration(minutes: 1),
@@ -25,10 +28,49 @@ class _EngineDebugPanelState extends State<EngineDebugPanel> {
   late Future<EngineHealth> _health = _loadHealth();
   Duration _delay = _delays.first;
   String? _status;
+  StreamSubscription<EngineEvent>? _events;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_events?.cancel());
+    super.dispose();
+  }
+
+  /// Coming back to the app (e.g. from an alarm screen) shows what is scheduled now.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reload();
+  }
 
   /// The FutureBuilder subscribes only on the next frame; `ignore()` keeps an error that
   /// arrives before then from being reported as unhandled. The builder still sees it.
-  Future<EngineHealth> _loadHealth() => _engine.getHealth()..ignore();
+  Future<EngineHealth> _loadHealth() {
+    final health = _engine.getHealth();
+    // Live events only once the engine has answered: without the native side
+    // (desktop, plain widget tests) the event stream would report an error.
+    health.then((_) => _listenToEngine(), onError: (Object _) {});
+    return health..ignore();
+  }
+
+  /// Every engine event (fired, snoozed, dismissed …) changes what is scheduled.
+  void _listenToEngine() {
+    if (_events != null || !mounted) return;
+    _events = _engine.events.listen((_) => _reload(), onError: (Object _) {});
+  }
+
+  void _reload() {
+    if (!mounted) return;
+    setState(() {
+      _health = _loadHealth();
+    });
+  }
 
   /// Runs [action], shows its message (or the failure) and refreshes the health readout.
   Future<void> _run(Future<String> Function() action) async {
@@ -135,10 +177,7 @@ class _EngineDebugPanelState extends State<EngineDebugPanel> {
             );
           },
         ),
-        TextButton(
-          onPressed: () => setState(() => _health = _loadHealth()),
-          child: const Text('Refresh'),
-        ),
+        TextButton(onPressed: _reload, child: const Text('Refresh')),
       ],
     );
   }

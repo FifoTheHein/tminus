@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Engine events waiting for Dart, one JSON object per line, in device-protected storage.
@@ -55,18 +56,26 @@ class EventQueue(context: Context) {
     }
 }
 
-/** Queues every engine event and streams it to Dart while `alarm_engine/events` has a listener. */
+/**
+ * Queues every engine event and streams it to Dart on every `alarm_engine/events` stream that has a
+ * listener: one per registered engine (the app's and, from Plan 4, the headless one).
+ */
 object EngineEvents {
-    /** Set by AlarmEngineChannel.onListen, cleared by onCancel. */
-    @Volatile
-    var listener: ((Map<String, Any?>) -> Unit)? = null
+    private val listeners = CopyOnWriteArraySet<(Map<String, Any?>) -> Unit>()
 
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
+    /** Adds a live listener (AlarmEngineChannel.onListen) and returns a function that removes only it. */
+    fun addListener(listener: (Map<String, Any?>) -> Unit): () -> Unit {
+        listeners.add(listener)
+        return { listeners.remove(listener) }
+    }
+
     fun emit(context: Context, event: EngineEvent) {
         EventQueue(context).append(event)
-        val current = listener ?: return
+        if (listeners.isEmpty()) return
+        val current = listeners.toList()
         val map = event.toMap()
-        mainHandler.post { current(map) }
+        mainHandler.post { current.forEach { it(map) } }
     }
 }

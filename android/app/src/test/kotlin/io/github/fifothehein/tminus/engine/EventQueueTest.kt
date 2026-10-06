@@ -17,6 +17,7 @@ import org.robolectric.Shadows.shadowOf
 class EventQueueTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private lateinit var queue: EventQueue
+    private var removeListener: (() -> Unit)? = null
 
     private fun event(n: Int, type: EngineEventType = EngineEventType.FIRED, snoozeUntil: Long? = null) =
         EngineEvent(type, "a$n", "src|a$n|occ", NOW + MINUTE_MS, NOW + n, snoozeUntil)
@@ -29,7 +30,7 @@ class EventQueueTest {
 
     @After
     fun tearDown() {
-        EngineEvents.listener = null
+        removeListener?.invoke()
     }
 
     @Test
@@ -82,7 +83,7 @@ class EventQueueTest {
     @Test
     fun `emit queues the event and tells the live listener on the main thread`() {
         var received: Map<String, Any?>? = null
-        EngineEvents.listener = { received = it }
+        removeListener = EngineEvents.addListener { received = it }
         EngineEvents.emit(context, event(1))
         assertNull(received) // posted, not called inline
         shadowOf(Looper.getMainLooper()).idle()

@@ -27,6 +27,7 @@ class AlarmEngineChannel internal constructor(
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private val appContext: Context = context.applicationContext
     private val actions = EngineActions(context, presenter, store, scheduler, clock)
+    private var stopListening: (() -> Unit)? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
@@ -57,11 +58,16 @@ class AlarmEngineChannel internal constructor(
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
-        EngineEvents.listener = { events.success(it) }
+        stopListening?.invoke()
+        stopListening = EngineEvents.addListener { events.success(it) }
     }
 
-    override fun onCancel(arguments: Any?) {
-        EngineEvents.listener = null
+    override fun onCancel(arguments: Any?) = detach()
+
+    /** Stops streaming live events to this engine only (onCancel, or its Flutter engine going away). */
+    fun detach() {
+        stopListening?.invoke()
+        stopListening = null
     }
 
     private fun MethodCall.mapArgs(): Map<*, *> =

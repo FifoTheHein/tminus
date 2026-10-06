@@ -27,6 +27,7 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -71,6 +72,8 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
+    androidTestImplementation("androidx.test.ext:junit-ktx:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
 }
 
 // With isIncludeAndroidResources, the unit-test package reads the merged assets folder that

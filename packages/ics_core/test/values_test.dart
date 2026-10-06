@@ -149,6 +149,20 @@ void main() {
       );
     });
 
+    test('reads lowercase names and values, including UNTIL', () {
+      final rule = parseRrule(
+        'freq=weekly;byday=mo,we;until=20261021t070000z;wkst=su',
+        untilUtcToWall: plusTwo,
+        startIsDate: false,
+      );
+      expect(rule.getInstances(start: DateTime.utc(2026, 10, 12, 9)), [
+        DateTime.utc(2026, 10, 12, 9),
+        DateTime.utc(2026, 10, 14, 9),
+        DateTime.utc(2026, 10, 19, 9),
+        DateTime.utc(2026, 10, 21, 9),
+      ]);
+    });
+
     // Each of these makes package:rrule loop forever (or for millennia)
     // when asserts are off, as in a release build.
     void expectRejected(String rule) => expect(

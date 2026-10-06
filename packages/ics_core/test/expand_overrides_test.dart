@@ -104,4 +104,31 @@ END:VEVENT'''),
     expect(moved.startUtc, DateTime.utc(2026, 10, 5, 8));
     expect(moved.originalStartUtc, DateTime.utc(2026, 12, 1, 9));
   });
+
+  test('a floating RECURRENCE-ID on a TZID series is read in its zone', () {
+    final r = expandIcs(
+      calendar('''
+BEGIN:VEVENT
+UID:ny
+SUMMARY:Series
+DTSTART;TZID=America/New_York:20261020T090000
+RRULE:FREQ=DAILY;COUNT=3
+END:VEVENT
+BEGIN:VEVENT
+UID:ny
+SUMMARY:Moved
+RECURRENCE-ID:20261021T090000
+DTSTART;TZID=America/New_York:20261021T110000
+END:VEVENT'''),
+      windowStartUtc: DateTime.utc(2026, 10, 19),
+      windowEndUtc: DateTime.utc(2026, 10, 26),
+      deviceZone: 'Africa/Johannesburg',
+    );
+    expect(r.occurrences.map((o) => (o.title, o.startUtc)), [
+      ('Series', DateTime.utc(2026, 10, 20, 13)),
+      ('Moved', DateTime.utc(2026, 10, 21, 15)),
+      ('Series', DateTime.utc(2026, 10, 22, 13)),
+    ]);
+    expect(r.occurrences[1].originalStartUtc, DateTime.utc(2026, 10, 21, 13));
+  });
 }

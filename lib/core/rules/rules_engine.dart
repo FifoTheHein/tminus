@@ -5,6 +5,7 @@ import '../model/alert_profile.dart';
 import '../model/event_occurrence.dart';
 import '../model/event_override.dart';
 import '../model/keyword_rule.dart';
+import '../model/quiet_state.dart';
 import 'resolved_occurrence.dart';
 import 'rule_set.dart';
 
@@ -36,7 +37,28 @@ class RulesEngine {
   ResolvedOccurrence resolve(EventOccurrence o, RuleSet rules) {
     final occ = rules.occurrenceOverride(o.key);
     final ser = rules.seriesOverride(o.seriesUid);
-    return _decide(o, rules, occ, ser).toResolved(o);
+    final d = _decide(o, rules, occ, ser);
+    if (d.alerts.isEmpty) return d.toResolved(o);
+
+    final quiet = rules.quiet;
+    if (!quiet.covers(o.startUtc, nowUtc: clock(), zone: zone)) {
+      return d.toResolved(o);
+    }
+    final turnedOn = occ?.enabled == true;
+    final letThrough = switch (quiet) {
+      QuietUntil() => turnedOn || d.profile.ringsInQuietMode,
+      Vacation() => turnedOn,
+      QuietNone() => true,
+    };
+    if (letThrough) return d.toResolved(o);
+    return ResolvedOccurrence(
+      occurrence: o,
+      profile: d.profile,
+      alerts: const [],
+      explanation: 'Silenced · ${quiet.label(zone)}',
+      silenced: true,
+      step: d.step,
+    );
   }
 
   _Decision _decide(

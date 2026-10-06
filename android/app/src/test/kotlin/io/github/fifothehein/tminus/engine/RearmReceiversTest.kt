@@ -90,6 +90,29 @@ class RearmReceiversTest {
     }
 
     @Test
+    fun `after a reboot or an update a presented alarm rings again and one whose event ended is reported missed`() {
+        for (action in BootReceiver.ACTIONS) {
+            store.clear()
+            EventQueue(context).drain()
+            RingingSession.clear()
+            manager.cancelAll()
+            while (shadowOf(app).nextStartedService != null) Unit
+            val ringing = alert("ringing", now - MINUTE_MS) // was ringing when the phone went off; the event runs until now + 30 min
+            val ended = alert("ended", now - HOUR)
+            store.write(EngineState(presented = listOf(ringing, ended)))
+
+            BootReceiver().onReceive(context, Intent(action))
+
+            val service = shadowOf(app).nextStartedService
+            assertNotNull(action, service)
+            assertEquals(action, arrayListOf("ringing"), service.getStringArrayListExtra(RingingService.EXTRA_ALERT_IDS))
+            assertNotNull(action, shadowOf(manager).getNotification(NotificationFactory.missedId("ended")))
+            assertEquals(action, listOf(EngineEventType.MISSED to "ended"), EventQueue(context).drain().map { it.type to it.alertId })
+            assertEquals(action, listOf("ringing"), store.read().presented.map { it.id })
+        }
+    }
+
+    @Test
     fun `other broadcasts are ignored`() {
         store.write(EngineState(plan = listOf(alert("f", now + HOUR))))
         BootReceiver().onReceive(context, Intent(Intent.ACTION_SCREEN_ON))

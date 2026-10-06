@@ -12,7 +12,11 @@ class MainActivity : FlutterActivity() {
         AlarmEngineChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
         // Spec §9: a force stop drops every alarm, so re-arm from PlanStore whenever the app starts.
         // EngineActions also rings, or reports missed, any alert that came due while nothing ran.
-        EngineActions.create(this).rearmAll()
+        // After a crash it also shows again what was ringing or on screen when the process died.
+        EngineActions.create(this).run {
+            recoverPresented()
+            rearmAll()
+        }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {

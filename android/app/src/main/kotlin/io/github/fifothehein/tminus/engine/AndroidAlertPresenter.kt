@@ -32,6 +32,10 @@ class AndroidAlertPresenter(
         refreshHeadsUps(alerts)
     }
 
+    /** Ringing in this process, or the group's heads-up is still among the app's active notifications. */
+    override fun isShowing(alert: PlannedAlert): Boolean =
+        alert.id in RingingSession.ids || notifications.isHeadsUpPosted(alert.coalesceGroup)
+
     override fun missed(alerts: List<PlannedAlert>) {
         alerts.forEach(notifications::postMissed)
         withdraw(alerts)

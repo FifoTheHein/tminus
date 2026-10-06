@@ -3,6 +3,7 @@ package io.github.fifothehein.tminus.engine
 import android.app.Application
 import android.app.NotificationManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -57,6 +58,20 @@ class AndroidAlertPresenterTest {
         }
         presenter.present(listOf(a))
         assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId(a.coalesceGroup)))
+    }
+
+    @Test
+    fun `an alert is showing while it rings or its group's heads-up is posted`() {
+        val presenter = AndroidAlertPresenter(app, store) { _, _ -> }
+        val ringing = alert("r", NOW, group = "R")
+        val posted = alert("h", NOW, strength = Strength.HEADS_UP, group = "H")
+        val gone = alert("g", NOW, strength = Strength.HEADS_UP, group = "X")
+        RingingSession.add(listOf(ringing))
+        NotificationFactory(app).postHeadsUp(listOf(posted))
+
+        assertTrue(presenter.isShowing(ringing))
+        assertTrue(presenter.isShowing(posted))
+        assertFalse(presenter.isShowing(gone))
     }
 
     @Test

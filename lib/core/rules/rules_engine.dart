@@ -105,20 +105,22 @@ class RulesEngine {
     if (ov.enabled == false) {
       return _Decision(BuiltInProfiles.silent, const [], step, 'Off · $reason');
     }
+    // An empty custom list counts as none (decision 17).
+    final custom = ov.customAlerts?.isEmpty ?? true ? null : ov.customAlerts;
     final named = ov.profileId == null ? null : rules.profile(ov.profileId!);
     if (named != null) {
       return _Decision(
         named,
-        ov.customAlerts ?? named.alerts,
+        custom ?? named.alerts,
         step,
         '${named.name} · $reason',
       );
     }
-    if (ov.customAlerts != null) {
+    if (custom != null) {
       final base = ov.enabled == true
           ? _turnedOnProfile(o, rules)
           : lower().profile;
-      return _Decision(base, ov.customAlerts!, step, 'Custom · $reason');
+      return _Decision(base, custom, step, 'Custom · $reason');
     }
     if (ov.enabled == true) {
       final p = _turnedOnProfile(o, rules);

@@ -423,4 +423,58 @@ void main() {
       expect(r.alerts, meetingAlerts);
     });
   });
+
+  group('an empty custom-alert list means none (decision 17)', () {
+    runCases([
+      Case(
+        'occurrence: profile with empty custom alerts uses the profile',
+        plain,
+        RuleSet(
+          overrides: [onOcc(plain, profileId: 'quick', customAlerts: [])],
+        ),
+        'Quick · this event',
+        quickAlerts,
+        step: ResolutionStep.occurrenceOverride,
+      ),
+      Case(
+        'occurrence: only empty custom alerts falls through',
+        plain,
+        RuleSet(overrides: [onOcc(plain, customAlerts: [])]),
+        'Meeting · default',
+        meetingAlerts,
+        step: ResolutionStep.globalDefault,
+      ),
+      Case(
+        'occurrence: turned on with empty custom alerts',
+        plain,
+        RuleSet(
+          globalDefaultProfileId: 'quick',
+          overrides: [onOcc(plain, enabled: true, customAlerts: [])],
+        ),
+        'Quick · this event',
+        quickAlerts,
+        step: ResolutionStep.occurrenceOverride,
+      ),
+      Case(
+        'series: profile with empty custom alerts uses the profile',
+        recurring,
+        RuleSet(
+          overrides: [
+            onSeries('series-1', profileId: 'important', customAlerts: []),
+          ],
+        ),
+        'Important · series',
+        importantAlerts,
+        step: ResolutionStep.seriesOverride,
+      ),
+      Case(
+        'series: only empty custom alerts falls through',
+        recurring,
+        RuleSet(overrides: [onSeries('series-1', customAlerts: [])]),
+        'Meeting · default',
+        meetingAlerts,
+        step: ResolutionStep.globalDefault,
+      ),
+    ], engine);
+  });
 }

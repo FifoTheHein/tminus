@@ -24,7 +24,8 @@ class EventOverride {
   final String target;
   final String? profileId;
 
-  /// Replaces the profile's alert list when non-null.
+  /// Replaces the profile's alert list when non-empty; an empty list counts
+  /// as none (decision 17).
   final List<AlertSpec>? customAlerts;
 
   /// true = turned on, false = turned off, null = not set.

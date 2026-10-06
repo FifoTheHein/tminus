@@ -1,4 +1,4 @@
-import '../model/alert.dart';
+import '../model/alert_profile.dart';
 import '../model/planned_alert.dart';
 import '../rules/resolved_occurrence.dart';
 import 'acknowledgements.dart';
@@ -31,13 +31,9 @@ List<PlannedAlert> buildPlan(
     if (!o.endUtc.isAfter(nowUtc)) continue;
     if (acks.isOccurrenceAcked(o.key, o.startUtc)) continue;
 
-    final byOffset = <int, AlertSpec>{};
-    for (final a in r.alerts) {
-      final existing = byOffset[a.offsetMinutes];
-      if (existing == null || a.strength == AlertStrength.alarm) {
-        byOffset[a.offsetMinutes] = a;
-      }
-    }
+    // The engine already collapses duplicates; this guard covers a
+    // ResolvedOccurrence built elsewhere.
+    final alerts = onePerOffset(r.alerts);
 
     final snapshot = EventSnapshot(
       title: o.title,
@@ -48,7 +44,7 @@ List<PlannedAlert> buildPlan(
       color: o.calendarColor,
     );
 
-    for (final a in byOffset.values) {
+    for (final a in alerts) {
       final fireAt = o.startUtc.subtract(Duration(minutes: a.offsetMinutes));
       final id = PlannedAlert.idFor(o.key, a.offsetMinutes);
       if (acks.isAlertDismissed(id, o.startUtc)) continue;

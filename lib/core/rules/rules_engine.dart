@@ -219,7 +219,7 @@ class _Decision {
   ResolvedOccurrence toResolved(EventOccurrence o) => ResolvedOccurrence(
     occurrence: o,
     profile: profile,
-    alerts: List.unmodifiable(alerts),
+    alerts: List.unmodifiable(onePerOffset(alerts)),
     explanation: explanation,
     silenced: false,
     step: step,

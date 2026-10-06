@@ -93,6 +93,44 @@ class NotificationFactory(
         .addAction(0, "Open", openApp())
         .build()
 
+    /** Single: Stop · Snooze · Join (link) or Dismiss all. Coalesced: Stop · Snooze all · Dismiss all (spec §7). */
+    fun ringing(alerts: List<PlannedAlert>): Notification {
+        val b = NotificationCompat.Builder(appContext, CHANNEL_RINGING)
+            .setSmallIcon(R.drawable.ic_stat_tminus)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .setWhen(clock())
+            .setContentIntent(alarmScreen())
+            .setFullScreenIntent(alarmScreen(), true)
+        if (alerts.isEmpty()) return b.setContentTitle("Alarm").build()
+        val ids = ArrayList(alerts.map { it.id })
+        val none = NotificationActionReceiver.NO_NOTIFICATION_ID
+        b.setColor(alerts.first().event.color.toInt())
+        if (alerts.size == 1) {
+            val a = alerts.single()
+            b.setContentTitle(text.ringingTitle(a, clock())).setContentText(text.detail(a.event))
+            b.addAction(0, "Stop", action(NotificationActionReceiver.ACTION_DISMISS, ids, none))
+            b.addAction(0, "Snooze", action(NotificationActionReceiver.ACTION_SNOOZE, ids, none))
+            if (a.event.joinUrl != null) {
+                b.addAction(0, "Join", join(a.id))
+            } else {
+                b.addAction(0, "Dismiss all", action(NotificationActionReceiver.ACTION_DISMISS_ALL, ids, none))
+            }
+        } else {
+            coalesced(b, alerts)
+            b.addAction(0, "Stop", action(NotificationActionReceiver.ACTION_DISMISS, ids, none))
+            b.addAction(0, "Snooze all", action(NotificationActionReceiver.ACTION_SNOOZE, ids, none))
+            b.addAction(0, "Dismiss all", action(NotificationActionReceiver.ACTION_DISMISS_ALL, ids, none))
+        }
+        return b.build()
+    }
+
+    fun notifyRinging(alerts: List<PlannedAlert>) = notify(RINGING_NOTIFICATION_ID, ringing(alerts))
+
     private fun base(channel: String, lead: PlannedAlert): NotificationCompat.Builder =
         NotificationCompat.Builder(appContext, channel)
             .setSmallIcon(R.drawable.ic_stat_tminus)
@@ -132,6 +170,13 @@ class NotificationFactory(
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    private fun alarmScreen(): PendingIntent = PendingIntent.getActivity(
+        appContext,
+        ALARM_REQUEST_CODE,
+        Intent(appContext, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     private fun notify(id: Int, notification: Notification) {
         try {
             manager.notify(id, notification)
@@ -146,6 +191,7 @@ class NotificationFactory(
         const val CHANNEL_MISSED = "missed"
         const val RINGING_NOTIFICATION_ID = 1001
         private const val OPEN_REQUEST_CODE = 0x5102
+        private const val ALARM_REQUEST_CODE = 0x5103
         private const val TAG = "TMinusEngine"
 
         fun headsUpId(group: String): Int = "headsUp|$group".hashCode()

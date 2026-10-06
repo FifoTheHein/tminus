@@ -65,6 +65,12 @@
             android:taskAffinity="io.github.fifothehein.tminus.alarm"
             android:theme="@style/AlarmTheme"
             android:turnScreenOn="true" />
+        <!-- mediaPlayback per spec §7; re-check against Play policy in Plan 6 (specialUse is the fallback). -->
+        <service
+            android:name=".engine.RingingService"
+            android:directBootAware="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

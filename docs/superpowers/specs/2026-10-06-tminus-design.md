@@ -128,7 +128,7 @@ The window is **now − 1 h to now + 7 days**.
 - Expands RRULE with the `rrule` package. Applies EXDATE, then RECURRENCE-ID overrides.
 - Drops `STATUS:CANCELLED` events and titles prefixed `Canceled:` / `Cancelled:`.
 - Reads `X-MICROSOFT-CDO-BUSYSTATUS` → `free | tentative | busy | oof`.
-- Extracts the Teams join URL from DESCRIPTION/LOCATION by matching `https://teams.microsoft.com/l/meetup-join/...`.
+- Extracts the Teams join URL from DESCRIPTION/LOCATION by matching `https://teams.microsoft.com/l/meetup-join/...` or the newer `https://teams.microsoft.com/meet/...`.
 - Parses each event separately: one malformed VEVENT is skipped and logged, and the rest of the feed still parses.
 
 ### `EventOccurrence`
@@ -291,7 +291,8 @@ These triggers reload `PlanStore` and re-schedule everything:
 | Permission | Notes |
 |---|---|
 | `INTERNET` | |
-| `USE_EXACT_ALARM` | Core alarm/calendar function. Auto-granted and can't be revoked. |
+| `USE_EXACT_ALARM` | Core alarm/calendar function. Auto-granted and can't be revoked. Exists only from Android 13 (API 33). |
+| `SCHEDULE_EXACT_ALARM` (`android:maxSdkVersion="32"`) | Exact alarms on Android 12 and below, where `USE_EXACT_ALARM` doesn't exist; granted by default there. If exact scheduling is ever refused, fall back to an inexact alarm and show it in Health. |
 | `USE_FULL_SCREEN_INTENT` | Android 14+ grants it to alarm apps. Checked with `canUseFullScreenIntent()`. |
 | `POST_NOTIFICATIONS` | |
 | `FOREGROUND_SERVICE` + the type permission | |

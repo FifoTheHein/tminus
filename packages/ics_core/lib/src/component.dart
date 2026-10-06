@@ -31,11 +31,22 @@ class Component {
       properties.where((p) => p.name == name);
 }
 
+/// Components that only ever appear directly inside a VCALENDAR.
+const _calendarLevel = {
+  'VEVENT',
+  'VTODO',
+  'VJOURNAL',
+  'VFREEBUSY',
+  'VTIMEZONE',
+};
+
 /// Unfolds [icsText] and builds the component tree of its first VCALENDAR.
 ///
 /// Throws [IcsFormatException] if there is no `BEGIN:VCALENDAR`.
 /// Unterminated blocks are kept with [Component.terminated] false so the
-/// caller can report them; lines outside the calendar are ignored.
+/// caller can report them; a calendar-level BEGIN (VEVENT, VTIMEZONE, ...)
+/// closes any block still open inside the VCALENDAR, so one missing END
+/// cannot hide the events after it. Lines outside the calendar are ignored.
 Component parseCalendar(String icsText) {
   final lines = unfoldLines(icsText);
   Component? root;
@@ -53,6 +64,12 @@ Component parseCalendar(String icsText) {
         }
         root = component;
       } else {
+        if (_calendarLevel.contains(component.name)) {
+          // These only ever sit directly in the VCALENDAR, so an open block
+          // here lost its END line: leave it unterminated rather than let it
+          // swallow the rest of the feed.
+          stack.removeRange(1, stack.length);
+        }
         stack.last.children.add(component);
       }
       stack.add(component);

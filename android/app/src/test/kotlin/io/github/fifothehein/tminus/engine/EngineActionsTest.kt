@@ -239,6 +239,22 @@ class EngineActionsTest {
     }
 
     @Test
+    fun `coalesced At start gives +1 min to the started meeting and its start to the other`() {
+        val started = alert("started", NOW - 3 * MINUTE_MS, start = NOW - 2 * MINUTE_MS, group = "G")
+        val upcoming = alert("upcoming", NOW - MINUTE_MS, start = NOW + 10 * MINUTE_MS, group = "G")
+        store.write(EngineState(presented = listOf(started, upcoming)))
+
+        actions.snooze(listOf("started", "upcoming"), SnoozeOption.AT_START)
+
+        val snoozes = store.read().snoozes.associate { it.id to it.fireAtUtcMs }
+        assertEquals(mapOf("started:s" to NOW + MINUTE_MS, "upcoming:s" to NOW + 10 * MINUTE_MS), snoozes)
+        assertEquals(
+            mapOf("started" to NOW + MINUTE_MS, "upcoming" to NOW + 10 * MINUTE_MS),
+            events().associate { it.alertId to it.snoozeUntilUtcMs },
+        )
+    }
+
+    @Test
     fun `dismiss queues dismissed and records the dismissal`() {
         val a = alert("a", NOW)
         store.write(EngineState(presented = listOf(a)))

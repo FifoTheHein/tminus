@@ -3,7 +3,9 @@ package io.github.fifothehein.tminus.engine
 import android.app.AlarmManager
 import android.app.Application
 import android.content.Intent
+import android.os.Looper
 import android.provider.Settings
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.junit.Assert.assertEquals
@@ -139,6 +141,36 @@ class AlarmEngineChannelTest {
         EventQueue(app).append(event)
         assertEquals(listOf(event.toMap()), call("drainEvents").value)
         assertEquals(emptyList<Any>(), call("drainEvents").value)
+    }
+
+    private class Sink : EventChannel.EventSink {
+        val received = mutableListOf<Any?>()
+        override fun success(event: Any?) { received.add(event) }
+        override fun error(errorCode: String?, errorMessage: String?, errorDetails: Any?) = Unit
+        override fun endOfStream() = Unit
+    }
+
+    @Test
+    fun `live events reach every registered engine and cancelling one keeps the other`() {
+        val other = AlarmEngineChannel(app, store, AlarmScheduler(app, store) { NOW }) { NOW } // e.g. Plan 4's headless engine
+        val mine = Sink()
+        val theirs = Sink()
+        channel.onListen(null, mine)
+        other.onListen(null, theirs)
+        val first = EngineEvent(EngineEventType.FIRED, "a", "src|a|occ", NOW + MINUTE_MS, NOW)
+        val second = first.copy(type = EngineEventType.DISMISSED)
+
+        EngineEvents.emit(app, first)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf<Any?>(first.toMap()), mine.received)
+        assertEquals(listOf<Any?>(first.toMap()), theirs.received)
+
+        other.onCancel(null)
+        EngineEvents.emit(app, second)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf<Any?>(first.toMap(), second.toMap()), mine.received)
+        assertEquals(listOf<Any?>(first.toMap()), theirs.received)
+        channel.onCancel(null)
     }
 
     @Test

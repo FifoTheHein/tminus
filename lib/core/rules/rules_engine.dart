@@ -25,7 +25,8 @@ class RulesEngine {
     : clock = clock ?? systemUtcNow;
 
   /// The device's local zone; used for "Mute today", vacation days and the
-  /// "Paused until HH:mm" text.
+  /// "Paused until …" text (`14:00`, `Wed 09:00` or `14 Oct 09:00`,
+  /// decision 22).
   final tz.Location zone;
   final UtcClock clock;
 
@@ -41,7 +42,8 @@ class RulesEngine {
     if (d.alerts.isEmpty) return d.toResolved(o);
 
     final quiet = rules.quiet;
-    if (!quiet.covers(o.startUtc, nowUtc: clock(), zone: zone)) {
+    final now = clock();
+    if (!quiet.covers(o.startUtc, nowUtc: now, zone: zone)) {
       return d.toResolved(o);
     }
     final turnedOn = occ?.enabled == true;
@@ -55,7 +57,7 @@ class RulesEngine {
       occurrence: o,
       profile: d.profile,
       alerts: const [],
-      explanation: 'Silenced · ${quiet.label(zone)}',
+      explanation: 'Silenced · ${quiet.label(zone, nowUtc: now)}',
       silenced: true,
       step: d.step,
     );

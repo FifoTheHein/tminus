@@ -43,8 +43,9 @@ sealed class QuietState {
   bool isActive({required DateTime nowUtc, required tz.Location zone});
 
   /// The text after "Silenced · ", e.g. `Mute today`, `Paused until 14:00`,
-  /// `Vacation` (roadmap §4).
-  String label(tz.Location zone);
+  /// `Paused until Wed 09:00`, `Vacation` (roadmap §4). [nowUtc] decides
+  /// whether a pause's end needs its day (decision 22).
+  String label(tz.Location zone, {required DateTime nowUtc});
 }
 
 final class QuietNone extends QuietState {
@@ -61,7 +62,7 @@ final class QuietNone extends QuietState {
   bool isActive({required DateTime nowUtc, required tz.Location zone}) => false;
 
   @override
-  String label(tz.Location zone) => '';
+  String label(tz.Location zone, {required DateTime nowUtc}) => '';
 
   @override
   bool operator ==(Object other) => other is QuietNone;
@@ -92,7 +93,7 @@ final class MuteToday extends QuietUntil {
   MuteToday(super.untilUtc);
 
   @override
-  String label(tz.Location zone) => 'Mute today';
+  String label(tz.Location zone, {required DateTime nowUtc}) => 'Mute today';
 
   @override
   bool operator ==(Object other) =>
@@ -108,12 +109,44 @@ final class MuteToday extends QuietUntil {
 final class PausedUntil extends QuietUntil {
   PausedUntil(super.untilUtc);
 
+  /// `Paused until 14:00` when the pause ends today (local),
+  /// `Paused until Wed 09:00` when it ends 1–6 local dates from today, and
+  /// `Paused until 14 Oct 09:00` otherwise (decision 22). Days are counted
+  /// by local date, so a DST change never moves the boundary.
   @override
-  String label(tz.Location zone) {
+  String label(tz.Location zone, {required DateTime nowUtc}) {
     final t = tz.TZDateTime.from(untilUtc, zone);
+    final today = LocalDate.of(nowUtc, zone);
+    final days = DateTime.utc(
+      t.year,
+      t.month,
+      t.day,
+    ).difference(DateTime.utc(today.year, today.month, today.day)).inDays;
     String two(int v) => v.toString().padLeft(2, '0');
-    return 'Paused until ${two(t.hour)}:${two(t.minute)}';
+    final time = '${two(t.hour)}:${two(t.minute)}';
+    final when = switch (days) {
+      0 => time,
+      >= 1 && <= 6 => '${_weekdays[t.weekday - 1]} $time',
+      _ => '${t.day} ${_months[t.month - 1]} $time',
+    };
+    return 'Paused until $when';
   }
+
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   @override
   bool operator ==(Object other) =>
@@ -148,7 +181,7 @@ final class Vacation extends QuietState {
       LocalDate.of(nowUtc, zone) <= lastDay;
 
   @override
-  String label(tz.Location zone) => 'Vacation';
+  String label(tz.Location zone, {required DateTime nowUtc}) => 'Vacation';
 
   @override
   bool operator ==(Object other) =>

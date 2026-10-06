@@ -48,6 +48,15 @@ void main() {
       silenced: true,
     ),
     Case(
+      'a pause ending on another day names the day (decision 22)',
+      plain,
+      RuleSet(quiet: PausedUntil(DateTime.utc(2026, 10, 7, 7))),
+      'Silenced · Paused until Wed 09:00',
+      const [],
+      step: ResolutionStep.globalDefault,
+      silenced: true,
+    ),
+    Case(
       'pause does not cover an event starting at its end',
       noon,
       RuleSet(quiet: pause),

@@ -16,6 +16,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowMediaPlayer
+import org.robolectric.shadows.util.DataSource
+import android.app.Application
+import android.provider.Settings
 
 @RunWith(RobolectricTestRunner::class)
 class HeadsUpFlowTest {
@@ -127,5 +131,34 @@ class HeadsUpFlowTest {
         val activity = Robolectric.buildActivity(JoinActivity::class.java, JoinActivity.intent(context, "gone")).create().get()
         assertNull(shadowOf(activity).nextStartedActivity)
         assertTrue(activity.isFinishing)
+    }
+
+    @Test
+    fun `an alarm firing into a group whose heads-up is showing absorbs it into one ringing session`() {
+        ShadowMediaPlayer.addMediaInfo(
+            DataSource.toDataSource(context, Settings.System.DEFAULT_ALARM_ALERT_URI),
+            ShadowMediaPlayer.MediaInfo(60_000, 0),
+        )
+        val start = now + 10 * MINUTE_MS
+        val h = alert("h", now + MINUTE_MS, strength = Strength.HEADS_UP, start = start, title = "Call the bank", group = "G")
+        val a = alert("a", now + MINUTE_MS + 2_000, start = start, title = "Sprint planning", group = "G")
+        AlarmScheduler(context, store).applyPlan(listOf(h, a))
+        AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "h"))
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+
+        AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "a")) // a's own, later alarm
+        val ring = shadowOf(context as Application).nextStartedService
+        Robolectric.buildService(RingingService::class.java, ring).create().startCommand(0, 1)
+
+        assertEquals(setOf("a", "h"), RingingSession.ids)
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+        val ringing = shadowOf(manager).getNotification(NotificationFactory.RINGING_NOTIFICATION_ID)
+        assertEquals("2 meetings starting", ringing.title())
+        assertEquals(listOf("Stop", "Snooze all", "Dismiss all"), ringing.actions.map { it.title.toString() })
+
+        // Snooze all on the session snoozes both.
+        EngineActions.create(context).snooze(RingingSession.ids, null)
+        assertEquals(setOf("a:s", "h:s"), store.read().snoozes.map { it.id }.toSet())
+        assertTrue(RingingSession.ids.isEmpty())
     }
 }

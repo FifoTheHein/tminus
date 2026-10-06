@@ -17,13 +17,20 @@ class AndroidAlertPresenter(
             postHeadsUps(alerts)
             return
         }
+        // An alarm absorbs its group's heads-up: the alerts that notification shows ring with it.
+        val presented = store.read().presented
+        val ringing = RingingSession.ids
+        val groups = alerts.map { it.coalesceGroup }.distinct()
+        val absorbed = groups.flatMap { headsUpMembers(presented, ringing, it) }
         try {
-            startRinging(appContext, alerts.map { it.id })
+            startRinging(appContext, (alerts + absorbed).distinctBy { it.id }.map { it.id })
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (Android 12+) is an IllegalStateException.
             Log.w(TAG, "Ringing service refused to start; showing a heads-up instead", e)
             postHeadsUps(alerts)
+            return
         }
+        groups.forEach(notifications::cancelHeadsUp)
     }
 
     override fun withdraw(alerts: List<PlannedAlert>) {

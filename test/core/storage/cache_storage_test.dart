@@ -91,6 +91,21 @@ void main() {
       expect(await cache.byKey(full.key), full);
     });
 
+    test('a key from a microsecond instant survives a round trip', () async {
+      final o = occ(
+        sourceId: 'work',
+        uid: 'micro',
+        start: DateTime.utc(2026, 10, 6, 8, 0, 0, 0, 123),
+      );
+      await cache.replaceForSource('work', [o]);
+      final reloaded = (await cache.between(
+        DateTime.utc(2026, 10, 6),
+        DateTime.utc(2026, 10, 7),
+      )).single;
+      expect(reloaded.key, o.key);
+      expect(await cache.byKey(o.key), o);
+    });
+
     test('replaceForSource swaps one source only', () async {
       await cache.replaceForSource('work', [occ(sourceId: 'work', uid: 'a')]);
       await cache.replaceForSource('personal', [

@@ -8,6 +8,7 @@ import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/event_override.dart';
 import 'package:tminus/core/model/skip_filters.dart';
 import 'package:tminus/core/model/source_config.dart';
+import 'package:tminus/core/model/utc.dart';
 
 import '../fixtures.dart';
 
@@ -46,6 +47,31 @@ void main() {
       expect(o.startUtc.isUtc, isTrue);
       expect(o.endUtc.isUtc, isTrue);
       expect(o.originalStartUtc.isUtc, isTrue);
+    });
+  });
+
+  group('plainUtc (decision 25)', () {
+    test('truncates to whole milliseconds', () {
+      final t = DateTime.utc(2026, 10, 6, 8, 0, 0, 0, 123);
+      final p = plainUtc(t);
+      expect(p.microsecond, 0);
+      expect(p, DateTime.utc(2026, 10, 6, 8));
+      final ms = plainUtc(DateTime.utc(2026, 10, 6, 8, 0, 0, 45, 999));
+      expect(ms, DateTime.utc(2026, 10, 6, 8, 0, 0, 45));
+      expect(ms.isUtc, isTrue);
+    });
+
+    test('an occurrence key never carries microseconds', () {
+      final o = occ(start: DateTime.utc(2026, 10, 6, 8, 0, 0, 0, 123));
+      expect(o.key, 'work|uid1|2026-10-06T08:00:00.000Z');
+      expect(
+        EventOccurrence.makeKey(
+          'work',
+          'uid1',
+          DateTime.utc(2026, 10, 6, 8, 0, 0, 0, 123),
+        ),
+        o.key,
+      );
     });
   });
 

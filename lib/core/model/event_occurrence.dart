@@ -64,9 +64,10 @@ class EventOccurrence {
 
   String get key => makeKey(sourceId, uid, originalStartUtc);
 
-  /// `'$sourceId|$uid|<originalStartUtc as UTC ISO-8601>'` (roadmap §4).
+  /// `'$sourceId|$uid|<originalStartUtc as UTC ISO-8601>'` (roadmap §4),
+  /// in whole milliseconds like every stored instant (decision 25).
   static String makeKey(String sourceId, String uid, DateTime originalStart) =>
-      '$sourceId|$uid|${originalStart.toUtc().toIso8601String()}';
+      '$sourceId|$uid|${plainUtc(originalStart).toIso8601String()}';
 
   EventOccurrence copyWith({
     DateTime? startUtc,

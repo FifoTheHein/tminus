@@ -212,6 +212,20 @@ class AlarmSchedulerTest {
     }
 
     @Test
+    fun `a kept alert whose alarm vanished but whose PendingIntent survived is armed again`() {
+        val a = alert("a", NOW + 10 * MINUTE_MS)
+        scheduler.applyPlan(listOf(a))
+        alarmManager.cancel(scheduled().getValue("a").operation!!) // the alarm goes, the PendingIntent stays
+        assertTrue(scheduled().isEmpty())
+        assertTrue(scheduler.isArmed(a))
+
+        assertEquals(ApplyResult(armed = 0, cancelled = 0, kept = 1), scheduler.applyPlan(listOf(a)))
+
+        assertEquals(setOf("a"), scheduled().keys)
+        assertEquals(NOW + 10 * MINUTE_MS, scheduled().getValue("a").triggerAtMs)
+    }
+
+    @Test
     fun `duplicate ids in one plan arm once`() {
         val a = alert("a", NOW + 10 * MINUTE_MS)
         assertEquals(ApplyResult(1, 0, 0), scheduler.applyPlan(listOf(a, a.copy(offsetMinutes = 99))))

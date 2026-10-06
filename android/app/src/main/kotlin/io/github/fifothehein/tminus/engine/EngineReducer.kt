@@ -75,6 +75,9 @@ object EngineReducer {
                 presented = state.presented.filterNot { it.id in targetIds },
                 snoozes = state.snoozes.filterNot { it.id in createdIds } + planSnoozes,
                 tests = state.tests.filterNot { it.id in createdIds } + testSnoozes,
+                // The snooze replaces the original at this fire time: a later applyPlan that still
+                // lists the original (its fire time may be in the future) must not arm it again.
+                dismissed = (state.dismissed + targets.map { Dismissal(it.id, it.fireAtUtcMs) }).distinct(),
             ),
             affected = targets,
             withdrawn = targets,

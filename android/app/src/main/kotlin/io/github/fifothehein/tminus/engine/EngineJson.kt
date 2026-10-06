@@ -97,6 +97,23 @@ object EngineJson {
         )
     }
 
+    fun eventToJson(e: EngineEvent): JSONObject = JSONObject()
+        .put("type", e.type.wire)
+        .put("alertId", e.alertId)
+        .put("occurrenceKey", e.occurrenceKey)
+        .put("startUtcMs", e.startUtcMs)
+        .put("atUtcMs", e.atUtcMs)
+        .put("snoozeUntilUtcMs", e.snoozeUntilUtcMs ?: JSONObject.NULL)
+
+    fun eventFromJson(o: JSONObject): EngineEvent = EngineEvent(
+        type = EngineEventType.fromWire(o.getString("type")),
+        alertId = o.getString("alertId"),
+        occurrenceKey = o.getString("occurrenceKey"),
+        startUtcMs = o.getLong("startUtcMs"),
+        atUtcMs = o.getLong("atUtcMs"),
+        snoozeUntilUtcMs = if (o.isNull("snoozeUntilUtcMs")) null else o.getLong("snoozeUntilUtcMs"),
+    )
+
     /** A plain map the Flutter codec can send; JSON nulls become Kotlin nulls. */
     fun toMap(o: JSONObject): Map<String, Any?> =
         o.keys().asSequence().associateWith { key -> unwrap(o.get(key)) }

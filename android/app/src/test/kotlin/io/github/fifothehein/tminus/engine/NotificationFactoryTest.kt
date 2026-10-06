@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -96,5 +97,25 @@ class NotificationFactoryTest {
         assertEquals(NotificationFactory.CHANNEL_MISSED, n.channelId)
         assertEquals("Missed: Design review (14:00)", n.title())
         assertEquals(listOf("Open"), n.actionTitles())
+    }
+
+    @Test
+    fun `the ringing notification is colorized so Android 16 never force-groups and silences it`() {
+        // Android 16 force-groups an app's notifications and sets FLAG_SILENT on each one it groups,
+        // and SystemUI then suppresses that notification's full-screen intent. A colorized
+        // foreground-service notification is exempt from force grouping (GroupHelper).
+        val alarm = meeting().copy(strength = Strength.ALARM)
+        listOf(factory.ringing(listOf(alarm)), factory.ringing(emptyList())).forEach { n ->
+            assertTrue(n.extras.getBoolean(Notification.EXTRA_COLORIZED))
+            assertFalse(n.flags and FLAG_SILENT != 0)
+            assertEquals(Notification.GROUP_ALERT_ALL, n.groupAlertBehavior)
+            assertNotNull(n.fullScreenIntent)
+        }
+        assertEquals(alarm.event.color.toInt(), factory.ringing(listOf(alarm)).color) // the calendar colour fills it
+    }
+
+    private companion object {
+        /** Notification.FLAG_SILENT (API 36, hidden on the SDK the tests run on). */
+        const val FLAG_SILENT = 1 shl 17
     }
 }

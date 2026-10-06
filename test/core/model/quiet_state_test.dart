@@ -115,24 +115,91 @@ void main() {
   group('label', () {
     test('Paused until shows local HH:mm', () {
       expect(
-        PausedUntil(DateTime.utc(2026, 10, 6, 12)).label(johannesburg),
+        PausedUntil(DateTime.utc(2026, 10, 6, 12))
+            .label(johannesburg, nowUtc: DateTime.utc(2026, 10, 6, 9)),
         'Paused until 14:00',
       );
       expect(
-        PausedUntil(DateTime.utc(2026, 7, 1, 12, 5)).label(london),
+        PausedUntil(DateTime.utc(2026, 7, 1, 12, 5))
+            .label(london, nowUtc: DateTime.utc(2026, 7, 1, 9)),
         'Paused until 13:05',
       );
     });
 
     test('Mute today and Vacation', () {
+      final now = DateTime.utc(2026, 10, 6, 9);
       expect(
-        MuteToday(DateTime.utc(2026, 10, 7, 5)).label(london),
+        MuteToday(DateTime.utc(2026, 10, 7, 5)).label(london, nowUtc: now),
         'Mute today',
       );
       expect(
-        Vacation(LocalDate(2026, 10, 7), LocalDate(2026, 10, 7)).label(london),
+        Vacation(
+          LocalDate(2026, 10, 7),
+          LocalDate(2026, 10, 7),
+        ).label(london, nowUtc: now),
         'Vacation',
       );
+    });
+
+    group('Paused until names the day when it is not today (decision 22)', () {
+      // Tue 6 Oct 2026 08:00 SAST.
+      final now = DateTime.utc(2026, 10, 6, 6);
+      String jhb(DateTime untilUtc) =>
+          PausedUntil(untilUtc).label(johannesburg, nowUtc: now);
+
+      test('today: time only, up to local midnight', () {
+        expect(jhb(DateTime.utc(2026, 10, 6, 12)), 'Paused until 14:00');
+        expect(jhb(DateTime.utc(2026, 10, 6, 21, 59)), 'Paused until 23:59');
+      });
+
+      test('tomorrow: weekday and time', () {
+        expect(jhb(DateTime.utc(2026, 10, 6, 22)), 'Paused until Wed 00:00');
+        expect(jhb(DateTime.utc(2026, 10, 7, 7)), 'Paused until Wed 09:00');
+      });
+
+      test('six local days ahead: weekday and time', () {
+        expect(jhb(DateTime.utc(2026, 10, 12, 7)), 'Paused until Mon 09:00');
+        expect(
+          jhb(DateTime.utc(2026, 10, 12, 21, 59)),
+          'Paused until Mon 23:59',
+        );
+      });
+
+      test('seven local days ahead: day, month and time', () {
+        expect(
+          jhb(DateTime.utc(2026, 10, 12, 22)),
+          'Paused until 13 Oct 00:00',
+        );
+        expect(jhb(DateTime.utc(2026, 10, 13, 7)), 'Paused until 13 Oct 09:00');
+        expect(
+          jhb(DateTime.utc(2026, 11, 2, 7, 5)),
+          'Paused until 2 Nov 09:05',
+        );
+      });
+
+      test('every weekday name', () {
+        final names = [
+          for (var d = 1; d <= 6; d++)
+            jhb(DateTime.utc(2026, 10, 6 + d, 7)).split(' ')[2],
+        ];
+        expect(names, ['Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon']);
+      });
+
+      test('counts local dates, not 24-hour periods, across DST (London)', () {
+        // Sat 24 Oct 2026 00:30 BST; clocks go back on Sun 25 Oct.
+        final now = DateTime.utc(2026, 10, 23, 23, 30);
+        String ldn(DateTime untilUtc) =>
+            PausedUntil(untilUtc).label(london, nowUtc: now);
+        // Fri 30 Oct 23:59 GMT: six local dates on, though over 7 × 24 h.
+        expect(
+          ldn(DateTime.utc(2026, 10, 30, 23, 59)),
+          'Paused until Fri 23:59',
+        );
+        // Sat 31 Oct 00:00 GMT: seven local dates on.
+        expect(ldn(DateTime.utc(2026, 10, 31)), 'Paused until 31 Oct 00:00');
+        // Sun 25 Oct 09:00 GMT, the day the clocks go back.
+        expect(ldn(DateTime.utc(2026, 10, 25, 9)), 'Paused until Sun 09:00');
+      });
     });
   });
 }

@@ -121,16 +121,43 @@ List<IcsOccurrence> expandSingle(
   ];
 }
 
-/// An RRULE series.
+/// An override whose series is missing from the feed (e.g. you were invited
+/// to one instance only): shown on its own, still marked recurring.
+List<IcsOccurrence> expandOrphanOverride(
+  ParsedEvent e,
+  ZoneResolver zones,
+  IcsWindow window,
+) {
+  if (e.cancelled) {
+    return const [];
+  }
+  final timing = _timingOf(e, zones);
+  if (!window.overlaps(timing.startUtc, timing.endUtc)) {
+    return const [];
+  }
+  return [
+    _occurrence(
+      e,
+      timing,
+      originalStartUtc: _instantOf(e.recurrenceId!, zones),
+      recurring: true,
+    ),
+  ];
+}
+
+/// An RRULE series plus its RECURRENCE-ID overrides.
 ///
 /// The rule is expanded in the event's own wall-clock zone, so a 09:00
 /// meeting stays at 09:00 local time across DST changes, then each instance
-/// is converted to UTC. EXDATEs remove instances. A cancelled series yields
+/// is converted to UTC. EXDATEs remove instances; every override replaces
+/// the instance whose original start it names (wherever the override now
+/// lands); cancelled overrides just remove it. A cancelled series yields
 /// nothing.
 ///
 /// Throws [FormatException] (or whatever `package:rrule` throws) for a bad rule.
 List<IcsOccurrence> expandSeries(
   ParsedEvent master,
+  List<ParsedEvent> overrides,
   ZoneResolver zones,
   IcsWindow window,
 ) {
@@ -153,6 +180,9 @@ List<IcsOccurrence> expandSeries(
   final beforeWall = zone.utcToWall(window.end).add(margin);
 
   final excluded = {for (final ex in master.exdates) _instantOf(ex, zones)};
+  final overridden = {
+    for (final o in overrides) _instantOf(o.recurrenceId!, zones),
+  };
 
   final result = <IcsOccurrence>[];
   for (final wall in rule.getInstances(
@@ -163,7 +193,7 @@ List<IcsOccurrence> expandSeries(
     includeBefore: true,
   )) {
     final startUtc = zone.wallToUtc(wall);
-    if (excluded.contains(startUtc)) {
+    if (excluded.contains(startUtc) || overridden.contains(startUtc)) {
       continue;
     }
     final endUtc = allDay
@@ -182,5 +212,22 @@ List<IcsOccurrence> expandSeries(
     );
   }
 
+  for (final o in overrides) {
+    if (o.cancelled) {
+      continue;
+    }
+    final timing = _timingOf(o, zones);
+    if (!window.overlaps(timing.startUtc, timing.endUtc)) {
+      continue;
+    }
+    result.add(
+      _occurrence(
+        o,
+        timing,
+        originalStartUtc: _instantOf(o.recurrenceId!, zones),
+        recurring: true,
+      ),
+    );
+  }
   return result;
 }

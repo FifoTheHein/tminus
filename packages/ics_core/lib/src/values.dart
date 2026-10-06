@@ -156,7 +156,7 @@ RecurrenceRule parseRrule(
       continue;
     }
     if (key == 'UNTIL') {
-      until = eq < 0 ? '' : part.substring(eq + 1);
+      until = eq < 0 ? '' : part.substring(eq + 1).toUpperCase();
       continue;
     }
     if (key == 'COUNT') {
@@ -165,7 +165,8 @@ RecurrenceRule parseRrule(
     if (eq >= 0) {
       values[key] = part.substring(eq + 1).trim().toUpperCase();
     }
-    kept.add(part.trim());
+    // package:rrule only reads upper-case names and values.
+    kept.add(part.trim().toUpperCase());
   }
   if (until != null && hasCount) {
     throw const FormatException('RRULE has both UNTIL and COUNT');

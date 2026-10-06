@@ -247,4 +247,45 @@ END:VEVENT'''),
     expect(r.issues.single.uid, 'every-minute');
     expect(r.issues.single.message, contains('10000'));
   });
+
+  test('a floating EXDATE on a TZID series is read in the series zone', () {
+    final r = expandIcs(
+      calendar('''
+BEGIN:VEVENT
+UID:ny
+DTSTART;TZID=America/New_York:20261020T090000
+RRULE:FREQ=DAILY;COUNT=3
+EXDATE:20261021T090000
+END:VEVENT'''),
+      windowStartUtc: DateTime.utc(2026, 10, 19),
+      windowEndUtc: DateTime.utc(2026, 10, 26),
+      deviceZone: 'Africa/Johannesburg',
+    );
+    expect(startsOf(r, 'ny'), [
+      '2026-10-20T13:00:00.000Z',
+      '2026-10-22T13:00:00.000Z',
+    ]);
+  });
+
+  test('each instance gets its own unmodifiable warnings set', () {
+    final r = expandIcs(
+      calendar('''
+BEGIN:VEVENT
+UID:unknown-zone
+DTSTART;TZID=Mars Standard Time:20261020T090000
+RRULE:FREQ=DAILY;COUNT=2
+END:VEVENT'''),
+      windowStartUtc: DateTime.utc(2026, 10, 19),
+      windowEndUtc: DateTime.utc(2026, 10, 26),
+      deviceZone: 'Africa/Johannesburg',
+    );
+    final [first, second] = r.occurrences;
+    expect(first.warnings, {IcsWarning.tzFromDevice});
+    expect(identical(first.warnings, second.warnings), isFalse);
+    expect(
+      () => first.warnings.add(IcsWarning.tzFromVtimezone),
+      throwsUnsupportedError,
+    );
+    expect(second.warnings, {IcsWarning.tzFromDevice});
+  });
 }

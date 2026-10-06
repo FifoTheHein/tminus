@@ -100,7 +100,7 @@ IcsOccurrence _occurrence(
   endUtc: timing.endUtc,
   allDay: e.allDay,
   busyStatus: e.busyStatus,
-  warnings: timing.warnings,
+  warnings: Set.unmodifiable(timing.warnings),
 );
 
 /// A one-off event (no RRULE, no RECURRENCE-ID): zero or one occurrence.
@@ -185,10 +185,12 @@ List<IcsOccurrence> expandSeries(
   final afterWall = zone.utcToWall(window.start).subtract(length + margin);
   final beforeWall = zone.utcToWall(window.end).add(margin);
 
-  final excluded = {for (final ex in master.exdates) _instantOf(ex, zones)};
-  final overridden = {
-    for (final o in overrides) _instantOf(o.recurrenceId!, zones),
-  };
+  // A floating EXDATE or RECURRENCE-ID names a wall time of the series.
+  DateTime instantOf(IcsTime t) => !t.isDate && !t.isUtc && t.tzid == null
+      ? zone.wallToUtc(t.wall)
+      : _instantOf(t, zones);
+  final excluded = {for (final ex in master.exdates) instantOf(ex)};
+  final overridden = {for (final o in overrides) instantOf(o.recurrenceId!)};
 
   final result = <IcsOccurrence>[];
   var iterated = 0;
@@ -241,7 +243,7 @@ List<IcsOccurrence> expandSeries(
       _occurrence(
         o,
         timing,
-        originalStartUtc: _instantOf(o.recurrenceId!, zones),
+        originalStartUtc: instantOf(o.recurrenceId!),
         recurring: true,
       ),
     );

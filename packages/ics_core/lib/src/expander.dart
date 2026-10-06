@@ -192,13 +192,18 @@ List<IcsOccurrence> expandSeries(
 
   final result = <IcsOccurrence>[];
   var iterated = 0;
-  for (final wall in rule.getInstances(
-    start: startWall,
-    after: afterWall.isAfter(startWall) ? afterWall : null,
-    includeAfter: true,
-    before: beforeWall,
-    includeBefore: true,
-  )) {
+  // A series that starts after the window has no instances in it (and
+  // rrule asserts `before >= start`), but its overrides may move into it.
+  final walls = beforeWall.isBefore(startWall)
+      ? const <DateTime>[]
+      : rule.getInstances(
+          start: startWall,
+          after: afterWall.isAfter(startWall) ? afterWall : null,
+          includeAfter: true,
+          before: beforeWall,
+          includeBefore: true,
+        );
+  for (final wall in walls) {
     if (++iterated > maxInstancesPerSeries) {
       throw const FormatException(
         'RRULE has more than $maxInstancesPerSeries instances in the window',

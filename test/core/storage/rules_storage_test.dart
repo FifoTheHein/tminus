@@ -274,6 +274,45 @@ void main() {
       expect(await settings.quietState(), const QuietNone());
     });
 
+    test('skip-filter text that is not JSON reads as all on', () async {
+      await settings.setString(SettingsRepository.skipFiltersKey, 'garbage');
+      expect(await settings.skipFilters(), const SkipFilters());
+    });
+
+    test('skip-filter JSON of the wrong shape reads as all on', () async {
+      for (final json in [
+        '{"allDay":"yes"}',
+        '{"tentative":false,"free":1}',
+        '[]',
+        'null',
+        '"on"',
+      ]) {
+        await settings.setString(SettingsRepository.skipFiltersKey, json);
+        expect(await settings.skipFilters(), const SkipFilters(), reason: json);
+      }
+    });
+
+    test('skip-filter JSON with missing keys keeps the others', () async {
+      await settings.setString(
+        SettingsRepository.skipFiltersKey,
+        '{"tentative":false}',
+      );
+      expect(await settings.skipFilters(), const SkipFilters(tentative: false));
+    });
+
+    test('watchSkipFilters reads unreadable JSON as all on', () async {
+      await settings.setString(SettingsRepository.skipFiltersKey, 'garbage');
+      expect(await settings.watchSkipFilters().first, const SkipFilters());
+    });
+
+    test('an unknown quiet kind reads as none', () async {
+      await db.customStatement(
+        "INSERT INTO quiet_state (id, kind) VALUES (1, 'snooze')",
+      );
+      expect(await settings.quietState(), const QuietNone());
+      expect(await settings.watchQuietState().first, const QuietNone());
+    });
+
     test('watchQuietState emits the current state, then changes', () async {
       final mute = MuteToday(DateTime.utc(2026, 10, 7, 5));
       final seen = <QuietState>[];

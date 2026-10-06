@@ -104,6 +104,11 @@ class NotificationFactory(
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            // Filled with the calendar colour (mockup 6a). It also keeps the alarm's full-screen intent:
+            // Android 16 force-groups an app's notifications and marks each one it groups FLAG_SILENT,
+            // and SystemUI suppresses a silent notification's full-screen intent. A colorized
+            // foreground-service notification is never force-grouped.
+            .setColorized(true)
             .setShowWhen(true)
             .setWhen(clock())
             .setContentIntent(alarmScreen())

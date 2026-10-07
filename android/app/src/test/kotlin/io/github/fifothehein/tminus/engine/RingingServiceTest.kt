@@ -1,6 +1,7 @@
 package io.github.fifothehein.tminus.engine
 
 import android.app.Application
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
@@ -353,6 +354,36 @@ class RingingServiceTest {
             assertEquals(listOf<Throwable>(crash, crash), seenByPrevious)
         } finally {
             Thread.setDefaultUncaughtExceptionHandler(original)
+        }
+    }
+
+    @Test
+    fun `a refused foreground start falls back to a heads-up and stays presented`() {
+        // Android 15+: "FGS type mediaPlayback not allowed to start from BOOT_COMPLETED!" from startForeground.
+        RingingService.startForeground = { _, _, _, _ ->
+            throw ForegroundServiceStartNotAllowedException("FGS type mediaPlayback not allowed to start from BOOT_COMPLETED!")
+        }
+        try {
+            val a = alert("a", NOW, group = "G")
+            RingingSession.add(listOf(a)) // AndroidAlertPresenter.present put it in the session already
+
+            val service = startWith(a).get() // must not crash the app
+
+            assertFalse(service.isSounding)
+            assertFalse(vibrating())
+            assertTrue(shadowOf(service).isStoppedBySelf)
+            assertTrue(RingingSession.alerts.isEmpty())
+            val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId("G"))
+            assertNotNull("heads-up posted", n)
+            assertEquals(NotificationFactory.CHANNEL_HEADS_UP, n.channelId)
+            assertEquals(listOf("Snooze", "Dismiss all"), n.actionTitles())
+            assertEquals(listOf("a"), PlanStore(context).read().presented.map { it.id })
+
+            n.actions.last().actionIntent.send() // Dismiss all still works
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(PlanStore(context).read().presented.isEmpty())
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
         }
     }
 }

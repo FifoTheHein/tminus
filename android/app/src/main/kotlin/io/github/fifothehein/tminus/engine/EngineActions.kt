@@ -44,16 +44,33 @@ class EngineActions(
     fun rearmAll(): Int = scheduler.rearmAll().also { reconcile() }
 
     /**
+     * LOCKED_BOOT_COMPLETED / BOOT_COMPLETED. Android 15+ forbids starting the mediaPlayback service
+     * from the boot broadcasts, so nothing rings from here: what should ring now (an alarm that was
+     * ringing at reboot, an alert that came due while the phone was off) fires through AlarmManager
+     * [RECOVERY_DELAY_MS] from now, and AlarmReceiver may start the service. Heads-ups are posted now.
+     */
+    fun recoverAfterBoot() {
+        recoverPresented(ringLater = true)
+        scheduler.rearmAll()
+        reconcile(fireLater = true)
+    }
+
+    /**
      * Overdue alerts are never dropped silently: one whose event has not ended fires now through
      * [fire] (coalescing, events, presenter); one whose event has ended is reported missed.
      */
-    fun reconcile() {
+    fun reconcile(fireLater: Boolean = false) {
         val now = clock()
         val expired = transition { EngineReducer.expireOverdue(it, now) }
         expired.toCancel.forEach { scheduler.cancel(it.id) }
         if (expired.affected.isNotEmpty()) {
             expired.affected.forEach { emit(EngineEvent.of(EngineEventType.MISSED, it, now)) }
             presenter.missed(expired.affected)
+        }
+        if (fireLater) {
+            // Each overdue alert's own alarm, a moment from now: AlarmReceiver fires it with its group.
+            store.read().scheduled.filter { it.fireAtUtcMs <= now }.forEach { scheduler.arm(it, now + RECOVERY_DELAY_MS) }
+            return
         }
         while (true) {
             val next = store.read().scheduled.filter { it.fireAtUtcMs <= now }.minWithOrNull(EngineReducer.displayOrder) ?: break
@@ -70,13 +87,17 @@ class EngineActions(
      * missed. Alerts that are still ringing or still have their heads-up posted are left alone.
      * Call it before [rearmAll], so alerts that [reconcile] fires are not presented twice.
      */
-    fun recoverPresented() {
+    fun recoverPresented(ringLater: Boolean = false) {
         val now = clock()
         val orphans = store.read().presented.filterNot(presenter::isShowing)
         if (orphans.isEmpty()) return
         val (ended, live) = orphans.partition { it.event.hasEnded(now) }
         if (ended.isNotEmpty()) missed(ended.map { it.id })
-        live.groupBy { it.coalesceGroup }.values.forEach { presenter.present(it.sortedWith(EngineReducer.displayOrder)) }
+        // At boot ([ringLater]) an alarm group rings through boot recovery's alarm, which calls this again.
+        val (later, ringNow) = live.groupBy { it.coalesceGroup }.values
+            .partition { group -> ringLater && group.any { it.strength == Strength.ALARM } }
+        ringNow.forEach { presenter.present(it.sortedWith(EngineReducer.displayOrder)) }
+        if (later.isNotEmpty()) scheduler.armRecovery(now + RECOVERY_DELAY_MS)
     }
 
     /** An alarm went off: collects its coalesce group and presents it. Returns the collected alerts. */
@@ -152,6 +173,9 @@ class EngineActions(
     private fun emit(event: EngineEvent) = EngineEvents.emit(appContext, event)
 
     companion object {
+        /** How far out boot recovery's alarms are set: a few seconds. */
+        const val RECOVERY_DELAY_MS = 3_000L
+
         /** EngineActions with the real presenter, for receivers, services and activities. */
         fun create(context: Context): EngineActions = EngineActions(context, AndroidAlertPresenter(context))
     }

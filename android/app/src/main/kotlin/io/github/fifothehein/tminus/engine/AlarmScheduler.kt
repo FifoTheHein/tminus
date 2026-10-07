@@ -53,26 +53,43 @@ class AlarmScheduler(
         return future.size
     }
 
-    fun arm(alert: PlannedAlert) {
-        val operation = operation(alert.id, PendingIntent.FLAG_UPDATE_CURRENT)!!
-        val at = alert.fireAtUtcMs
-        try {
-            when {
-                !canScheduleExactAlarms() -> alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
-                alert.strength == Strength.ALARM ->
-                    alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(at, showIntent()), operation)
-                else -> alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
-            }
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Exact alarm refused for ${alert.id}; using an inexact alarm", e)
-            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
-        }
+    /** Arms [alert]'s alarm for [at]: its fire time, or a moment from now for an alert overdue at boot. */
+    fun arm(alert: PlannedAlert, at: Long = alert.fireAtUtcMs) {
+        set(operation(alert.id, PendingIntent.FLAG_UPDATE_CURRENT)!!, at, alarmClock = alert.strength == Strength.ALARM, label = alert.id)
     }
 
     fun cancel(alertId: String) {
         val operation = operation(alertId, PendingIntent.FLAG_NO_CREATE) ?: return
         alarmManager.cancel(operation)
         operation.cancel()
+    }
+
+    /**
+     * Boot recovery: an alarm that was ringing at reboot rings again through AlarmReceiver at [at],
+     * which calls EngineActions.recoverPresented (Android 15+ forbids starting the mediaPlayback
+     * service from the boot broadcasts; an exact alarm may).
+     */
+    fun armRecovery(at: Long) {
+        set(recoveryOperation(PendingIntent.FLAG_UPDATE_CURRENT)!!, at, alarmClock = true, label = "boot recovery")
+    }
+
+    fun cancelRecovery() {
+        val operation = recoveryOperation(PendingIntent.FLAG_NO_CREATE) ?: return
+        alarmManager.cancel(operation)
+        operation.cancel()
+    }
+
+    private fun set(operation: PendingIntent, at: Long, alarmClock: Boolean, label: String) {
+        try {
+            when {
+                !canScheduleExactAlarms() -> alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
+                alarmClock -> alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(at, showIntent()), operation)
+                else -> alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Exact alarm refused for $label; using an inexact alarm", e)
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
+        }
     }
 
     /** True if the alert's PendingIntent exists. The alarm itself may still be gone: see applyPlan. */
@@ -93,6 +110,13 @@ class AlarmScheduler(
         flags or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    private fun recoveryOperation(flags: Int): PendingIntent? = PendingIntent.getBroadcast(
+        appContext,
+        RECOVERY_REQUEST_CODE,
+        AlarmReceiver.recoverIntent(appContext),
+        flags or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     /** setAlarmClock's show intent opens the app (the Agenda, once Plan 5 exists). */
     private fun showIntent(): PendingIntent = PendingIntent.getActivity(
         appContext,
@@ -104,5 +128,6 @@ class AlarmScheduler(
     companion object {
         private const val TAG = "TMinusEngine"
         private const val SHOW_REQUEST_CODE = 0x5101
+        private const val RECOVERY_REQUEST_CODE = 0x5105
     }
 }

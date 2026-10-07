@@ -94,6 +94,8 @@ class RingingService : Service() {
 
     override fun onDestroy() {
         unsubscribe?.invoke()
+        // Nothing rings once the service is gone: the alarm screen closes and the app route stops opening it.
+        RingingSession.clear()
         stopAlerting()
         super.onDestroy()
     }

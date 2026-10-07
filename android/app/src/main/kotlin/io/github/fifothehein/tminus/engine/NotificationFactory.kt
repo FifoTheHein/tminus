@@ -138,6 +138,8 @@ class NotificationFactory(
             .setWhen(clock())
             .setContentIntent(alarmScreen())
             .setFullScreenIntent(alarmScreen(), true)
+            // Android 14+ lets the user swipe this away while unlocked; it comes straight back.
+            .setDeleteIntent(repostRinging())
         if (alerts.isEmpty()) return b.setContentTitle("Alarm").build()
         val ids = ArrayList(alerts.map { it.id })
         val none = NotificationActionReceiver.NO_NOTIFICATION_ID
@@ -224,6 +226,13 @@ class NotificationFactory(
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    private fun repostRinging(): PendingIntent = PendingIntent.getBroadcast(
+        appContext,
+        REPOST_REQUEST_CODE,
+        Intent(appContext, NotificationActionReceiver::class.java).setAction(NotificationActionReceiver.ACTION_REPOST_RINGING),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     private fun notify(id: Int, notification: Notification) {
         try {
             manager.notify(id, notification)
@@ -243,6 +252,7 @@ class NotificationFactory(
         const val MISSED_SUMMARY_ID = 1003
         private const val OPEN_REQUEST_CODE = 0x5102
         private const val ALARM_REQUEST_CODE = 0x5103
+        private const val REPOST_REQUEST_CODE = 0x5104
         private const val TAG = "TMinusEngine"
 
         fun headsUpId(group: String): Int = "headsUp|$group".hashCode()

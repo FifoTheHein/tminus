@@ -5,9 +5,18 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 
-/** Snooze / Dismiss (Stop) / Dismiss all buttons on engine notifications. Join goes to JoinActivity. */
+/**
+ * Snooze / Dismiss (Stop) / Dismiss all buttons on engine notifications, and the ringing notification's
+ * delete intent. Join goes to JoinActivity.
+ */
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_REPOST_RINGING) {
+            // The ringing notification was swiped away. RingingService owns id 1001 and is still in
+            // the foreground while the session is not empty, so posting the id again restores it.
+            if (RingingSession.alerts.isNotEmpty()) NotificationFactory(context).notifyRinging(RingingSession.alerts)
+            return
+        }
         val ids = intent.getStringArrayListExtra(EXTRA_ALERT_IDS) ?: return
         val actions = EngineActions.create(context)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NO_NOTIFICATION_ID)
@@ -29,6 +38,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "io.github.fifothehein.tminus.action.SNOOZE"
         const val ACTION_DISMISS = "io.github.fifothehein.tminus.action.DISMISS"
         const val ACTION_DISMISS_ALL = "io.github.fifothehein.tminus.action.DISMISS_ALL"
+        /** The ringing notification's delete intent. */
+        const val ACTION_REPOST_RINGING = "io.github.fifothehein.tminus.action.REPOST_RINGING"
         const val EXTRA_ALERT_IDS = "alertIds"
         const val EXTRA_NOTIFICATION_ID = "notificationId"
         /** For the ringing notification, which RingingService owns. */

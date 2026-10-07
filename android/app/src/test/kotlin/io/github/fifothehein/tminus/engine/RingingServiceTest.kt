@@ -258,4 +258,33 @@ class RingingServiceTest {
         assertEquals(setOf("a", "b"), EventQueue(context).drain().filter { it.type == EngineEventType.DISMISSED }.map { it.alertId }.toSet())
         assertTrue(PlanStore(context).read().presented.isEmpty())
     }
+
+    @Test
+    fun `removing the ringing notification while ringing posts it again`() {
+        val service = startWith(alert("a", NOW)).get()
+        val posted = shadowOf(service).lastForegroundNotification
+        manager.cancel(NotificationFactory.RINGING_NOTIFICATION_ID) // the user swiped it away (Android 14+)
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.RINGING_NOTIFICATION_ID))
+
+        posted.deleteIntent.send()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val again = shadowOf(manager).getNotification(NotificationFactory.RINGING_NOTIFICATION_ID)
+        assertNotNull(again)
+        assertEquals("Stop", again.actionTitles().first())
+        assertTrue(service.isSounding)
+    }
+
+    @Test
+    fun `a removed ringing notification is not posted again once nothing rings`() {
+        val service = startWith(alert("a", NOW)).get()
+        val posted = shadowOf(service).lastForegroundNotification
+        RingingSession.clear()
+        manager.cancel(NotificationFactory.RINGING_NOTIFICATION_ID)
+
+        posted.deleteIntent.send()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.RINGING_NOTIFICATION_ID))
+    }
 }

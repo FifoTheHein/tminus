@@ -77,6 +77,10 @@ Accepted after the whole-branch review (2026-10-06, user decisions; these amend 
 - **A swiped ringing notification comes straight back.** Android 14+ lets the user swipe an ongoing foreground-service notification away while unlocked. Its delete intent posts it again while anything is ringing.
 - **Stop silences the whole session.** The ringing notification's Stop and the volume keys silence everything that is ringing, whatever ids they were posted with. A per-meeting Dismiss on the coalesced alarm screen removes just that meeting; the rest keep ringing. Ids that are stale (no longer in `presented`) are silenced too.
 - **An alarm that was ringing at reboot fires again through AlarmManager.** Android 15+ forbids starting a `mediaPlayback` foreground service from the boot broadcasts. Boot recovery therefore schedules an immediate exact alarm, a few seconds out, so the alarm rings through the normal fire path.
+- **Boot recovery fires 30 s after the boot.** For about 20 s after a boot broadcast, Android still refuses a `mediaPlayback` foreground service; a 3 s delay crashed in testing. An alarm that was ringing at reboot, or came due while the phone was off, therefore rings 30 s after the boot.
+- **A crash never leaves sound playing.** A process-wide uncaught-exception handler stops the player and the vibration, then hands the crash on to the default handler.
+- **A refused foreground start falls back to a heads-up.** If Android refuses the ringing service at `startForeground` (inside the service), the service catches the refusal, stops cleanly and posts the alert as a heads-up with its actions.
+- **Health reports `ringingChannelEnabled`.** This is an additive field in the roadmap §3 `getHealth` row, so Plan 5 can warn when the "Ringing alarms" channel is off.
 - **Plan 5 note: `AlarmEngine` delivers each event once, to the live stream or to `drainEvents`, whichever sees it first.** A second consumer of `events`, such as a UI refresh, takes events away from the history recorder. Plan 5 needs one consumer that records history and fans out to the UI (Task 15 found this in the debug panel).
 
 ## File Structure

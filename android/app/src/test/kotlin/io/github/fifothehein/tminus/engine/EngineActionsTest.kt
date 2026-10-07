@@ -4,6 +4,7 @@ import android.content.Context
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -324,5 +325,24 @@ class EngineActionsTest {
         actions.missed(listOf("m"))
 
         assertEquals(listOf("a", "j", "m"), presenter.silenced)
+    }
+
+    @Test
+    fun `every stop path silences before it touches the state, even when the state write fails`() {
+        store.write(EngineState(presented = listOf("a", "b", "c", "d").map { alert(it, NOW) }))
+        store.tempFile.mkdirs() // a directory where the temp file goes: every state write now throws
+        try {
+            val stops = listOf<() -> Unit>(
+                { actions.dismiss(listOf("a")) },
+                { actions.snooze(listOf("b"), null) },
+                { actions.dismissAll(listOf("c")) },
+                { actions.missed(listOf("d")) },
+            )
+            stops.forEach { stop -> assertThrows(java.io.IOException::class.java) { stop() } } // the failure surfaces
+
+            assertEquals(listOf("a", "b", "c", "d"), presenter.silenced) // and each one silenced first
+        } finally {
+            store.tempFile.delete()
+        }
     }
 }

@@ -53,6 +53,15 @@ class AndroidAlertPresenter(
         notifications.cancelHeadsUpNotifications(groups.map(NotificationFactory::headsUpId))
     }
 
+    /**
+     * RingingService could not go foreground: [alerts] leave the ringing session and are posted as
+     * heads-up notifications (one per coalesce group). They stay presented, so their actions work.
+     */
+    fun fallBackToHeadsUp(alerts: List<PlannedAlert>) {
+        RingingSession.remove(alerts.map { it.id })
+        postHeadsUps(alerts)
+    }
+
     override fun withdraw(alerts: List<PlannedAlert>) {
         if (alerts.isEmpty()) return
         RingingSession.remove(alerts.map { it.id })

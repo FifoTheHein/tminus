@@ -1,5 +1,6 @@
 package io.github.fifothehein.tminus.engine
 
+import android.app.Notification
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -77,7 +78,15 @@ class RingingService : Service() {
         if (!inForeground) {
             // Must happen within seconds of startForegroundService, even if there is nothing to ring.
             notifications.ensureChannels()
-            ServiceCompat.startForeground(this, NotificationFactory.RINGING_NOTIFICATION_ID, notifications.ringing(session), foregroundType())
+            try {
+                startForeground(this, NotificationFactory.RINGING_NOTIFICATION_ID, notifications.ringing(session), foregroundType())
+            } catch (e: IllegalStateException) { // ForegroundServiceStartNotAllowedException is one
+                refuseForeground(session, e)
+                return START_NOT_STICKY
+            } catch (e: SecurityException) {
+                refuseForeground(session, e)
+                return START_NOT_STICKY
+            }
             inForeground = true
         }
         if (session.isEmpty()) {
@@ -101,6 +110,18 @@ class RingingService : Service() {
         RingingSession.clear()
         stopAlerting()
         super.onDestroy()
+    }
+
+    /**
+     * Android refused the foreground start (on Android 15+, for example, inside a boot broadcast's
+     * allow-list). Nothing may ring: the session's alerts show as heads-up notifications instead, with
+     * their normal actions, and stay presented.
+     */
+    private fun refuseForeground(session: List<PlannedAlert>, error: Exception) {
+        Log.w(TAG, "Ringing service refused the foreground; showing a heads-up instead", error)
+        stopAlerting()
+        AndroidAlertPresenter(this).fallBackToHeadsUp(session)
+        stopSelfResult(lastStartId)
     }
 
     private fun onSessionChanged(alerts: List<PlannedAlert>) {
@@ -245,6 +266,11 @@ class RingingService : Service() {
             .setUsage(AudioAttributes.USAGE_ALARM)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
+
+        internal val DEFAULT_START_FOREGROUND: (Service, Int, Notification, Int) -> Unit = ServiceCompat::startForeground
+
+        /** ServiceCompat.startForeground; tests make it throw as Android may. */
+        internal var startForeground: (Service, Int, Notification, Int) -> Unit = DEFAULT_START_FOREGROUND
 
         fun start(context: Context, alertIds: List<String>) {
             val intent = Intent(context, RingingService::class.java)

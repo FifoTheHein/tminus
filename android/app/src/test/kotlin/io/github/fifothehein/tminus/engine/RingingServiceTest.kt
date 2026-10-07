@@ -406,4 +406,67 @@ class RingingServiceTest {
         assertTrue("b" in RingingSession.ids)
         assertTrue(EventQueue(context).peek().none { it.type == EngineEventType.MISSED && it.alertId == "b" })
     }
+
+    private val alarmManager get() = context.getSystemService(android.app.AlarmManager::class.java)
+
+    private fun retryAlarms() = shadowOf(alarmManager).scheduledAlarms
+        .filter { shadowOf(it.operation).savedIntent.action == AlarmReceiver.ACTION_RETRY_RINGING }
+
+    private fun refuseForeground() {
+        RingingService.startForeground = { _, _, _, _ ->
+            throw ForegroundServiceStartNotAllowedException("FGS type mediaPlayback not allowed to start from BOOT_COMPLETED!")
+        }
+    }
+
+    /** Delivers the retry alarm to AlarmReceiver and hands the service start it makes to a new service. */
+    private fun deliverRetry(alarm: org.robolectric.shadows.ShadowAlarmManager.ScheduledAlarm): RingingService {
+        val app = context as Application
+        while (shadowOf(app).nextStartedService != null) Unit
+        AlarmReceiver().onReceive(context, shadowOf(alarm.operation).savedIntent)
+        val start = shadowOf(app).nextStartedService
+        assertNotNull("the retry starts the ringing service", start)
+        return buildRingingService(start).create().startCommand(0, 1).get()
+    }
+
+    @Test
+    fun `a refused foreground start arms one retry, and a refused retry does not arm another`() {
+        refuseForeground()
+        try {
+            val a = alert("a", NOW, group = "G")
+            startWith(a)
+            val retry = retryAlarms().single()
+            assertEquals(arrayListOf("a"), shadowOf(retry.operation).savedIntent.getStringArrayListExtra(AlarmReceiver.EXTRA_ALERT_IDS))
+            assertTrue(retry.triggerAtMs >= System.currentTimeMillis() + EngineActions.RECOVERY_DELAY_MS - 1_000)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(31)) // the retry comes due
+
+            val service = deliverRetry(retry) // and Android refuses again
+
+            assertFalse(service.isSounding)
+            assertEquals(listOf(retry.triggerAtMs), retryAlarms().map { it.triggerAtMs }) // no second retry
+            assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+            assertEquals(listOf("a"), PlanStore(context).read().presented.map { it.id })
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
+    }
+
+    @Test
+    fun `a retried start that succeeds rings and withdraws the heads-up`() {
+        refuseForeground()
+        val a = alert("a", NOW, group = "G")
+        try {
+            startWith(a)
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
+        assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(31))
+
+        val service = deliverRetry(retryAlarms().single())
+
+        assertTrue(service.isSounding)
+        assertEquals(setOf("a"), RingingSession.ids)
+        assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
+        assertEquals(listOf("Stop", "Snooze", "Dismiss all"), shadowOf(service).lastForegroundNotification.actionTitles())
+    }
 }

@@ -73,6 +73,21 @@ class AlarmScheduler(
         set(recoveryOperation(PendingIntent.FLAG_UPDATE_CURRENT)!!, at, alarmClock = true, label = "boot recovery")
     }
 
+    /**
+     * RingingService's foreground start was refused and [alertIds] show as a heads-up: they ring again
+     * through AlarmReceiver at [at] (an alarm-clock alarm may start the service).
+     */
+    fun armRingingRetry(alertIds: List<String>, at: Long) {
+        val intent = AlarmReceiver.retryRingingIntent(appContext, alertIds)
+        val operation = PendingIntent.getBroadcast(
+            appContext,
+            "retry|${alertIds.joinToString(",")}".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        set(operation, at, alarmClock = true, label = "ringing retry")
+    }
+
     fun cancelRecovery() {
         val operation = recoveryOperation(PendingIntent.FLAG_NO_CREATE) ?: return
         alarmManager.cancel(operation)

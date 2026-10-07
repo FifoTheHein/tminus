@@ -46,8 +46,9 @@ class EngineActions(
     /**
      * LOCKED_BOOT_COMPLETED / BOOT_COMPLETED. Android 15+ forbids starting the mediaPlayback service
      * from the boot broadcasts, so nothing rings from here: what should ring now (an alarm that was
-     * ringing at reboot, an alert that came due while the phone was off) fires through AlarmManager
-     * [RECOVERY_DELAY_MS] from now, and AlarmReceiver may start the service. Heads-ups are posted now.
+     * ringing at reboot, an alert that came due while the phone was off, or one due within the window)
+     * fires through AlarmManager [RECOVERY_DELAY_MS] from now, and AlarmReceiver may start the service.
+     * Heads-ups that were on screen are posted again now.
      */
     fun recoverAfterBoot() {
         recoverPresented(ringLater = true)
@@ -68,8 +69,11 @@ class EngineActions(
             presenter.missed(expired.affected)
         }
         if (fireLater) {
-            // Each overdue alert's own alarm, a moment from now: AlarmReceiver fires it with its group.
-            store.read().scheduled.filter { it.fireAtUtcMs <= now }.forEach { scheduler.arm(it, now + RECOVERY_DELAY_MS) }
+            // Nothing rings inside the boot window: every alert due before it ends (overdue, or due in the
+            // next RECOVERY_DELAY_MS) gets its own alarm at the window's end; AlarmReceiver fires it with
+            // its group.
+            val windowEnd = now + RECOVERY_DELAY_MS
+            store.read().scheduled.filter { it.fireAtUtcMs < windowEnd }.forEach { scheduler.arm(it, windowEnd) }
             return
         }
         while (true) {

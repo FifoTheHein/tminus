@@ -386,4 +386,24 @@ class RingingServiceTest {
             RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
         }
     }
+
+    @Test
+    fun `an alarm presented just before the ring timeout is not missed before its start arrives`() {
+        val app = context as Application
+        val a = alert("a", NOW) // ringTimeoutSec = 120
+        val b = alert("b", NOW + 30_000, group = "B")
+        val controller = startWith(a)
+        val looper = shadowOf(Looper.getMainLooper())
+        looper.idleFor(Duration.ofMillis(119_900))
+        PlanStore(context).write(EngineState(presented = listOf(a, b))) // fire has moved b to presented
+        while (shadowOf(app).nextStartedService != null) Unit
+
+        AndroidAlertPresenter(app).present(listOf(b)) // b joins the session; its start command is queued
+        looper.idleFor(Duration.ofMillis(200)) // a's original timeout passes in the gap
+        controller.withIntent(shadowOf(app).nextStartedService).startCommand(0, 2)
+
+        assertTrue(controller.get().isSounding)
+        assertTrue("b" in RingingSession.ids)
+        assertTrue(EventQueue(context).peek().none { it.type == EngineEventType.MISSED && it.alertId == "b" })
+    }
 }

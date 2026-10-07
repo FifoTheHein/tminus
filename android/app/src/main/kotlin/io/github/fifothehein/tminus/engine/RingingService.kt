@@ -41,6 +41,8 @@ class RingingService : Service() {
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocus: AudioFocusRequest? = null
+    /** Every id this instance has rung (the session at each start it handled); onDestroy removes only these. */
+    private val accepted = mutableSetOf<String>()
     /** The session's ids at the last change this service saw, to tell which alerts just joined. */
     private var sessionIds: Set<String> = emptySet()
     /** The newest start id handled; stopping with it fails if a newer start is still queued. */
@@ -98,6 +100,7 @@ class RingingService : Service() {
             return START_NOT_STICKY
         }
         RingingSession.add(alerts)
+        accepted += session.map { it.id }
         val lead = session.firstOrNull { it.strength == Strength.ALARM } ?: session.first()
         // The ring timeout and the wake lock restart from the newest alert (the ones this start added).
         val newest = alerts.firstOrNull { it.strength == Strength.ALARM } ?: alerts.firstOrNull() ?: lead
@@ -109,8 +112,9 @@ class RingingService : Service() {
     override fun onDestroy() {
         CrashSilencer.register(null)
         unsubscribe?.invoke()
-        // Nothing rings once the service is gone: the alarm screen closes and the app route stops opening it.
-        RingingSession.clear()
+        // Nothing this instance rang rings once it is gone: the alarm screen drops them. An alert a newer
+        // start is about to ring (the presenter adds it first) stays for the next instance.
+        RingingSession.remove(accepted)
         stopAlerting()
         super.onDestroy()
     }

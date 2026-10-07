@@ -54,6 +54,9 @@ class AndroidAlertPresenter(
         refreshHeadsUps(alerts)
     }
 
+    /** Leaving the session stops the sound: RingingService stops ringing when it empties. */
+    override fun silence(alertIds: Collection<String>) = RingingSession.remove(alertIds)
+
     /** Ringing in this process, or the group's heads-up is still among the app's active notifications. */
     override fun isShowing(alert: PlannedAlert): Boolean =
         alert.id in RingingSession.ids || notifications.isHeadsUpPosted(alert.coalesceGroup)

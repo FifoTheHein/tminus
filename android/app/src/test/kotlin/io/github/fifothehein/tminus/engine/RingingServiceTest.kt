@@ -8,8 +8,10 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.os.Looper
+import android.os.Vibrator
 import android.provider.Settings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -54,6 +56,27 @@ class RingingServiceTest {
 
     private fun Notification.title() = extras.getCharSequence(Notification.EXTRA_TITLE).toString()
     private fun Notification.actionTitles() = actions?.map { it.title.toString() } ?: emptyList()
+
+    private fun vibrating() = shadowOf(context.getSystemService(Vibrator::class.java)).isVibrating
+
+    /** The ringing notification's Stop, as SystemUI sends it, carrying [ids]. */
+    private fun stopFromNotification(vararg ids: String) = NotificationActionReceiver().onReceive(
+        context,
+        NotificationActionReceiver.intent(
+            context,
+            NotificationActionReceiver.ACTION_DISMISS,
+            arrayListOf(*ids),
+            NotificationActionReceiver.NO_NOTIFICATION_ID,
+        ),
+    )
+
+    private fun assertSilenced(service: RingingService) {
+        assertFalse("still sounding", service.isSounding)
+        assertTrue("not stopped", shadowOf(service).isStoppedBySelf)
+        assertNotNull("audio focus kept", shadowOf(context.getSystemService(AudioManager::class.java)).lastAbandonedAudioFocusRequest)
+        assertFalse("still vibrating", vibrating())
+        assertTrue("session not empty", RingingSession.alerts.isEmpty())
+    }
 
     @Test
     fun `ringing goes foreground with Stop, Snooze and Join when the event has a link`() {
@@ -194,5 +217,45 @@ class RingingServiceTest {
         val service = startWith(alert("a", NOW, toneUri = "content://missing/tone")).get()
         assertNotNull(shadowOf(service).lastForegroundNotification)
         assertEquals(listOf("a"), RingingSession.alerts.map { it.id })
+    }
+
+    @Test
+    fun `Stop silences even when the alert is no longer presented`() {
+        val service = startWith(alert("a", NOW)).get()
+        assertTrue(service.isSounding)
+        assertTrue(vibrating())
+        PlanStore(context).write(EngineState()) // pruned by applyPlan, or the state file was unreadable
+
+        stopFromNotification("a")
+
+        assertSilenced(service)
+    }
+
+    @Test
+    fun `the ring timeout stops ringing even when the alert is no longer presented`() {
+        val service = startWith(alert("a", NOW)).get() // ringTimeoutSec = 120
+        PlanStore(context).write(EngineState())
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(121))
+
+        assertSilenced(service)
+    }
+
+    @Test
+    fun `ringing Stop with stale ids silences the whole session`() {
+        val a = alert("a", NOW)
+        val b = alert("b", NOW + 30_000, group = "B")
+        PlanStore(context).write(EngineState(presented = listOf(a, b)))
+        fun ring(id: String) = Intent(context, RingingService::class.java)
+            .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf(id))
+        val controller = Robolectric.buildService(RingingService::class.java, ring("a")).create().startCommand(0, 1)
+        controller.withIntent(ring("b")).startCommand(0, 2) // b joins after the Stop below was posted for a
+        EventQueue(context).drain()
+
+        stopFromNotification("a")
+
+        assertSilenced(controller.get())
+        assertEquals(setOf("a", "b"), EventQueue(context).drain().filter { it.type == EngineEventType.DISMISSED }.map { it.alertId }.toSet())
+        assertTrue(PlanStore(context).read().presented.isEmpty())
     }
 }

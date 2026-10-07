@@ -26,10 +26,12 @@ class EngineActionsTest {
         val withdrawn = mutableListOf<PlannedAlert>()
         val missed = mutableListOf<PlannedAlert>()
         val showing = mutableSetOf<String>()
+        val silenced = mutableListOf<String>()
         override fun present(alerts: List<PlannedAlert>) { presented.add(alerts) }
         override fun isShowing(alert: PlannedAlert) = alert.id in showing
         override fun withdraw(alerts: List<PlannedAlert>) { withdrawn.addAll(alerts) }
         override fun missed(alerts: List<PlannedAlert>) { missed.addAll(alerts) }
+        override fun silence(alertIds: Collection<String>) { silenced.addAll(alertIds) }
     }
 
     @Before
@@ -300,5 +302,27 @@ class EngineActionsTest {
         assertEquals(listOf(EngineEventType.MISSED), events().map { it.type })
         assertEquals(listOf(a), presenter.missed)
         assertTrue(store.read().presented.isEmpty())
+    }
+
+    @Test
+    fun `dismiss and snooze of an alert missing from presented still silence it`() {
+        store.write(EngineState()) // pruned, or the state file was unreadable
+
+        actions.dismiss(listOf("a"))
+        actions.snooze(listOf("b"), null)
+
+        assertEquals(listOf("a", "b"), presenter.silenced)
+        assertTrue(events().isEmpty())
+    }
+
+    @Test
+    fun `Dismiss all, Join and missed silence first too`() {
+        store.write(EngineState())
+
+        actions.dismissAll(listOf("a"))
+        actions.join("j")
+        actions.missed(listOf("m"))
+
+        assertEquals(listOf("a", "j", "m"), presenter.silenced)
     }
 }

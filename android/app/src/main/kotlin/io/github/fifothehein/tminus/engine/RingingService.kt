@@ -44,8 +44,11 @@ class RingingService : Service() {
     private var lastStartId = 0
     private var volume = 1f
 
+    /** The backstop: silences the whole session first, then reports what the state still lists as missed. */
     private val timeout = Runnable {
-        EngineActions.create(this).missed(RingingSession.alerts.map { it.id })
+        val ringing = RingingSession.alerts
+        RingingSession.clear() // stops ringing synchronously, through onSessionChanged
+        EngineActions.create(this).missed(ringing.map { it.id })
     }
 
     private val ramp = object : Runnable {

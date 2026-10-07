@@ -1,5 +1,6 @@
 package io.github.fifothehein.tminus.engine
 
+import android.app.Application
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
@@ -150,6 +151,31 @@ class RingingServiceTest {
         assertTrue(ShadowPowerManager.getLatestWakeLock().isHeld)
         looper.idleFor(Duration.ofSeconds(101))
         assertEquals(setOf("a", "b"), EventQueue(context).drain().filter { it.type == EngineEventType.MISSED }.map { it.alertId }.toSet())
+    }
+
+    @Test
+    fun `a heads-up joining a ringing group restarts the ring timeout and wake lock from its own ringTimeoutSec`() {
+        val a = alert("a", NOW, group = "G") // ringTimeoutSec = 120
+        val h = alert("h", NOW + 2_000, strength = Strength.HEADS_UP, group = "G")
+            .let { it.copy(sound = it.sound.copy(ringTimeoutSec = 300)) }
+        PlanStore(context).write(EngineState(presented = listOf(a, h))) // fire has moved h to presented
+        val app = context as Application
+        val controller = Robolectric.buildService(
+            RingingService::class.java,
+            Intent(context, RingingService::class.java).putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf("a")),
+        ).create().startCommand(0, 1)
+        val looper = shadowOf(Looper.getMainLooper())
+        looper.idleFor(Duration.ofSeconds(60))
+
+        AndroidAlertPresenter(app).present(listOf(h)) // h fires into G while a rings: it joins the session
+        controller.withIntent(shadowOf(app).nextStartedService).startCommand(0, 2)
+        assertEquals(setOf("a", "h"), RingingSession.ids)
+
+        looper.idleFor(Duration.ofSeconds(200)) // 140 s after the join: past a's 120 s, inside h's 300 s
+        assertTrue(EventQueue(context).peek().none { it.type == EngineEventType.MISSED })
+        assertTrue(ShadowPowerManager.getLatestWakeLock().isHeld) // a's lock (120 s + 30 s) would be over by now
+        looper.idleFor(Duration.ofSeconds(161)) // 301 s after the join: past h's 300 s
+        assertEquals(setOf("a", "h"), EventQueue(context).drain().filter { it.type == EngineEventType.MISSED }.map { it.alertId }.toSet())
     }
 
     @Test

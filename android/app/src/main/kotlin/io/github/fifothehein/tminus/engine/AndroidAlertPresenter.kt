@@ -16,10 +16,19 @@ class AndroidAlertPresenter(
         if (alerts.none { it.strength == Strength.ALARM }) {
             // A heads-up that fires into a group that is ringing joins the ringing session. RingingService
             // is running while the session is not empty; it re-posts the ringing notification and the
-            // alarm screen lists the new alert. The ring timeout keeps running from the alarm.
+            // alarm screen lists the new alert. Starting the service again restarts the ring timeout and
+            // wake lock from the heads-up's own ringTimeoutSec, as for a joining alarm.
             val ringingGroups = RingingSession.alerts.map { it.coalesceGroup }.toSet()
             val (joining, own) = alerts.partition { it.coalesceGroup in ringingGroups }
-            if (joining.isNotEmpty()) RingingSession.add(joining)
+            if (joining.isNotEmpty()) {
+                RingingSession.add(joining)
+                try {
+                    startRinging(appContext, joining.map { it.id })
+                } catch (e: IllegalStateException) {
+                    // The alert is in the session already; only the timeout restart is lost.
+                    Log.w(TAG, "Ringing service refused the joining heads-up's restart", e)
+                }
+            }
             postHeadsUps(own)
             return
         }

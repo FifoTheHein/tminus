@@ -136,12 +136,14 @@ class AndroidAlertPresenterTest {
         val other = alert("o", NOW + 2_000, strength = Strength.HEADS_UP, group = "O")
         RingingSession.add(listOf(a))
         store.write(EngineState(presented = listOf(a, h, other))) // fire has moved h and o to presented
-        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> error("already ringing") }
+        val started = mutableListOf<List<String>>()
+        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, ids -> started += ids }
 
         presenter.present(listOf(h))
         presenter.present(listOf(other))
 
         assertEquals(setOf("a", "h"), RingingSession.ids)
+        assertEquals(listOf(listOf("h")), started) // only the joining heads-up restarts the ringing service
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
         assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("O"))) // a group that is not ringing
         assertTrue(presenter.isShowing(h))

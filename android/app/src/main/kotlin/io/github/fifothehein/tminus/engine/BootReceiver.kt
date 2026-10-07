@@ -10,19 +10,20 @@ import android.content.Intent
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action !in ACTIONS) return
-        // The process died with the device or the update: show again what was on screen, then re-arm.
-        EngineActions.create(context).run {
-            recoverPresented()
-            rearmAll()
+        when (intent.action) {
+            // Android 15+ forbids starting the mediaPlayback service from a boot broadcast: whatever
+            // should ring now fires through AlarmManager a few seconds out.
+            in BOOT_ACTIONS -> EngineActions.create(context).recoverAfterBoot()
+            // An update may start it (checked on API 36): show again what was on screen, then re-arm.
+            Intent.ACTION_MY_PACKAGE_REPLACED -> EngineActions.create(context).run {
+                recoverPresented()
+                rearmAll()
+            }
         }
     }
 
     companion object {
-        val ACTIONS = setOf(
-            Intent.ACTION_LOCKED_BOOT_COMPLETED,
-            Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_MY_PACKAGE_REPLACED,
-        )
+        val BOOT_ACTIONS = setOf(Intent.ACTION_LOCKED_BOOT_COMPLETED, Intent.ACTION_BOOT_COMPLETED)
+        val ACTIONS = BOOT_ACTIONS + Intent.ACTION_MY_PACKAGE_REPLACED
     }
 }

@@ -3,10 +3,12 @@ package io.github.fifothehein.tminus
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.github.fifothehein.tminus.engine.AlarmEngineChannel
+import io.github.fifothehein.tminus.engine.AlarmScreenRoute
 import io.github.fifothehein.tminus.engine.EngineActions
 
 class MainActivity : FlutterActivity() {
     private var engineChannel: AlarmEngineChannel? = null
+    private val alarmScreenRoute = AlarmScreenRoute(this)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -18,6 +20,17 @@ class MainActivity : FlutterActivity() {
             recoverPresented()
             rearmAll()
         }
+    }
+
+    // Opening the app (launcher or recents) while an alarm rings goes to the alarm screen.
+    override fun onResume() {
+        super.onResume()
+        alarmScreenRoute.attach()
+    }
+
+    override fun onPause() {
+        alarmScreenRoute.detach()
+        super.onPause()
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {

@@ -73,10 +73,15 @@ class RearmReceiversTest {
         assertTrue(action, shadowOf(alarmManager).scheduledAlarms.isEmpty())
     }
 
-    /** The one alarm AlarmManager holds: it fires within a few seconds. Delivers it to AlarmReceiver. */
-    private fun deliverTheAlarmDueWithinSeconds(action: String) {
+    /**
+     * The one alarm AlarmManager holds. It fires soon, but after the boot broadcast's 20 s FGS
+     * allow-list: until that expires Android 15+ attributes any FGS start to BOOT_COMPLETED and
+     * refuses mediaPlayback (seen on the API 36 emulator), even from an alarm. Delivers it to AlarmReceiver.
+     */
+    private fun deliverTheRecoveryAlarm(action: String) {
         val alarm = shadowOf(alarmManager).scheduledAlarms.single()
-        assertTrue(action, alarm.triggerAtMs in now..System.currentTimeMillis() + 10_000)
+        val bootAllowListEnds = now + 20_000
+        assertTrue("$action fires at ${alarm.triggerAtMs - now} ms", alarm.triggerAtMs in bootAllowListEnds + 1..System.currentTimeMillis() + 60_000)
         AlarmReceiver().onReceive(context, shadowOf(alarm.operation).savedIntent)
     }
 
@@ -121,7 +126,7 @@ class RearmReceiversTest {
     }
 
     @Test
-    fun `after a reboot an overdue alarm fires through AlarmManager within seconds, not from the receiver`() {
+    fun `after a reboot an overdue alarm fires through AlarmManager once the boot allow-list ends, not from the receiver`() {
         // Android 15+ forbids starting a mediaPlayback foreground service from the boot broadcasts.
         for (action in BootReceiver.BOOT_ACTIONS) {
             resetFor(action)
@@ -135,7 +140,7 @@ class RearmReceiversTest {
             assertNotNull(action, shadowOf(manager).getNotification(NotificationFactory.missedId("ended")))
             assertEquals(action, listOf(EngineEventType.MISSED to "ended"), EventQueue(context).drain().map { it.type to it.alertId })
 
-            deliverTheAlarmDueWithinSeconds(action)
+            deliverTheRecoveryAlarm(action)
 
             val ringing = shadowOf(app).nextStartedService
             assertEquals(action, RingingService::class.java.name, ringing.component!!.className)
@@ -147,7 +152,7 @@ class RearmReceiversTest {
     }
 
     @Test
-    fun `after a reboot a presented alarm is scheduled within seconds and rings through AlarmReceiver, not from the receiver`() {
+    fun `after a reboot a presented alarm rings through AlarmReceiver once the boot allow-list ends, not from the receiver`() {
         for (action in BootReceiver.BOOT_ACTIONS) {
             resetFor(action)
             val ringing = alert("ringing", now - MINUTE_MS) // was ringing when the phone went off; the event runs until now + 30 min
@@ -160,7 +165,7 @@ class RearmReceiversTest {
             assertNotNull(action, shadowOf(manager).getNotification(NotificationFactory.missedId("ended")))
             assertEquals(action, listOf(EngineEventType.MISSED to "ended"), EventQueue(context).drain().map { it.type to it.alertId })
 
-            deliverTheAlarmDueWithinSeconds(action)
+            deliverTheRecoveryAlarm(action)
 
             val service = shadowOf(app).nextStartedService
             assertNotNull(action, service)

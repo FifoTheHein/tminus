@@ -469,4 +469,17 @@ class RingingServiceTest {
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
         assertEquals(listOf("Stop", "Snooze", "Dismiss all"), shadowOf(service).lastForegroundNotification.actionTitles())
     }
+
+    @Test
+    fun `destroying a service leaves alerts it never accepted in the session`() {
+        val a = alert("a", NOW)
+        val b = alert("b", NOW + 30_000, group = "B")
+        val old = startWith(a)
+        RingingSession.remove(listOf("a")) // the user stops a; this instance is on its way out
+        RingingSession.add(listOf(b)) // b fires: the presenter adds it before the next instance's start arrives
+
+        old.destroy()
+
+        assertEquals(listOf("b"), RingingSession.alerts.map { it.id })
+    }
 }

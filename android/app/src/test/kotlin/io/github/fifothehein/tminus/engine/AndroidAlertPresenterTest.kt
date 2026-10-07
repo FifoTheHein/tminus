@@ -163,4 +163,24 @@ class AndroidAlertPresenterTest {
         assertNotNull(n)
         assertEquals("2 meetings starting", n.extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString())
     }
+
+    @Test
+    fun `an alarm group is in the ringing session as soon as present returns`() {
+        // After a crash, MainActivity's recoverPresented presents the group before RingingService runs;
+        // the alarm screen route must already see it ringing.
+        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> } // the service has not started yet
+        presenter.present(listOf(alert("a", NOW, group = "G"), alert("h", NOW, strength = Strength.HEADS_UP, group = "G")))
+        assertEquals(setOf("a", "h"), RingingSession.ids)
+    }
+
+    @Test
+    fun `an alarm whose ringing service cannot start leaves the ringing session`() {
+        val a = alert("a", NOW)
+        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ ->
+            throw IllegalStateException("startForegroundService() not allowed")
+        }
+        presenter.present(listOf(a))
+        assertTrue(RingingSession.alerts.isEmpty())
+        assertFalse(presenter.isShowing(a.copy(coalesceGroup = "elsewhere"))) // not ringing; only its heads-up shows it
+    }
 }

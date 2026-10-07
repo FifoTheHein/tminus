@@ -75,6 +75,7 @@ class RingingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
+        val retry = intent?.getBooleanExtra(EXTRA_RETRY, false) == true
         val ids = intent?.getStringArrayListExtra(EXTRA_ALERT_IDS).orEmpty().toSet()
         val alerts = PlanStore(this).read().presented.filter { it.id in ids }
         val session = (RingingSession.alerts + alerts).distinctBy { it.id }
@@ -84,10 +85,10 @@ class RingingService : Service() {
             try {
                 startForeground(this, NotificationFactory.RINGING_NOTIFICATION_ID, notifications.ringing(session), foregroundType())
             } catch (e: IllegalStateException) { // ForegroundServiceStartNotAllowedException is one
-                refuseForeground(session, e)
+                refuseForeground(session, retry, e)
                 return START_NOT_STICKY
             } catch (e: SecurityException) {
-                refuseForeground(session, e)
+                refuseForeground(session, retry, e)
                 return START_NOT_STICKY
             }
             inForeground = true
@@ -117,12 +118,16 @@ class RingingService : Service() {
     /**
      * Android refused the foreground start (on Android 15+, for example, inside a boot broadcast's
      * allow-list). Nothing may ring: the session's alerts show as heads-up notifications instead, with
-     * their normal actions, and stay presented.
+     * their normal actions, and stay presented. They ring again through AlarmManager after
+     * RECOVERY_DELAY_MS, once: a refused [retry] is not retried again.
      */
-    private fun refuseForeground(session: List<PlannedAlert>, error: Exception) {
-        Log.w(TAG, "Ringing service refused the foreground; showing a heads-up instead", error)
+    private fun refuseForeground(session: List<PlannedAlert>, retry: Boolean, error: Exception) {
+        Log.w(TAG, "Ringing service refused the foreground; showing a heads-up instead (retry: $retry)", error)
         stopAlerting()
         AndroidAlertPresenter(this).fallBackToHeadsUp(session)
+        if (!retry && session.isNotEmpty()) {
+            AlarmScheduler(this).armRingingRetry(session.map { it.id }, System.currentTimeMillis() + EngineActions.RECOVERY_DELAY_MS)
+        }
         stopSelfResult(lastStartId)
     }
 
@@ -276,6 +281,8 @@ class RingingService : Service() {
 
     companion object {
         const val EXTRA_ALERT_IDS = "alertIds"
+        /** Set on the start that retries a refused one; a refused retry is not retried again. */
+        const val EXTRA_RETRY = "retry"
         private const val TAG = "TMinusEngine"
         private const val RAMP_START = 0.1f
         private const val RAMP_STEP = 0.03f // 0.1 → 1.0 in 30 steps of 1 s
@@ -291,9 +298,10 @@ class RingingService : Service() {
         /** ServiceCompat.startForeground; tests make it throw as Android may. */
         internal var startForeground: (Service, Int, Notification, Int) -> Unit = DEFAULT_START_FOREGROUND
 
-        fun start(context: Context, alertIds: List<String>) {
+        fun start(context: Context, alertIds: List<String>, retry: Boolean = false) {
             val intent = Intent(context, RingingService::class.java)
                 .putStringArrayListExtra(EXTRA_ALERT_IDS, ArrayList(alertIds))
+                .putExtra(EXTRA_RETRY, retry)
             ContextCompat.startForegroundService(context, intent)
         }
     }

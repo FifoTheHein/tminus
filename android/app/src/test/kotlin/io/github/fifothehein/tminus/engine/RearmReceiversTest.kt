@@ -176,6 +176,25 @@ class RearmReceiversTest {
     }
 
     @Test
+    fun `after a reboot an alert due inside the boot window rings when the window ends, not on time`() {
+        // Inside the boot broadcast's 20 s FGS allow-list Android refuses the ringing service.
+        for (action in BootReceiver.BOOT_ACTIONS) {
+            resetFor(action)
+            AlarmScheduler(context, store).cancel("soon")
+            val soon = alert("soon", now + 5_000)
+            store.write(EngineState(plan = listOf(soon)))
+
+            BootReceiver().onReceive(context, Intent(action))
+
+            val alarm = shadowOf(alarmManager).scheduledAlarms
+                .single { shadowOf(it.operation).savedIntent.getStringExtra(AlarmReceiver.EXTRA_ALERT_ID) == "soon" }
+            assertTrue(action, alarm.triggerAtMs >= now + EngineActions.RECOVERY_DELAY_MS)
+            assertEquals(action, listOf("soon"), store.read().plan.map { it.id }) // still scheduled, just later
+            AlarmScheduler(context, store).cancel("soon")
+        }
+    }
+
+    @Test
     fun `after a reboot a presented heads-up is posted again at once`() {
         for (action in BootReceiver.BOOT_ACTIONS) {
             resetFor(action)

@@ -1,7 +1,9 @@
 package io.github.fifothehein.tminus.engine
 
 import android.content.Intent
+import android.app.Application
 import androidx.activity.ComponentActivity
+import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -68,5 +70,20 @@ class AlarmScreenRouteTest {
         RingingSession.add(listOf(alert("a", NOW)))
 
         assertNull(shadowOf(activity).nextStartedActivity)
+    }
+
+    @Test
+    fun `a cold start after a mid-ring crash opens the alarm screen`() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val store = PlanStore(app).also { it.clear() }
+        store.write(EngineState(presented = listOf(alert("a", NOW - MINUTE_MS).let { it.copy(event = it.event.copy(endUtcMs = Long.MAX_VALUE)) })))
+        val activity = resumed()
+
+        // MainActivity.configureFlutterEngine, then onResume. RingingService has not run yet, and with
+        // notifications blocked nothing else would show the alarm.
+        EngineActions(app, AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> }, store).recoverPresented()
+        AlarmScreenRoute(activity).attach()
+
+        assertOpensAlarmScreen(activity)
     }
 }

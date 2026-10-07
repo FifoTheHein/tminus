@@ -37,11 +37,16 @@ class AndroidAlertPresenter(
         val ringing = RingingSession.ids
         val groups = alerts.map { it.coalesceGroup }.distinct()
         val absorbed = groups.flatMap { headsUpMembers(presented, ringing, it) }
+        val session = (alerts + absorbed).distinctBy { it.id }
+        // In the session before the service starts, so the alarm screen (opened from the app, say after
+        // a crash with notifications blocked) has them at once. RingingService adds them again.
+        RingingSession.add(session)
         try {
-            startRinging(appContext, (alerts + absorbed).distinctBy { it.id }.map { it.id })
+            startRinging(appContext, session.map { it.id })
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (Android 12+) is an IllegalStateException.
             Log.w(TAG, "Ringing service refused to start; showing a heads-up instead", e)
+            RingingSession.remove(session.map { it.id })
             postHeadsUps(alerts)
             return
         }

@@ -115,6 +115,19 @@ class NotificationFactoryTest {
         assertNull(factory.ringing(listOf(alarm)).group) // outside the heads-up and missed groups
     }
 
+    @Test
+    fun `the ringing notification has a delete intent`() {
+        // Android 14+ lets the user swipe an ongoing foreground-service notification away; its delete
+        // intent posts it again while anything is ringing.
+        val alarm = meeting().copy(strength = Strength.ALARM)
+        listOf(factory.ringing(listOf(alarm)), factory.ringing(emptyList())).forEach { n ->
+            val delete = shadowOf(n.deleteIntent)
+            assertTrue(delete.isBroadcast)
+            assertEquals(NotificationActionReceiver.ACTION_REPOST_RINGING, delete.savedIntent.action)
+            assertEquals(NotificationActionReceiver::class.java.name, delete.savedIntent.component!!.className)
+        }
+    }
+
     private fun Notification.isSummary() = flags and Notification.FLAG_GROUP_SUMMARY != 0
 
     private fun assertChildWithSummary(child: Notification, group: String, summaryId: Int, channel: String) {

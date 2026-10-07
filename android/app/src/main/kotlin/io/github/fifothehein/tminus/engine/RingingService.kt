@@ -41,6 +41,8 @@ class RingingService : Service() {
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocus: AudioFocusRequest? = null
+    /** The session's ids at the last change this service saw, to tell which alerts just joined. */
+    private var sessionIds: Set<String> = emptySet()
     /** The newest start id handled; stopping with it fails if a newer start is still queued. */
     private var lastStartId = 0
     private var volume = 1f
@@ -65,6 +67,7 @@ class RingingService : Service() {
     override fun onCreate() {
         super.onCreate()
         notifications = NotificationFactory(this)
+        sessionIds = RingingSession.ids
         unsubscribe = RingingSession.observe(::onSessionChanged)
         CrashSilencer.install()
         CrashSilencer.register(::stopAlerting)
@@ -97,9 +100,8 @@ class RingingService : Service() {
         val lead = session.firstOrNull { it.strength == Strength.ALARM } ?: session.first()
         // The ring timeout and the wake lock restart from the newest alert (the ones this start added).
         val newest = alerts.firstOrNull { it.strength == Strength.ALARM } ?: alerts.firstOrNull() ?: lead
-        if (!alerting) startAlerting(lead.sound) else holdWakeLock(newest.sound)
-        handler.removeCallbacks(timeout)
-        handler.postDelayed(timeout, newest.sound.ringTimeoutSec * 1_000L)
+        if (!alerting) startAlerting(lead.sound)
+        restartTimeout(newest)
         return START_NOT_STICKY
     }
 
@@ -125,7 +127,24 @@ class RingingService : Service() {
     }
 
     private fun onSessionChanged(alerts: List<PlannedAlert>) {
-        if (alerts.isEmpty()) stopRinging() else notifications.notifyRinging(alerts)
+        val joined = alerts.filter { it.id !in sessionIds }
+        sessionIds = alerts.map { it.id }.toSet()
+        if (alerts.isEmpty()) {
+            stopRinging()
+            return
+        }
+        notifications.notifyRinging(alerts)
+        // Any alert that joins a ringing session restarts the ring timeout, as soon as it joins: the
+        // presenter adds a newly fired group before its start command arrives, and the timeout must not
+        // report that group missed in the gap.
+        if (alerting && joined.isNotEmpty()) restartTimeout(joined.firstOrNull { it.strength == Strength.ALARM } ?: joined.first())
+    }
+
+    /** The ring timeout and the wake lock restart from [newest]'s ringTimeoutSec. */
+    private fun restartTimeout(newest: PlannedAlert) {
+        holdWakeLock(newest.sound)
+        handler.removeCallbacks(timeout)
+        handler.postDelayed(timeout, newest.sound.ringTimeoutSec * 1_000L)
     }
 
     private fun stopRinging() {

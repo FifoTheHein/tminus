@@ -68,6 +68,7 @@ class UpcomingAlert {
 class EngineHealth {
   const EngineHealth({
     required this.notificationsEnabled,
+    required this.ringingChannelEnabled,
     required this.canUseFullScreenIntent,
     required this.canScheduleExactAlarms,
     required this.ignoringBatteryOptimizations,
@@ -77,6 +78,7 @@ class EngineHealth {
 
   factory EngineHealth.fromJson(Map<String, Object?> j) => EngineHealth(
     notificationsEnabled: j['notificationsEnabled'] as bool,
+    ringingChannelEnabled: j['ringingChannelEnabled'] as bool,
     canUseFullScreenIntent: j['canUseFullScreenIntent'] as bool,
     canScheduleExactAlarms: j['canScheduleExactAlarms'] as bool,
     ignoringBatteryOptimizations: j['ignoringBatteryOptimizations'] as bool,
@@ -88,6 +90,10 @@ class EngineHealth {
   );
 
   final bool notificationsEnabled;
+
+  /// False when the user turned off just the `alarm_ringing` channel: the
+  /// alarm then rings with no notification and no full-screen alarm screen.
+  final bool ringingChannelEnabled;
   final bool canUseFullScreenIntent;
   final bool canScheduleExactAlarms;
   final bool ignoringBatteryOptimizations;

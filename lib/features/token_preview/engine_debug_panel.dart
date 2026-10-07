@@ -203,6 +203,7 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
 
   static String _flags(EngineHealth h) => [
     'notifications ${h.notificationsEnabled ? 'on' : 'OFF'}',
+    'ringing channel ${h.ringingChannelEnabled ? 'on' : 'OFF'}',
     'full-screen ${h.canUseFullScreenIntent ? 'on' : 'OFF'}',
     'exact alarms ${h.canScheduleExactAlarms ? 'on' : 'OFF'}',
     'battery ${h.ignoringBatteryOptimizations ? 'unrestricted' : 'optimised'}',

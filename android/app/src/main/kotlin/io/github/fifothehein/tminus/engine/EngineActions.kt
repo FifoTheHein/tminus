@@ -173,8 +173,13 @@ class EngineActions(
     private fun emit(event: EngineEvent) = EngineEvents.emit(appContext, event)
 
     companion object {
-        /** How far out boot recovery's alarms are set: a few seconds. */
-        const val RECOVERY_DELAY_MS = 3_000L
+        /**
+         * How far out boot recovery's alarms are set. A boot broadcast gives the app a 20 s FGS
+         * allow-list, and while it lasts Android 15+ attributes any FGS start to BOOT_COMPLETED and
+         * refuses mediaPlayback, even from an alarm (ForegroundServiceStartNotAllowedException on the
+         * API 36 emulator with a 3 s delay). So the alarm fires just after that window.
+         */
+        const val RECOVERY_DELAY_MS = 30_000L
 
         /** EngineActions with the real presenter, for receivers, services and activities. */
         fun create(context: Context): EngineActions = EngineActions(context, AndroidAlertPresenter(context))

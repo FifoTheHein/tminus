@@ -15,6 +15,7 @@ void main() {
   final calls = <MethodCall>[];
   var upcoming = <Map<String, Object?>>[];
   var drained = <Map<String, Object?>>[];
+  var ringingChannelEnabled = true;
   MockStreamHandlerEventSink? eventSink;
 
   Map<String, Object?> event(String type) => {
@@ -41,6 +42,7 @@ void main() {
       return switch (call.method) {
         'getHealth' => {
           'notificationsEnabled': true,
+          'ringingChannelEnabled': ringingChannelEnabled,
           'canUseFullScreenIntent': true,
           'canScheduleExactAlarms': true,
           'ignoringBatteryOptimizations': false,
@@ -67,6 +69,7 @@ void main() {
   int healthCalls() => calls.where((c) => c.method == 'getHealth').length;
 
   setUp(() {
+    ringingChannelEnabled = true;
     configureDependencies();
     mockEngine();
   });
@@ -98,7 +101,15 @@ void main() {
     expect(find.text('Next 5 scheduled'), findsOneWidget);
     expect(find.textContaining('Alarm · Sprint planning'), findsOneWidget);
     expect(find.textContaining('notifications on'), findsOneWidget);
+    expect(find.textContaining('ringing channel on'), findsOneWidget);
     expect(find.textContaining('battery optimised'), findsOneWidget);
+  });
+
+  testWidgets('flags a blocked ringing channel', (tester) async {
+    ringingChannelEnabled = false;
+    await pumpPanel(tester);
+    expect(find.textContaining('notifications on'), findsOneWidget);
+    expect(find.textContaining('ringing channel OFF'), findsOneWidget);
   });
 
   testWidgets('Test alarm asks for an alarm after the chosen delay', (

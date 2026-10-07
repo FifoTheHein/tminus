@@ -79,6 +79,10 @@ class AlarmEngineChannel internal constructor(
         val audio = appContext.getSystemService(AudioManager::class.java)
         return mapOf(
             "notificationsEnabled" to NotificationManagerCompat.from(appContext).areNotificationsEnabled(),
+            // The user can turn off just the "Ringing alarms" category: the alarm then rings with no
+            // notification and no full-screen intent (additive to roadmap §3's getHealth shape).
+            "ringingChannelEnabled" to
+                (notifications.getNotificationChannel(NotificationFactory.CHANNEL_RINGING)?.importance != NotificationManager.IMPORTANCE_NONE),
             "canUseFullScreenIntent" to (Build.VERSION.SDK_INT < 34 || notifications.canUseFullScreenIntent()),
             "canScheduleExactAlarms" to scheduler.canScheduleExactAlarms(),
             "ignoringBatteryOptimizations" to power.isIgnoringBatteryOptimizations(appContext.packageName),

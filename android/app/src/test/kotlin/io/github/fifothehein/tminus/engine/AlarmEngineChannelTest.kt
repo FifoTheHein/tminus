@@ -2,6 +2,8 @@ package io.github.fifothehein.tminus.engine
 
 import android.app.AlarmManager
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
 import android.os.Looper
 import android.provider.Settings
@@ -84,13 +86,32 @@ class AlarmEngineChannelTest {
         call("applyPlan", mapOf("version" to 1, "alerts" to (1..6).map { dartAlert("a$it", NOW + it * MINUTE_MS) }))
         @Suppress("UNCHECKED_CAST")
         val health = call("getHealth").value as Map<String, Any?>
-        val flags = listOf("notificationsEnabled", "canUseFullScreenIntent", "canScheduleExactAlarms", "ignoringBatteryOptimizations", "alarmStreamMuted")
+        val flags = listOf(
+            "notificationsEnabled", "ringingChannelEnabled", "canUseFullScreenIntent", "canScheduleExactAlarms",
+            "ignoringBatteryOptimizations", "alarmStreamMuted",
+        )
         assertEquals((flags + "upcoming").toSet(), health.keys)
         flags.forEach { assertTrue(it, health[it] is Boolean) }
         @Suppress("UNCHECKED_CAST")
         val upcoming = health["upcoming"] as List<Map<String, Any?>>
         assertEquals(listOf("a1", "a2", "a3", "a4", "a5"), upcoming.map { it["id"] })
         assertEquals(mapOf("id" to "a1", "fireAtUtcMs" to NOW + MINUTE_MS, "strength" to "alarm", "title" to "Meeting a1"), upcoming.first())
+    }
+
+    @Test
+    fun `getHealth flags a blocked ringing channel`() {
+        @Suppress("UNCHECKED_CAST")
+        fun ringingChannelEnabled() = (call("getHealth").value as Map<String, Any?>)["ringingChannelEnabled"]
+        val manager = app.getSystemService(NotificationManager::class.java)
+        NotificationFactory(app).ensureChannels()
+        assertEquals(true, ringingChannelEnabled())
+
+        // The user turned off just the "Ringing alarms" category; app notifications stay on.
+        manager.createNotificationChannel(
+            NotificationChannel(NotificationFactory.CHANNEL_RINGING, "Ringing alarms", NotificationManager.IMPORTANCE_NONE),
+        )
+
+        assertEquals(false, ringingChannelEnabled())
     }
 
     @Test

@@ -82,6 +82,7 @@ void main() {
     reply(
       (_) => {
         'notificationsEnabled': true,
+        'ringingChannelEnabled': true,
         'canUseFullScreenIntent': false,
         'canScheduleExactAlarms': true,
         'ignoringBatteryOptimizations': false,
@@ -106,6 +107,7 @@ void main() {
     final health = await AlarmEngine().getHealth();
 
     expect(health.notificationsEnabled, isTrue);
+    expect(health.ringingChannelEnabled, isTrue);
     expect(health.canUseFullScreenIntent, isFalse);
     expect(health.canScheduleExactAlarms, isTrue);
     expect(health.ignoringBatteryOptimizations, isFalse);
@@ -116,6 +118,25 @@ void main() {
       DateTime.fromMillisecondsSinceEpoch(1790000000000, isUtc: true),
     );
     expect(health.upcoming.last.strength, AlertStrength.headsUp);
+  });
+
+  test('getHealth parses a blocked ringing channel', () async {
+    reply(
+      (_) => {
+        'notificationsEnabled': true,
+        'ringingChannelEnabled': false,
+        'canUseFullScreenIntent': true,
+        'canScheduleExactAlarms': true,
+        'ignoringBatteryOptimizations': true,
+        'alarmStreamMuted': false,
+        'upcoming': <Object?>[],
+      },
+    );
+
+    final health = await AlarmEngine().getHealth();
+
+    expect(health.notificationsEnabled, isTrue);
+    expect(health.ringingChannelEnabled, isFalse);
   });
 
   test('testAlarm sends the strength name and the delay in seconds', () async {

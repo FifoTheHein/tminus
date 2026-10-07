@@ -15,11 +15,18 @@ interface AlertPresenter {
 
     /** True while [alert] is ringing or its heads-up notification is still posted. */
     fun isShowing(alert: PlannedAlert): Boolean
+
+    /**
+     * Stops the sound for [alertIds] now, whatever the engine state says about them: every stop
+     * control silences first and reconciles the state afterwards.
+     */
+    fun silence(alertIds: Collection<String>)
 }
 
 /**
  * Every alarm and user action: updates PlanStore and AlarmManager, queues the engine event and
- * tells the presenter. Call on the main thread.
+ * tells the presenter. Call on the main thread. Every stop path (snooze, dismiss, acknowledge,
+ * missed) silences its ids first, so a ringing alert stops even if the state no longer lists it.
  */
 class EngineActions(
     context: Context,
@@ -85,6 +92,7 @@ class EngineActions(
 
     /** [option] null means each alert's notification default (roadmap §5.1). Past choices become +1 min. */
     fun snooze(alertIds: Collection<String>, option: SnoozeOption?) {
+        presenter.silence(alertIds)
         val now = clock()
         val t = transition { s ->
             EngineReducer.snooze(s, alertIds) { a ->
@@ -101,6 +109,7 @@ class EngineActions(
 
     /** Dismiss / Stop: ends only these alerts; later alerts of the occurrence still fire (spec §6). */
     fun dismiss(alertIds: Collection<String>) {
+        presenter.silence(alertIds)
         val t = transition { EngineReducer.dismiss(it, alertIds) }
         val now = clock()
         t.affected.forEach { emit(EngineEvent.of(EngineEventType.DISMISSED, it, now)) }
@@ -115,6 +124,7 @@ class EngineActions(
     fun join(alertId: String): PlannedAlert? = acknowledge(listOf(alertId), EngineEventType.JOINED).firstOrNull()
 
     fun missed(alertIds: Collection<String>) {
+        presenter.silence(alertIds)
         val t = transition { EngineReducer.missed(it, alertIds) }
         if (t.affected.isEmpty()) return
         val now = clock()
@@ -123,6 +133,7 @@ class EngineActions(
     }
 
     private fun acknowledge(alertIds: Collection<String>, type: EngineEventType): List<PlannedAlert> {
+        presenter.silence(alertIds)
         val t = transition { EngineReducer.acknowledge(it, alertIds) }
         t.toCancel.forEach { scheduler.cancel(it.id) }
         val now = clock()

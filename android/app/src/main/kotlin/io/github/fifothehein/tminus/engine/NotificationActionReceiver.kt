@@ -10,15 +10,16 @@ class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val ids = intent.getStringArrayListExtra(EXTRA_ALERT_IDS) ?: return
         val actions = EngineActions.create(context)
+        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NO_NOTIFICATION_ID)
         when (intent.action) {
             ACTION_SNOOZE -> actions.snooze(ids, null)
-            ACTION_DISMISS -> actions.dismiss(ids)
+            // The ringing notification's Stop silences the whole session, whatever ids it was posted with.
+            ACTION_DISMISS -> actions.dismiss(if (notificationId == NO_NOTIFICATION_ID) ids + RingingSession.ids else ids)
             ACTION_DISMISS_ALL -> actions.dismissAll(ids)
             else -> return
         }
         // The presenter has re-posted the group's notification for the alerts still on screen. Cancel it
         // only when none are left, which also clears it if its alerts were already pruned from PlanStore.
-        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NO_NOTIFICATION_ID)
         if (notificationId != NO_NOTIFICATION_ID && !AndroidAlertPresenter.headsUpRemains(PlanStore(context), notificationId)) {
             NotificationFactory(context).cancelHeadsUpNotifications(listOf(notificationId))
         }

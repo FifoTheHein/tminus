@@ -1,5 +1,9 @@
 package io.github.fifothehein.tminus.engine
 
+import android.content.Intent
+import org.robolectric.Robolectric
+import org.robolectric.android.controller.ServiceController
+
 /** 2026-09-21T14:13:20Z. Tests that go through AlarmScheduler inject this as the clock. */
 const val NOW: Long = 1_790_000_000_000L
 const val HOUR: Long = 60 * MINUTE_MS
@@ -33,3 +37,18 @@ fun alert(
     ),
     coalesceGroup = group,
 )
+
+private val ringingServices = mutableListOf<ServiceController<RingingService>>()
+
+/**
+ * Builds a RingingService and remembers it. Call [destroyRingingServices] from @After: a service that is
+ * never destroyed keeps its RingingSession listener, which then posts ringing notifications in later
+ * test classes (RingingSession is process-wide).
+ */
+fun buildRingingService(intent: Intent): ServiceController<RingingService> =
+    Robolectric.buildService(RingingService::class.java, intent).also { ringingServices += it }
+
+fun destroyRingingServices() {
+    ringingServices.forEach { it.destroy() }
+    ringingServices.clear()
+}

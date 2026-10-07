@@ -16,10 +16,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -47,11 +47,16 @@ class RingingServiceTest {
         )
     }
 
+    @After
+    fun tearDown() {
+        destroyRingingServices()
+    }
+
     private fun startWith(vararg alerts: PlannedAlert): ServiceController<RingingService> {
         PlanStore(context).write(EngineState(presented = alerts.toList()))
         val intent = Intent(context, RingingService::class.java)
             .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, ArrayList(alerts.map { it.id }))
-        return Robolectric.buildService(RingingService::class.java, intent).create().startCommand(0, 1)
+        return buildRingingService(intent).create().startCommand(0, 1)
     }
 
     private fun Notification.title() = extras.getCharSequence(Notification.EXTRA_TITLE).toString()
@@ -140,7 +145,7 @@ class RingingServiceTest {
         PlanStore(context).write(EngineState(presented = listOf(a, b)))
         fun ring(vararg ids: String) = Intent(context, RingingService::class.java)
             .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf(*ids))
-        val controller = Robolectric.buildService(RingingService::class.java, ring("a")).create().startCommand(0, 1)
+        val controller = buildRingingService(ring("a")).create().startCommand(0, 1)
         val service = controller.get()
 
         // b's alarm has called startForegroundService (start id 2 is queued) when the user stops a.
@@ -163,7 +168,7 @@ class RingingServiceTest {
         PlanStore(context).write(EngineState(presented = listOf(a, b)))
         fun ring(id: String) = Intent(context, RingingService::class.java)
             .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf(id))
-        val controller = Robolectric.buildService(RingingService::class.java, ring("a")).create().startCommand(0, 1)
+        val controller = buildRingingService(ring("a")).create().startCommand(0, 1)
         val looper = shadowOf(Looper.getMainLooper())
         looper.idleFor(Duration.ofSeconds(60))
 
@@ -183,8 +188,7 @@ class RingingServiceTest {
             .let { it.copy(sound = it.sound.copy(ringTimeoutSec = 300)) }
         PlanStore(context).write(EngineState(presented = listOf(a, h))) // fire has moved h to presented
         val app = context as Application
-        val controller = Robolectric.buildService(
-            RingingService::class.java,
+        val controller = buildRingingService(
             Intent(context, RingingService::class.java).putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf("a")),
         ).create().startCommand(0, 1)
         val looper = shadowOf(Looper.getMainLooper())
@@ -248,7 +252,7 @@ class RingingServiceTest {
         PlanStore(context).write(EngineState(presented = listOf(a, b)))
         fun ring(id: String) = Intent(context, RingingService::class.java)
             .putStringArrayListExtra(RingingService.EXTRA_ALERT_IDS, arrayListOf(id))
-        val controller = Robolectric.buildService(RingingService::class.java, ring("a")).create().startCommand(0, 1)
+        val controller = buildRingingService(ring("a")).create().startCommand(0, 1)
         controller.withIntent(ring("b")).startCommand(0, 2) // b joins after the Stop below was posted for a
         EventQueue(context).drain()
 
@@ -286,5 +290,19 @@ class RingingServiceTest {
         shadowOf(Looper.getMainLooper()).idle()
 
         assertNull(shadowOf(manager).getNotification(NotificationFactory.RINGING_NOTIFICATION_ID))
+    }
+
+    @Test
+    fun `destroying the service empties the session`() {
+        val controller = startWith(alert("a", NOW))
+        val screenSaw = mutableListOf<List<PlannedAlert>>()
+        val stopObserving = RingingSession.observe { screenSaw.add(it) } // AlarmActivity closes when the session empties
+
+        controller.destroy() // the system stopped the service (or it was killed) while ringing
+        stopObserving()
+
+        assertTrue(RingingSession.alerts.isEmpty())
+        assertEquals(listOf(emptyList<PlannedAlert>()), screenSaw)
+        assertFalse(controller.get().isSounding)
     }
 }

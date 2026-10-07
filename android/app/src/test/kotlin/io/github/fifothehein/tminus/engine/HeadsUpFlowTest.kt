@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,6 +35,11 @@ class HeadsUpFlowTest {
         RingingSession.clear() // in-process state another test class may have left ringing
         store = PlanStore(context).also { it.clear() }
         EventQueue(context).drain()
+    }
+
+    @After
+    fun tearDown() {
+        destroyRingingServices()
     }
 
     private fun fireHeadsUp(): PlannedAlert {
@@ -164,7 +170,7 @@ class HeadsUpFlowTest {
 
         AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "a")) // a's own, later alarm
         val ring = shadowOf(context as Application).nextStartedService
-        Robolectric.buildService(RingingService::class.java, ring).create().startCommand(0, 1)
+        buildRingingService(ring).create().startCommand(0, 1)
 
         assertEquals(setOf("a", "h"), RingingSession.ids)
         assertNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId("G")))
@@ -190,7 +196,7 @@ class HeadsUpFlowTest {
         AlarmScheduler(context, store).applyPlan(listOf(a, h))
         AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "a"))
         val ring = shadowOf(context as Application).nextStartedService
-        Robolectric.buildService(RingingService::class.java, ring).create().startCommand(0, 1)
+        buildRingingService(ring).create().startCommand(0, 1)
         assertEquals(setOf("a"), RingingSession.ids)
 
         AlarmReceiver().onReceive(context, AlarmReceiver.fireIntent(context, "h")) // h's own, later alarm

@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,10 +18,19 @@ import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 class AlarmScreenRouteTest {
+    private val routes = mutableListOf<AlarmScreenRoute>()
+
     @Before
     fun setUp() {
         RingingSession.clear()
     }
+
+    @After
+    fun tearDown() {
+        routes.forEach(AlarmScreenRoute::detach) // RingingSession is process-wide
+    }
+
+    private fun route(activity: ComponentActivity) = AlarmScreenRoute(activity).also { routes += it }
 
     private fun resumed(): ComponentActivity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
 
@@ -36,7 +46,7 @@ class AlarmScreenRouteTest {
         val activity = resumed()
         RingingSession.add(listOf(alert("a", NOW)))
 
-        AlarmScreenRoute(activity).attach() // MainActivity.onResume
+        route(activity).attach() // MainActivity.onResume
 
         assertOpensAlarmScreen(activity)
     }
@@ -44,7 +54,7 @@ class AlarmScreenRouteTest {
     @Test
     fun `a ring that starts while resumed opens the alarm screen`() {
         val activity = resumed()
-        AlarmScreenRoute(activity).attach()
+        route(activity).attach()
         assertNull(shadowOf(activity).nextStartedActivity)
 
         RingingSession.add(listOf(alert("a", NOW)))
@@ -55,7 +65,7 @@ class AlarmScreenRouteTest {
     @Test
     fun `nothing opens when not ringing`() {
         val activity = resumed()
-        AlarmScreenRoute(activity).attach()
+        route(activity).attach()
         RingingSession.add(emptyList())
         assertNull(shadowOf(activity).nextStartedActivity)
     }
@@ -63,7 +73,7 @@ class AlarmScreenRouteTest {
     @Test
     fun `a ring that starts after pausing opens nothing`() {
         val activity = resumed()
-        val route = AlarmScreenRoute(activity)
+        val route = route(activity)
         route.attach()
         route.detach() // MainActivity.onPause
 
@@ -82,7 +92,7 @@ class AlarmScreenRouteTest {
         // MainActivity.configureFlutterEngine, then onResume. RingingService has not run yet, and with
         // notifications blocked nothing else would show the alarm.
         EngineActions(app, AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> }, store).recoverPresented()
-        AlarmScreenRoute(activity).attach()
+        route(activity).attach()
 
         assertOpensAlarmScreen(activity)
     }

@@ -65,6 +65,8 @@ class RingingService : Service() {
         super.onCreate()
         notifications = NotificationFactory(this)
         unsubscribe = RingingSession.observe(::onSessionChanged)
+        CrashSilencer.install()
+        CrashSilencer.register(::stopAlerting)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,6 +95,7 @@ class RingingService : Service() {
     }
 
     override fun onDestroy() {
+        CrashSilencer.register(null)
         unsubscribe?.invoke()
         // Nothing rings once the service is gone: the alarm screen closes and the app route stops opening it.
         RingingSession.clear()

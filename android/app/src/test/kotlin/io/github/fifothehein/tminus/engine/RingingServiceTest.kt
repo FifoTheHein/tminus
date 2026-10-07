@@ -305,4 +305,54 @@ class RingingServiceTest {
         assertEquals(listOf(emptyList<PlannedAlert>()), screenSaw)
         assertFalse(controller.get().isSounding)
     }
+
+    @Test
+    fun `a crash stops the sound and vibration before the previous handler runs`() {
+        val original = Thread.getDefaultUncaughtExceptionHandler()
+        val seenByPrevious = mutableListOf<Throwable>()
+        var soundingWhenPreviousRan: Boolean? = null
+        lateinit var service: RingingService
+        Thread.setDefaultUncaughtExceptionHandler { _, e ->
+            soundingWhenPreviousRan = service.isSounding || vibrating()
+            seenByPrevious += e
+        }
+        try {
+            service = startWith(alert("a", NOW)).get()
+            assertTrue(service.isSounding)
+            assertTrue(vibrating())
+            val crash = IllegalStateException("boom")
+
+            // The previous handler (Android's KillApplicationHandler) may show "keeps stopping" and block.
+            Thread.getDefaultUncaughtExceptionHandler()!!.uncaughtException(Thread.currentThread(), crash)
+
+            assertFalse(service.isSounding)
+            assertFalse(vibrating())
+            assertEquals(listOf<Throwable>(crash), seenByPrevious)
+            assertEquals(false, soundingWhenPreviousRan)
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(original)
+        }
+    }
+
+    @Test
+    fun `the crash handler is installed once and still delegates when nothing rings`() {
+        val original = Thread.getDefaultUncaughtExceptionHandler()
+        val seenByPrevious = mutableListOf<Throwable>()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> seenByPrevious += e }
+        try {
+            startWith(alert("a", NOW))
+            val installed = Thread.getDefaultUncaughtExceptionHandler()
+            startWith(alert("b", NOW)) // a second service instance (after the first was stopped, say)
+            assertSame(installed, Thread.getDefaultUncaughtExceptionHandler())
+            destroyRingingServices() // nothing rings any more
+
+            val crash = RuntimeException("later")
+            installed!!.uncaughtException(Thread.currentThread(), crash)
+            installed.uncaughtException(Thread.currentThread(), crash) // idempotent, never throws
+
+            assertEquals(listOf<Throwable>(crash, crash), seenByPrevious)
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(original)
+        }
+    }
 }

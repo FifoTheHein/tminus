@@ -50,6 +50,25 @@ class EventQueueTest {
     }
 
     @Test
+    fun `an event appended after an unterminated torn line is still drained intact`() {
+        queue.append(event(1))
+        queue.file.appendText("{\"type\":\"fired\",\"alertId\"") // crash mid-append: no trailing newline
+        queue.append(event(2))
+        assertEquals(listOf("a1", "a2"), queue.drain().map { it.alertId })
+    }
+
+    @Test
+    fun `good lines on both sides of a garbage line all survive`() {
+        queue.append(event(1))
+        queue.file.appendBytes(byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x00, 0x7B, 0x80.toByte(), '\n'.code.toByte()))
+        queue.append(event(2))
+        queue.file.appendBytes(byteArrayOf(0x00, 0x00, 0xC3.toByte())) // unterminated garbage at the end of the file
+        queue.append(event(3))
+        assertEquals(listOf(event(1), event(2), event(3)), queue.peek())
+        assertEquals(listOf(event(1), event(2), event(3)), queue.drain())
+    }
+
+    @Test
     fun `the queue keeps only the newest events`() {
         repeat(EventQueue.MAX_EVENTS + 5) { queue.append(event(it)) }
         val events = queue.peek()

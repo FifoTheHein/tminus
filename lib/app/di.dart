@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../core/engine/alarm_engine.dart';
 import '../core/rules/rules_engine.dart';
 import '../core/storage/alert_history_repository.dart';
 import '../core/storage/app_database.dart';
@@ -28,6 +29,7 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
   if (!tz.timeZoneDatabase.isInitialized) tzdata.initializeTimeZones();
 
   getIt.registerLazySingleton<ThemeModeController>(ThemeModeController.new);
+  getIt.registerLazySingleton<AlarmEngine>(AlarmEngine.new);
 
   getIt.registerLazySingleton<AppDatabase>(
     openDatabase ?? AppDatabase.open,

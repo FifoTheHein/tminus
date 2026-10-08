@@ -263,7 +263,7 @@ class PlannedAlert {
 | Call (MethodChannel `alarm_engine`) | Arguments | Returns |
 |---|---|---|
 | `applyPlan` | `{"version": 1, "alerts": [PlannedAlert.toJson(), …]}` | `{"armed": int, "cancelled": int, "kept": int}` |
-| `getHealth` | — | `{"notificationsEnabled": bool, "canUseFullScreenIntent": bool, "canScheduleExactAlarms": bool, "ignoringBatteryOptimizations": bool, "alarmStreamMuted": bool, "upcoming": [{"id", "fireAtUtcMs", "strength", "title"} × ≤5]}` |
+| `getHealth` | — | `{"notificationsEnabled": bool, "ringingChannelEnabled": bool, "canUseFullScreenIntent": bool, "canScheduleExactAlarms": bool, "ignoringBatteryOptimizations": bool, "alarmStreamMuted": bool, "upcoming": [{"id", "fireAtUtcMs", "strength", "title"} × ≤5]}` |
 | `testAlarm` | `{"strength": "headsUp"\|"alarm", "delaySec": int}` | `null` |
 | `openPermissionSettings` | `{"kind": "notifications"\|"fullScreenIntent"\|"exactAlarm"\|"batteryOptimization"\|"alarmVolume"}` | `null` |
 | `drainEvents` | — | `[EngineEvent JSON, …]` (queued while Flutter wasn't running; queue is cleared) |

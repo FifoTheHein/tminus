@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../app/theme/tminus_theme.dart';
 import '../../app/theme/tminus_token_catalog.dart';
 import '../../app/theme_mode_controller.dart';
+import 'engine_debug_panel.dart';
 
 /// Placeholder home screen: shows the design tokens so the theme can be
 /// compared visually with the design-system sheet.
@@ -41,6 +43,10 @@ class TokenPreviewScreen extends StatelessWidget {
           const _SpacingAndRadii(),
           const _SectionLabel('05 · Components'),
           const _SampleEventCard(),
+          if (kDebugMode) ...[
+            const _SectionLabel('06 · Engine (debug)'),
+            const EngineDebugPanel(),
+          ],
         ],
       ),
     );

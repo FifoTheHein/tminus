@@ -10,6 +10,21 @@ enum SyncOutcome {
   httpError,
   parseError,
   otherError,
+
+  /// HTTP 5xx, 408 or 429: the server is having trouble; retried (Plan 4).
+  serverError,
+
+  /// READ_CALENDAR is not granted (device sources).
+  calendarAccessDenied,
+
+  /// The Android calendar no longer exists (device sources).
+  calendarMissing,
+
+  /// The ICS URL is not in secure storage any more.
+  linkMissing,
+
+  /// A run that never got the sync lock and changed nothing (Plan 4).
+  skipped,
 }
 
 class SyncLogEntry {

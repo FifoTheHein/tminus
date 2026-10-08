@@ -92,6 +92,8 @@ class IcsFormatException implements Exception { final String message; }
 
 Plan 4 maps `IcsOccurrence` to `EventOccurrence`: `seriesUid = recurring ? uid : null`, both `IcsWarning`s → `OccurrenceWarning.tzFallback`, `cancelled = false`, `declined = false`.
 
+`ics_core` also exports `String? extractTeamsJoinUrl(String? description, String? location)` (added by Plan 4), so device-calendar events find Teams links exactly as feeds do.
+
 ## 3. Shared contract: alert model and `PlannedAlert` (Plans 2 and 3)
 
 These two files are the only code Plans 2 and 3 share. Whichever plan runs first creates them **exactly as written here** and then runs `dart format` on them, as on all repo code. The other plan finds them present and must not change them; it compares them after formatting both sides, because the snippets below are not pre-formatted.
@@ -275,6 +277,10 @@ EventChannel `alarm_engine/events` streams the same EngineEvent JSON live:
 A single `dismissed` event identifies the alert by `alertId` and the meeting's `startUtcMs`. Because `id = idFor(occurrenceKey, offsetMinutes)` and `fireAt = start − offset`, the pair (alertId, startUtcMs) names the same alert instance as Kotlin's (alertId, fireAtUtcMs). Dart keys single dismissals by (alertId, startUtcMs); no fire time is needed in the event.
 
 Every event is also appended to the native queue file, so `drainEvents` returns everything Dart has not yet drained, whether or not it was also streamed live. Dart de-duplicates on `(type, alertId, atUtcMs)`.
+
+### `tminus_sync` channel (Plan 4 implements both sides)
+
+MethodChannel `tminus_sync`: `deviceZone` → IANA id · `acquireLock {owner, leaseMs}` → bool · `releaseLock {owner}` · `configure {watchCalendars, preSyncTimesMs}` · `requestSync {trigger}` · `postSourceNotice {kind: stale|broken, sourceId, title, text}` · `cancelSourceNotice {kind, sourceId}` · `finished {outcome: ok|retry|busy}` (headless engine only). Registered on the app's engine and on every headless sync engine. A notice's Fix action opens `MainActivity` with the extra `io.github.fifothehein.tminus.ROUTE = /sources/<sourceId>`; Plan 5's router should honour it.
 
 ### Engine rules both sides rely on
 

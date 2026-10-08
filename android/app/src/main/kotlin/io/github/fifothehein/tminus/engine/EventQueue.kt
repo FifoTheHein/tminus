@@ -6,6 +6,8 @@ import android.os.Looper
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -22,7 +24,14 @@ class EventQueue(context: Context) {
         if (existing.size >= MAX_EVENTS) {
             file.writeText((existing.takeLast(MAX_EVENTS - 1) + line).joinToString(separator = "\n", postfix = "\n"))
         } else {
-            file.appendText(line + "\n")
+            // A crash mid-append can leave a last line with no newline; start on a fresh line so the new event
+            // is not glued onto those torn bytes.
+            val bytes = ((if (endsMidLineLocked()) "\n" else "") + line + "\n").toByteArray(Charsets.UTF_8)
+            FileOutputStream(file, true).use { out ->
+                out.write(bytes)
+                out.flush()
+                out.fd.sync()
+            }
         }
     }
 
@@ -33,6 +42,14 @@ class EventQueue(context: Context) {
         val events = parse(readLinesLocked())
         file.delete()
         events
+    }
+
+    private fun endsMidLineLocked(): Boolean {
+        if (!file.exists() || file.length() == 0L) return false
+        RandomAccessFile(file, "r").use { raf ->
+            raf.seek(raf.length() - 1)
+            return raf.read() != '\n'.code
+        }
     }
 
     private fun readLinesLocked(): List<String> =

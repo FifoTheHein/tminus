@@ -1,6 +1,13 @@
 import 'utc.dart';
 
-enum SourceKind { ics, device }
+/// Stored by name, so appending is safe; never rename one.
+enum SourceKind {
+  ics,
+  device,
+
+  /// Debug builds only: the "fast alarms" source (spec §11, Plan 4).
+  debug,
+}
 
 /// A configured calendar source as stored in drift.
 ///

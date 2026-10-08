@@ -23,6 +23,10 @@ class SyncWorker(
     params: WorkerParameters,
     private val runner: SyncRunner,
 ) : ListenableWorker(context, params) {
+    /** The constructor WorkManager's default factory calls. */
+    constructor(context: Context, params: WorkerParameters) :
+        this(context, params, HeadlessFlutterRunner(context.applicationContext))
+
     @Volatile private var cancel: (() -> Unit)? = null
 
     override fun startWork(): ListenableFuture<Result> = CallbackToFutureAdapter.getFuture { completer ->

@@ -33,6 +33,30 @@ class _FlakyHistory extends AlertHistoryRepository {
   }
 }
 
+/// A history whose first write waits until [release] is called, like a write
+/// queued behind another connection. Later writes go straight through.
+class _GatedHistory extends AlertHistoryRepository {
+  _GatedHistory(super.db);
+
+  final _released = Completer<void>();
+
+  /// True once the first write has reached the gate.
+  bool reached = false;
+
+  void release() {
+    if (!_released.isCompleted) _released.complete();
+  }
+
+  @override
+  Future<bool> record(AlertHistoryEntry entry) async {
+    if (!reached) {
+      reached = true;
+      await _released.future;
+    }
+    return super.record(entry);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final messenger =
@@ -207,6 +231,106 @@ void main() {
 
     expect(uncaught, isEmpty);
     expect(recorded.single.type, AlertEventType.dismissed);
+    expect((await history.recent()).map((r) => r.type), [
+      AlertEventType.dismissed,
+    ]);
+  });
+
+  test('a drain that starts during another waits for it', () async {
+    final gated = _GatedHistory(db);
+    addTearDown(gated.release); // an expect that fails must not strand a write
+    recorder = EngineEventRecorder(
+      engine: AlarmEngine(),
+      history: gated,
+      occurrences: OccurrenceRepository(db),
+    );
+    final finished = <String>[];
+
+    // The first drain takes the native queue, then stalls on its first write.
+    queued.add(json('dismissed', 'a', 1000));
+    final first = recorder.drainNow().whenComplete(() => finished.add('first'));
+    await waitUntil(() => gated.reached);
+
+    // The second starts while the first is writing. It must not report back
+    // before the dismissal is in history, or a sync would plan without it.
+    // What arrived since the first took the queue is the second's to record.
+    queued.add(json('fired', 'b', 2000));
+    final second = recorder.drainNow().whenComplete(
+      () => finished.add('second'),
+    );
+    await pumpEventQueue();
+    expect(finished, isEmpty);
+
+    gated.release();
+    expect((await first).map((e) => e.type), [AlertEventType.dismissed]);
+    expect((await second).map((e) => e.type), [AlertEventType.fired]);
+    expect(finished, ['first', 'second']);
+    expect((await history.recent()).map((r) => r.type), [
+      AlertEventType.fired,
+      AlertEventType.dismissed,
+    ]);
+  });
+
+  test(
+    'a database failure in start\'s first drain is logged, not thrown',
+    () async {
+      final flaky = _FlakyHistory(db)..failures = 1;
+      recorder = EngineEventRecorder(
+        engine: AlarmEngine(),
+        history: flaky,
+        occurrences: OccurrenceRepository(db),
+      );
+      queued.add(json('fired', 'a', 1000));
+      messenger.setMockStreamHandler(
+        events,
+        MockStreamHandler.inline(onListen: (args, sink) {}),
+      );
+      final logged = <String>[];
+      final realDebugPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => logged.add(message ?? '');
+      addTearDown(() => debugPrint = realDebugPrint);
+
+      await recorder.start(); // completes normally: the error does not escape
+
+      expect(logged.single, contains('StateError'));
+      expect(logged.single, isNot(contains('s3cr3t')));
+      expect(recorder.isListening, isTrue);
+
+      // The failed drain does not hold up the next one.
+      queued.add(json('dismissed', 'a', 2000));
+      expect(await recorder.drainNow(), hasLength(1));
+    },
+  );
+
+  test('a drain waits for a live event that is still being written', () async {
+    final gated = _GatedHistory(db);
+    addTearDown(gated.release); // an expect that fails must not strand a write
+    recorder = EngineEventRecorder(
+      engine: AlarmEngine(),
+      history: gated,
+      occurrences: OccurrenceRepository(db),
+    );
+    messenger.setMockStreamHandler(
+      events,
+      MockStreamHandler.inline(
+        onListen: (args, sink) => sink.success(json('dismissed', 'a', 1000)),
+      ),
+    );
+
+    // The live dismissal reaches the recorder and stalls on its write.
+    await recorder.start();
+    await waitUntil(() => gated.reached);
+
+    // Nothing is queued natively, because the engine handed the dismissal to
+    // the live stream. A drain that did not wait for that write would report
+    // back before the dismissal is in history.
+    var drained = false;
+    final drain = recorder.drainNow().whenComplete(() => drained = true);
+    await pumpEventQueue();
+    expect(drained, isFalse);
+
+    gated.release();
+    expect(await drain, isEmpty); // the live row is not this drain's
     expect((await history.recent()).map((r) => r.type), [
       AlertEventType.dismissed,
     ]);

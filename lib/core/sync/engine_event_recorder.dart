@@ -27,17 +27,24 @@ class EngineEventRecorder {
   final _recorded = StreamController<AlertHistoryEntry>.broadcast();
   StreamSubscription<EngineEvent>? _live;
 
+  /// Completes when the drain or live write started last has finished, whether
+  /// it succeeded or failed. It never completes with an error, so one failure
+  /// cannot hold up the work queued behind it.
+  Future<void> _tail = Future<void>.value();
+
   /// Every entry this recorder inserted (duplicates are not repeated).
   Stream<AlertHistoryEntry> get recorded => _recorded.stream;
 
   bool get isListening => _live != null;
 
   /// Records live events from now on, then drains what queued while no
-  /// Flutter engine was listening (spec §7). Safe to call twice.
+  /// Flutter engine was listening (spec §7). Safe to call twice. A first drain
+  /// that fails is logged, not thrown, and the live subscription stays.
   Future<void> start() async {
     _live ??= engine.events.listen(
       (e) => unawaited(_recordLive(e)),
-      onError: (Object e) => debugPrint('Engine event stream failed: $e'),
+      onError: (Object e) =>
+          debugPrint('Engine event stream failed: ${e.runtimeType}'),
     );
     try {
       await drainNow();
@@ -45,11 +52,38 @@ class EngineEventRecorder {
       // No native engine (widget tests, desktop).
     } on PlatformException catch (e) {
       debugPrint('drainEvents failed: ${e.code}');
+    } catch (e) {
+      // A database error, say. Logged by type only: an error message can carry
+      // a row's values or a feed link.
+      debugPrint('Draining the engine events failed: ${e.runtimeType}');
     }
   }
 
-  /// Drains the native queue into history. Returns the rows that were new.
-  Future<List<AlertHistoryEntry>> drainNow() async {
+  /// Drains the native queue into history. Returns the rows this call
+  /// recorded, which leaves out any that were already stored.
+  ///
+  /// Drains and live writes run one at a time, in the order they started. A
+  /// drain that starts while another drain or a live event is still being
+  /// written waits for it, then drains for itself, so when it returns every
+  /// event delivered before the call is in history. The sync relies on that:
+  /// it plans from history, and [start]'s first drain may still be writing.
+  Future<List<AlertHistoryEntry>> drainNow() => _inOrder(_drain);
+
+  /// Runs [action] once everything started before it has finished. A failure
+  /// belongs to [action]'s caller alone: the chain moves on.
+  Future<T> _inOrder<T>(Future<T> Function() action) async {
+    final previous = _tail;
+    final finished = Completer<void>();
+    _tail = finished.future;
+    try {
+      await previous;
+      return await action();
+    } finally {
+      finished.complete();
+    }
+  }
+
+  Future<List<AlertHistoryEntry>> _drain() async {
     final inserted = <AlertHistoryEntry>[];
     for (final event in await engine.drainEvents()) {
       final entry = await _record(event);
@@ -67,10 +101,11 @@ class EngineEventRecorder {
   /// and dropped, so it never becomes an unhandled error in the UI isolate and
   /// the subscription keeps recording the events that follow. The log line
   /// names the event type and the error type only: an error message can carry
-  /// the row's values or a feed link.
+  /// the row's values or a feed link. The write queues behind any drain or live
+  /// write already in flight, so [drainNow] can wait for it.
   Future<void> _recordLive(EngineEvent e) async {
     try {
-      await _record(e);
+      await _inOrder(() => _record(e));
     } catch (error) {
       debugPrint(
         'Recording a ${e.type.name} event failed: ${error.runtimeType}',

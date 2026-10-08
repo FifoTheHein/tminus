@@ -8,6 +8,8 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -16,13 +18,20 @@ import java.util.concurrent.CopyOnWriteArraySet
  */
 class EventQueue(context: Context) {
     internal val file = File(File(context.createDeviceProtectedStorageContext().filesDir, PlanStore.DIR_NAME), FILE_NAME)
+    internal val tempFile = File(file.parentFile, "$FILE_NAME.tmp")
 
     fun append(event: EngineEvent) = synchronized(LOCK) {
         file.parentFile!!.mkdirs()
         val line = EngineJson.eventToJson(event).toString()
         val existing = readLinesLocked()
         if (existing.size >= MAX_EVENTS) {
-            file.writeText((existing.takeLast(MAX_EVENTS - 1) + line).joinToString(separator = "\n", postfix = "\n"))
+            // Rewrite via a synced temp file and an atomic rename so a crash cannot lose the whole queue.
+            FileOutputStream(tempFile).use { out ->
+                out.write((existing.takeLast(MAX_EVENTS - 1) + line).joinToString(separator = "\n", postfix = "\n").toByteArray(Charsets.UTF_8))
+                out.flush()
+                out.fd.sync()
+            }
+            Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } else {
             // A crash mid-append can leave a last line with no newline; start on a fresh line so the new event
             // is not glued onto those torn bytes.

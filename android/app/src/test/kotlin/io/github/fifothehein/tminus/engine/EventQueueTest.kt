@@ -78,6 +78,28 @@ class EventQueueTest {
     }
 
     @Test
+    fun `trimming leaves no temp file behind and keeps the newest events`() {
+        repeat(EventQueue.MAX_EVENTS + 1) { queue.append(event(it)) }
+        assertTrue(!queue.tempFile.exists())
+        assertEquals(EventQueue.MAX_EVENTS, queue.peek().size)
+        assertEquals("a1", queue.peek().first().alertId)
+        assertEquals("a${EventQueue.MAX_EVENTS}", queue.peek().last().alertId)
+    }
+
+    @Test
+    fun `a temp file left by an interrupted trim is ignored by drain and replaced by the next trim`() {
+        queue.tempFile.parentFile!!.mkdirs()
+        queue.tempFile.writeText("{\"type\":\"fired\",\"alertId\"") // half-written rewrite
+        queue.append(event(1))
+        assertEquals(listOf(event(1)), queue.peek())
+        repeat(EventQueue.MAX_EVENTS) { queue.append(event(it + 2)) }
+        assertTrue(!queue.tempFile.exists())
+        val events = queue.drain()
+        assertEquals(EventQueue.MAX_EVENTS, events.size)
+        assertEquals("a${EventQueue.MAX_EVENTS + 1}", events.last().alertId)
+    }
+
+    @Test
     fun `the queue file lives in device-protected storage`() {
         queue.append(event(1))
         val protectedDir = context.createDeviceProtectedStorageContext().filesDir.canonicalPath

@@ -21,7 +21,7 @@
 - **The plan keeps listing an occurrence's alerts until 15 min after it ends** (Plan 2 decision 19, already in `buildPlan`). `SyncService` plans from the cached occurrences that end after `now − keepAfterEnd`, so the cache query never cuts that window short.
 - Plan 3 behaviour this plan relies on and must not undo: boot recovery fires 30 s after boot; overdue and orphaned alerts ring if their event hasn't ended; `getHealth` has `ringingChannelEnabled`; `EngineEvents` supports several listeners (one per registered engine, so the headless engine's `AlarmEngineChannel` gets its own); pruning of Kotlin acks runs inside `applyPlan`, which every sync calls.
 - An ICS link is a secret (spec §10). It lives only in flutter_secure_storage under `SourceConfig.secureStorageKey` (`ics-url.<sourceId>`). It must never appear in drift, a `SyncLogEntry`, a `SourceFailed` message, a notification or a log line. Exception messages from `http`/`dart:io` are never shown, because they can contain the URL.
-- Times: occurrences and plans are UTC (`plainUtc`, Plan 2 decision 25). The device zone comes from Kotlin (`tminus_sync.deviceZone`) and is set as `tz.local` at startup and in the headless engine (`initDeviceZone`). Load the `latest_all` database (roadmap §2), as `configureDependencies` already does.
+- Times: occurrences and plans are UTC (`plainUtc`, Plan 2 decision 25). The device zone comes from Kotlin (`tminus_sync.deviceZone`) and is set as `tz.local` at app startup and again at the start of every sync, in either isolate (`initDeviceZone`, decision 28). Load the `latest_all` database (roadmap §2), as `configureDependencies` already does.
 - Notification copy follows brief §10. Feed stale: title `Calendar hasn't synced for N h — alarms may be outdated`, text = source name, action **Sync now**. Feed broken: title `<Source name> feed link stopped working` (device sources: `<Source name>: calendar access was turned off` / `<Source name>: calendar was removed`), text = the failure message, action **Fix**.
 - Gates at the end of **every** task, from the repo root `C:\Projects\tminus`: `flutter analyze` → `No issues found!`; `flutter test` → `All tests passed!`; and, if any Kotlin changed, the Kotlin unit tests → `BUILD SUCCESSFUL`.
 - Kotlin unit test command. Git Bash: `cd /c/Projects/tminus/android && ./gradlew :app:testDebugUnitTest`. PowerShell: `cd C:\Projects\tminus\android; .\gradlew.bat :app:testDebugUnitTest`. Add `--tests "<fully.qualified.TestClass>"` to run one class. `android/gradlew` and `gradlew.bat` are git-ignored: a fresh worktree has none, so copy both from the main checkout's `android/` folder (or run `flutter build apk --debug` once, which writes them).
@@ -35,6 +35,7 @@
 3. **The secret ICS link leaking** through an exception message (`ClientException('Failed: https://…/s3cr3t/…')`), a log entry or the database. Expected: every failure message is fixed text with at most an HTTP status; drift holds only the secure-storage key. Pinned in Task 3 (`a network failure never repeats the link`, plus the `failure()` helper that checks every message) and Task 12 (`an ICS source keeps its link in secure storage, not in drift`).
 4. **An alert that never rang because the phone killed the app or was off.** Expected: a `missedSystem` history row once fireAt + 2 min has passed with no `fired` record. No row for an alert that was already past when it was planned (a meeting added 5 min before it starts), or for one whose meeting was dismissed-all or joined first. Pinned in Task 7 (`no fired record by fireAt + 2 min is missed (system)`, `future alerts are expected; past ones that were never expected are not`, `Dismiss all or Join before the alert time excuses it`) and Task 11 (`an armed alert with no fired record becomes missed (system)`).
 5. **A phone calendar that disappears or loses permission.** Expected: the cached occurrences and their alarms stay, the source turns red, and one notification is posted, not one per sync. A moved instance of a recurring phone event keeps its key, so its acknowledgement and overrides follow it. Pinned in Task 5 (`a revoked permission and a removed calendar are reported`, `a moved instance of a series keeps the series key`) and Task 11 (`a broken link notifies once, and recovery withdraws the notice`).
+6. **One feed that keeps failing** (decision 24's dead Outlook link answers 500 for a day). Expected: the periodic sync keeps running every 15 min, and pre-alarm, Sync now and calendar-change syncs still run, because a request retries at most twice and then succeeds. A Feed broken notice survives an amber failure in between: it is withdrawn at the next success and not posted again. Pinned in Task 8 (`a request that keeps failing stops retrying after two attempts`) and Task 11 (`an amber failure between broken and success neither hides nor repeats the notice`).
 
 ---
 
@@ -50,7 +51,7 @@ Decided with the user while planning (2026-10-07):
 6. **Accepted links**: `https://` and `webcal://` (rewritten to `https://`). Plain `http://` is accepted but flagged `insecure` for Plan 5 to warn about. Links whose path ends in `.html` are rejected with a pointer to the `.ics` link (spec §5).
 7. **Foreground sync**: at app start and on every resume, in the UI isolate, unless a sync from any isolate finished within the last 2 minutes. Pull-to-refresh (Plan 5) calls `SyncService.run` directly and always syncs.
 8. **History lives with Plan 4.** `EngineEventRecorder` is the single consumer of engine events (Constraints) and re-broadcasts recorded rows on `recorded` for Plan 5's UI. Each sync prunes `alert_history` to 30 days and `sync_log` to 7 days.
-9. **Feed stale and Feed broken notifications are per source.** Each source has one id per kind and posts alert-once. Broken is posted when a source first enters a notify-class failure (or a different one) and withdrawn when that source next syncs successfully. Stale is posted while the condition holds and withdrawn otherwise. **Sync now** queues an expedited sync. **Fix** opens the app with the intent extra `io.github.fifothehein.tminus.ROUTE = /sources/<id>` for Plan 5's router. Both use the app-defined group `io.github.fifothehein.tminus.SYNC` with a posted summary, like Plan 3's heads-up and Missed notifications.
+9. **Feed stale and Feed broken notifications are per source.** Each source has one id per kind and posts alert-once. Broken is posted when a source first enters a notify-class failure (or a different one) and withdrawn when that source next syncs successfully (decision 26). A removed or disabled source's notices are withdrawn too (decision 27). Stale is posted while the condition holds and withdrawn otherwise. **Sync now** queues an expedited sync. **Fix** opens the app with the intent extra `io.github.fifothehein.tminus.ROUTE = /sources/<id>` for Plan 5's router. Both use the app-defined group `io.github.fifothehein.tminus.SYNC` with a posted summary, like Plan 3's heads-up and Missed notifications.
 10. **Amber or red.** Network error, timeout, HTTP 5xx, 408 and 429 are amber: the cache is kept and WorkManager retries with backoff. A new `SyncOutcome.serverError` value is appended for the HTTP cases. Every other 4xx (401, 403, 404, 410, …) is `httpError`: red, with one notification. A feed that will not parse is `parseError`: red, without a notification (spec §9). A link missing from secure storage is a new `linkMissing`: red, with a notification. `calendarAccessDenied` and `calendarMissing` are appended for phone sources.
 11. **Fast alarms** (debug builds): a debug-panel button stores three events with fixed times under a `SourceKind.debug` source (`debug-fast-alarms`). Two start at +2 min, giving a coalesced alarm at +1 min with the Meeting profile. One starts at +12 min with a Teams link (heads-up at +2 min, alarm at +11 min). They go through the real sync, rules, plan and `applyPlan`. **Clear fast alarms** removes the source.
 12. **Phone-calendar occurrences use the source's colour**, like ICS. `SourceAdmin.addDeviceSource` pre-fills it from the Android calendar's colour.
@@ -63,7 +64,7 @@ Made while planning where the spec is silent, then reviewed and accepted by the 
 16. **`READ_CALENDAR` is declared here but requested by Plan 5's UI.** Until then, device checks grant it with `adb shell pm grant`.
 17. **The calendar watch** is a WorkManager content-URI trigger on `CalendarContract.Events.CONTENT_URI` (descendants included, 5 s update delay, 30 s max delay). It exists while an enabled phone source exists. `CalendarWatchWorker` only queues a sync and the next watch, and never boots Flutter. Calendar-change syncs are not expedited; one that arrives during a sync is queued after it.
 18. **Background-sync queueing.** `runNow` uses unique work per trigger with `KEEP`: a pre-alarm or Sync-now request whose trigger is already queued or running is dropped, because that run is current. The exception is calendar change (decision 17).
-19. **The headless engine** runs Dart `syncMain(List<String> args)` from `lib/main.dart` with the trigger name as its argument. It reports `ok`, `retry` or `busy` through `tminus_sync.finished`. `retry` makes the worker return `Result.retry()` (spec §9 backoff); anything else is success. Kotlin gives up after 8 min (WorkManager's limit is 10) and reports `retry`.
+19. **The headless engine** runs Dart `syncMain(List<String> args)` from `lib/main.dart` with the trigger name as its argument. It reports `ok`, `retry` or `busy` through `tminus_sync.finished`. `retry` makes the worker return `Result.retry()` (spec §9 backoff), at most twice per request (decision 25); anything else is success. Kotlin gives up after 8 min (WorkManager's limit is 10) and reports `retry`.
 20. **Feed stale is checked only for ICS sources.** A phone calendar's freshness depends on the account's own sync, which the app cannot see. Its last success is the last time the provider was read.
 21. **Disabled sources** are not fetched and not planned (their alarms are cancelled at the next sync). Their cached occurrences stay until a day after they end.
 22. **An empty result that the guard keeps** (`emptyKept`) still counts as a successful fetch for staleness, because the feed answered.
@@ -72,6 +73,13 @@ Made while planning where the spec is silent, then reviewed and accepted by the 
 Decided with the user after checking a real Outlook link while planning (2026-10-08):
 
 24. **Server errors that last 24 h mean the link is broken.** Outlook does not answer an unknown published-calendar link with 401/403/404, as spec §9 assumes. It redirects to an error page, which `package:http` sees as HTTP 500 (curl, sending different headers, gets 417). So a 5xx stays amber at first. But once a source has had no success for 24 h (since its last success, or since its first logged sync if it never succeeded) and the latest failure is a server error, it is reported as `httpError`: red, with one Feed broken notification. The message reads "The calendar server has kept failing for over 24 h. The link may have been reset or unpublished." Network errors never escalate. Task 15 Step 7 records what a real reset link returns.
+
+Decided with the user after reviewing the written plan (2026-10-08):
+
+25. **A sync request retries at most twice.** Every run fetches every source, so one feed that keeps failing would make every run report `retry`. With unbounded exponential backoff (30 s doubling to WorkManager's 5 h cap), the periodic sync would slow to every few hours, and `runNow`'s `KEEP` / `APPEND_OR_REPLACE` would drop or queue every pre-alarm, Sync now and calendar-change request behind the waiting one. Decision 24's dead Outlook link is exactly that case, for 24 h. So `SyncWorker` returns `Result.retry()` only while `runAttemptCount < MAX_RETRIES` (2: after 30 s and after 60 s), then success. The next trigger is never held up for more than about 90 s, and the periodic sync stays every 15 min.
+26. **The Feed broken notice is tracked per source in settings** (`sync.brokenNotice.<sourceId>` = the outcome it was posted for), not read back from the sync log. An amber failure between a broken result and a success would otherwise hide that a notice is up: it would never be withdrawn, and a broken → network error → broken sequence would post it again. A notice is posted when a source fails with a notify-class outcome other than the stored one, and withdrawn (and the key cleared) at the source's next success, whatever came between.
+27. **Notices follow their source.** `SourceAdmin.delete` withdraws both of the source's notices. Each sync withdraws them for every disabled source (decision 21), so a source that is switched off or removed never leaves a Feed stale or Feed broken notice with a Fix that opens nothing.
+28. **Every sync reads the device zone first.** `tz.local` is otherwise set only when the isolate starts, and the UI isolate can live for days. After travel, foreground and pull-to-refresh syncs would plan floating and all-day times and "Mute today" in the old zone, and their `applyPlan` would overwrite the headless engine's correct plan. `SyncService.run` calls `initDeviceZone` before it plans. `SyncBootReceiver` also queues a sync (trigger `timeChange`) on `TIME_SET` and `TIMEZONE_CHANGED`, so the plan follows a zone change without waiting for the next periodic sync.
 
 ## File Structure
 
@@ -3204,7 +3212,7 @@ git commit -m "Detect missed (system) alerts and work out pre-alarm sync times"
 
 **Interfaces:**
 - Consumes: `TimeChangeReceiver.ACTION_EXACT_ALARM_PERMISSION_CHANGED`, `R.drawable.ic_stat_tminus` (Plan 3).
-- Produces: `fun interface SyncRunner { fun run(trigger: String, done: (String) -> Unit): () -> Unit }` (returns a cancel function); `class SyncWorker(context, params, runner: SyncRunner) : ListenableWorker` with `KEY_TRIGGER = "trigger"`, triggers `TRIGGER_PERIODIC = "periodic"`, `TRIGGER_CALENDAR_CHANGE = "calendarChange"`, `TRIGGER_PRE_ALARM = "preAlarm"`, `TRIGGER_MANUAL = "manual"` (the names of Dart's `SyncTrigger` values), outcomes `OUTCOME_OK = "ok"`, `OUTCOME_RETRY = "retry"`, `OUTCOME_BUSY = "busy"`, `fun input(trigger): Data`, `fun resultFor(outcome): Result`, `CHANNEL_RUNNING = "sync_running"`; `class SyncScheduler(context, workManager = WorkManager.getInstance(context))` with `ensurePeriodic()`, `runNow(trigger: String, expedited: Boolean)`, `setCalendarWatch(enabled: Boolean)`, `internal rewatch()`, constants `PERIODIC = "tminus.sync.periodic"`, `CALENDAR_WATCH = "tminus.sync.calendarWatch"`, `fun nowName(trigger) = "tminus.sync.now.$trigger"`; `class CalendarWatchWorker : Worker`; `class PreSyncScheduler(context, clock)` with `setTimes(List<Long>)`, `times()`, `next()`, `armNext()`, `ACTION = "io.github.fifothehein.tminus.PRE_SYNC"`, `PREFS = "tminus_sync"`; `class PreSyncReceiver`; `class SyncBootReceiver` with `ACTIONS` (BOOT_COMPLETED, MY_PACKAGE_REPLACED, TIME_SET, TIMEZONE_CHANGED, exact-alarm permission changed).
+- Produces: `fun interface SyncRunner { fun run(trigger: String, done: (String) -> Unit): () -> Unit }` (returns a cancel function); `class SyncWorker(context, params, runner: SyncRunner) : ListenableWorker` with `KEY_TRIGGER = "trigger"`, triggers `TRIGGER_PERIODIC = "periodic"`, `TRIGGER_CALENDAR_CHANGE = "calendarChange"`, `TRIGGER_PRE_ALARM = "preAlarm"`, `TRIGGER_MANUAL = "manual"`, `TRIGGER_TIME_CHANGE = "timeChange"` (the names of Dart's `SyncTrigger` values), outcomes `OUTCOME_OK = "ok"`, `OUTCOME_RETRY = "retry"`, `OUTCOME_BUSY = "busy"`, `MAX_RETRIES = 2`, `fun input(trigger): Data`, `fun resultFor(outcome, runAttemptCount): Result`, `CHANNEL_RUNNING = "sync_running"`; `class SyncScheduler(context, workManager = WorkManager.getInstance(context))` with `ensurePeriodic()`, `runNow(trigger: String, expedited: Boolean)`, `setCalendarWatch(enabled: Boolean)`, `internal rewatch()`, constants `PERIODIC = "tminus.sync.periodic"`, `CALENDAR_WATCH = "tminus.sync.calendarWatch"`, `fun nowName(trigger) = "tminus.sync.now.$trigger"`; `class CalendarWatchWorker : Worker`; `class PreSyncScheduler(context, clock)` with `setTimes(List<Long>)`, `times()`, `next()`, `armNext()`, `ACTION = "io.github.fifothehein.tminus.PRE_SYNC"`, `PREFS = "tminus_sync"`; `class PreSyncReceiver`; `class SyncBootReceiver` with `ACTIONS` (BOOT_COMPLETED, MY_PACKAGE_REPLACED, TIME_SET, TIMEZONE_CHANGED, exact-alarm permission changed) and `SYNC_ACTIONS` (TIME_SET, TIMEZONE_CHANGED: also queue a `timeChange` sync, decision 28).
 
 `SyncWorker` gets its `(Context, WorkerParameters)` constructor, the one WorkManager's default factory calls, in Task 13, together with `HeadlessFlutterRunner`. Until then nothing enqueues work outside tests: `MainActivity` starts scheduling in Task 9, and a device run between Tasks 9 and 13 logs WorkManager's "Could not create Worker" for the sync and carries on.
 
@@ -3341,8 +3349,8 @@ class SyncSchedulingTest {
         assertEquals(WorkInfo.State.ENQUEUED, infos(SyncScheduler.CALENDAR_WATCH).single().state)
     }
 
-    private fun worker(trigger: String?, runner: SyncRunner): SyncWorker {
-        val builder = TestListenableWorkerBuilder<SyncWorker>(app).setWorkerFactory(
+    private fun worker(trigger: String?, runAttemptCount: Int = 0, runner: SyncRunner): SyncWorker {
+        val builder = TestListenableWorkerBuilder<SyncWorker>(app).setRunAttemptCount(runAttemptCount).setWorkerFactory(
             object : WorkerFactory() {
                 override fun createWorker(context: Context, name: String, params: WorkerParameters) =
                     SyncWorker(context, params, runner)
@@ -3365,6 +3373,25 @@ class SyncSchedulingTest {
             assertEquals(outcome, expected, w.startWork().get())
         }
         assertEquals(List(3) { SyncWorker.TRIGGER_PERIODIC }, seen)
+    }
+
+    @Test
+    fun `a request that keeps failing stops retrying after two attempts`() {
+        // Decision 25: a third retry would leave the request waiting minutes to hours, and runNow's
+        // KEEP / APPEND_OR_REPLACE would hold every later sync of its trigger behind it.
+        val results = (0..3).map { attempt ->
+            worker(SyncWorker.TRIGGER_PRE_ALARM, runAttemptCount = attempt) { _, done -> done(SyncWorker.OUTCOME_RETRY); {} }
+                .startWork().get()
+        }
+        assertEquals(
+            listOf(
+                ListenableWorker.Result.retry(),
+                ListenableWorker.Result.retry(),
+                ListenableWorker.Result.success(),
+                ListenableWorker.Result.success(),
+            ),
+            results,
+        )
     }
 
     @Test
@@ -3412,7 +3439,7 @@ class SyncSchedulingTest {
     }
 
     @Test
-    fun `boot, update and clock changes re-arm the pre-sync alarm`() {
+    fun `boot, update and clock changes re-arm the pre-sync alarm, and clock changes sync`() {
         val real = System.currentTimeMillis()
         val pre = PreSyncScheduler(app)
         for (action in SyncBootReceiver.ACTIONS) {
@@ -3422,6 +3449,9 @@ class SyncSchedulingTest {
             assertEquals(action, real + HOUR, preSyncAlarms().single().triggerAtTime)
         }
         SyncBootReceiver().onReceive(app, Intent(Intent.ACTION_SCREEN_ON))
+        // TIME_SET and TIMEZONE_CHANGED each ask for a timeChange sync; the first never finishes in this
+        // test, so KEEP drops the second.
+        assertEquals(listOf(SyncWorker.TRIGGER_TIME_CHANGE), started)
     }
 
     @Test
@@ -3480,7 +3510,7 @@ class SyncWorker(
 
     override fun startWork(): ListenableFuture<Result> = CallbackToFutureAdapter.getFuture { completer ->
         val trigger = inputData.getString(KEY_TRIGGER) ?: TRIGGER_MANUAL
-        cancel = runner.run(trigger) { outcome -> completer.set(resultFor(outcome)) }
+        cancel = runner.run(trigger) { outcome -> completer.set(resultFor(outcome, runAttemptCount)) }
         "SyncWorker($trigger)"
     }
 
@@ -3502,20 +3532,32 @@ class SyncWorker(
         const val TRIGGER_CALENDAR_CHANGE = "calendarChange"
         const val TRIGGER_PRE_ALARM = "preAlarm"
         const val TRIGGER_MANUAL = "manual"
+        const val TRIGGER_TIME_CHANGE = "timeChange"
 
         /** What Dart's `syncMain()` reports (SyncRunOutcome names). */
         const val OUTCOME_OK = "ok"
         const val OUTCOME_RETRY = "retry"
         const val OUTCOME_BUSY = "busy"
 
+        /**
+         * Retries per request (decision 25): after 30 s and after 60 s. Every run fetches every source,
+         * so a feed that keeps failing would otherwise back the request off for hours, and runNow's
+         * KEEP / APPEND_OR_REPLACE would hold every later sync of that trigger behind it.
+         */
+        const val MAX_RETRIES = 2
+
         const val CHANNEL_RUNNING = "sync_running"
         private const val RUNNING_NOTIFICATION_ID = 0x5301
 
         fun input(trigger: String): Data = Data.Builder().putString(KEY_TRIGGER, trigger).build()
 
-        /** Temporary failures retry with WorkManager's backoff (spec §9); anything else is done. */
-        fun resultFor(outcome: String): Result =
-            if (outcome == OUTCOME_RETRY) Result.retry() else Result.success()
+        /**
+         * Temporary failures retry with WorkManager's backoff (spec §9), at most [MAX_RETRIES] times;
+         * anything else is done. The next trigger (periodic within 15 min, pre-alarm, calendar change)
+         * syncs again anyway.
+         */
+        fun resultFor(outcome: String, runAttemptCount: Int): Result =
+            if (outcome == OUTCOME_RETRY && runAttemptCount < MAX_RETRIES) Result.retry() else Result.success()
 
         private fun runningNotification(context: Context): android.app.Notification {
             val manager = context.getSystemService(NotificationManager::class.java)
@@ -3721,11 +3763,18 @@ class PreSyncReceiver : BroadcastReceiver() {
     }
 }
 
-/** Re-arms the pre-alarm sync alarm after a reboot, an app update or a clock change. */
+/**
+ * Re-arms the pre-alarm sync alarm after a reboot, an app update or a clock change. A clock or zone
+ * change also queues a sync, so floating and all-day times and quiet modes are planned in the new
+ * zone without waiting for the periodic sync (decision 28).
+ */
 class SyncBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in ACTIONS) return
         PreSyncScheduler(context).armNext()
+        if (intent.action in SYNC_ACTIONS) {
+            SyncScheduler(context).runNow(SyncWorker.TRIGGER_TIME_CHANGE, expedited = false)
+        }
     }
 
     companion object {
@@ -3736,6 +3785,9 @@ class SyncBootReceiver : BroadcastReceiver() {
             Intent.ACTION_TIMEZONE_CHANGED,
             TimeChangeReceiver.ACTION_EXACT_ALARM_PERMISSION_CHANGED,
         )
+
+        /** The actions that also queue a `timeChange` sync. */
+        val SYNC_ACTIONS = setOf(Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED)
     }
 }
 ```
@@ -3762,12 +3814,12 @@ In `android/app/src/main/AndroidManifest.xml`, after the `.engine.TimeChangeRece
         </receiver>
 ```
 
-`SyncBootReceiver` is not `directBootAware`: its times are in credential-protected preferences, and a sync cannot run before the first unlock anyway (Plan 3's engine receivers stay direct-boot aware). A spoofed broadcast only re-arms the pre-sync alarm, which is harmless.
+`SyncBootReceiver` is not `directBootAware`: its times are in credential-protected preferences, and a sync cannot run before the first unlock anyway (Plan 3's engine receivers stay direct-boot aware). A spoofed broadcast at most re-arms the pre-sync alarm and queues one sync, which is harmless (and all five actions are protected broadcasts that only the system sends).
 
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `cd /c/Projects/tminus/android && ./gradlew :app:testDebugUnitTest --tests "io.github.fifothehein.tminus.sync.SyncSchedulingTest"`
-Expected: `BUILD SUCCESSFUL` (11 tests). The `@After` closes each test's in-memory WorkManager database; without it Robolectric logs a CloseGuard "resource was acquired … but never released" trace (harmless, but noise).
+Expected: `BUILD SUCCESSFUL` (12 tests). The `@After` closes each test's in-memory WorkManager database; without it Robolectric logs a CloseGuard "resource was acquired … but never released" trace (harmless, but noise).
 
 - [ ] **Step 7: Run the gates**
 
@@ -4304,7 +4356,7 @@ with
 - [ ] **Step 7: Run the test to verify it passes**
 
 Run: `cd /c/Projects/tminus/android && ./gradlew :app:testDebugUnitTest --tests "io.github.fifothehein.tminus.sync.*"`
-Expected: `BUILD SUCCESSFUL` (10 + 11 tests).
+Expected: `BUILD SUCCESSFUL` (10 + 12 tests).
 
 - [ ] **Step 8: Record the channel in the roadmap**
 
@@ -4337,7 +4389,7 @@ git commit -m "Add the sync channel with a cross-isolate lock and Feed stale and
 
 **Interfaces:**
 - Consumes: Task 9's channel.
-- Produces: `enum SourceNoticeKind { stale, broken }`; `class SyncPlatform({MethodChannel? channel})` with `static const channelName = 'tminus_sync'`, `Future<String> deviceZone()`, `Future<bool> acquireLock(String owner, Duration lease)`, `Future<void> releaseLock(String owner)`, `Future<void> configure({required bool watchCalendars, required List<DateTime> preSyncTimes})`, `Future<void> postSourceNotice({required SourceNoticeKind kind, required String sourceId, required String title, required String text})`, `Future<void> cancelSourceNotice({required SourceNoticeKind kind, required String sourceId})`, `Future<void> requestSync(String trigger)`, `Future<void> finished(String outcome)`; `Future<String> initDeviceZone(SyncPlatform platform)` (sets `tz.local`; keeps it for an unknown zone or no native side; returns the zone in use).
+- Produces: `enum SourceNoticeKind { stale, broken }`; `class SyncPlatform({MethodChannel? channel})` with `static const channelName = 'tminus_sync'`, `Future<String?> deviceZone()`, `Future<bool> acquireLock(String owner, Duration lease)`, `Future<void> releaseLock(String owner)`, `Future<void> configure({required bool watchCalendars, required List<DateTime> preSyncTimes})`, `Future<void> postSourceNotice({required SourceNoticeKind kind, required String sourceId, required String title, required String text})`, `Future<void> cancelSourceNotice({required SourceNoticeKind kind, required String sourceId})`, `Future<void> requestSync(String trigger)`, `Future<void> finished(String outcome)`; `Future<String> initDeviceZone(SyncPlatform platform)` (sets `tz.local`; keeps it for an unknown zone, no answer or no native side; returns the zone in use). `SyncService` calls it at the start of every run (decision 28), so it must never throw.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4434,13 +4486,18 @@ void main() {
     expect(tz.local.name, 'Africa/Johannesburg');
   });
 
-  test('an unknown zone or a missing native side keeps tz.local', () async {
-    final before = tz.local.name;
-    answer((_) => 'Mars/Olympus_Mons');
-    expect(await initDeviceZone(SyncPlatform()), before);
-    messenger.setMockMethodCallHandler(channel, null);
-    expect(await initDeviceZone(SyncPlatform()), before);
-  });
+  test(
+    'an unknown zone, no answer or a missing native side keeps tz.local',
+    () async {
+      final before = tz.local.name;
+      answer((_) => 'Mars/Olympus_Mons');
+      expect(await initDeviceZone(SyncPlatform()), before);
+      answer((_) => null);
+      expect(await initDeviceZone(SyncPlatform()), before);
+      messenger.setMockMethodCallHandler(channel, null);
+      expect(await initDeviceZone(SyncPlatform()), before);
+    },
+  );
 }
 ```
 
@@ -4476,9 +4533,9 @@ class SyncPlatform {
 
   final MethodChannel _channel;
 
-  /// The device's IANA zone, e.g. `Africa/Johannesburg`.
-  Future<String> deviceZone() async =>
-      (await _channel.invokeMethod<String>('deviceZone'))!;
+  /// The device's IANA zone, e.g. `Africa/Johannesburg`. Null only if the
+  /// native side gave no answer.
+  Future<String?> deviceZone() => _channel.invokeMethod<String>('deviceZone');
 
   /// True when [owner] now holds the lock for [lease].
   Future<bool> acquireLock(String owner, Duration lease) async =>
@@ -4542,13 +4599,15 @@ import 'package:timezone/timezone.dart' as tz;
 import 'sync_platform.dart';
 
 /// Sets `tz.local` to the device zone (Plan 2 left it at UTC). Without a
-/// native side (tests, desktop), or for a zone the database does not know,
-/// `tz.local` stays as it is. Returns the zone now in use. The time-zone
-/// database must already be loaded (`configureDependencies` does it).
+/// native side (tests, desktop), without an answer, or for a zone the
+/// database does not know, `tz.local` stays as it is. Returns the zone now in
+/// use. The time-zone database must already be loaded
+/// (`configureDependencies` does it). Runs at startup and at the start of
+/// every sync (decision 28), so it never throws.
 Future<String> initDeviceZone(SyncPlatform platform) async {
   try {
     final id = await platform.deviceZone();
-    tz.setLocalLocation(tz.getLocation(id));
+    if (id != null) tz.setLocalLocation(tz.getLocation(id));
   } on MissingPluginException {
     // Keep the current zone.
   } on PlatformException {
@@ -4587,19 +4646,20 @@ git commit -m "Add the Dart sync platform client and set the device time zone"
 - Test: `test/core/sync/sync_service_test.dart`
 
 **Interfaces:**
-- Consumes: `CalendarSource`, `FetchWindow`, `SourceFetched`, `SourceFailed` (Task 1); `SyncOutcomeSeverity` (Task 1); `EngineEventRecorder.drainNow` (Task 6); `MissedSystemDetector`, `preSyncTimes` (Task 7); `SyncPlatform`, `SourceNoticeKind` (Task 10); `AlarmEngine.applyPlan`, `ApplyResult` (Plan 3); `SourceRepository`, `OccurrenceRepository`, `AlertHistoryRepository` (`acknowledgements`, `since`, `record`, `deleteBefore`), `SyncLogRepository` (`add`, `latestForSource`, `deleteBefore`; this task adds `Future<SyncLogEntry?> earliestForSource(String sourceId)`), `SettingsRepository` (`getString`, `setString`), `RuleSetLoader`, `RulesEngine`, `EmptyFeedGuard`, `buildPlan`, `keepAfterEnd` (Plan 2).
-- Produces: `typedef SourceBuilder = CalendarSource Function(SourceConfig config, SourceSyncState? state, tz.Location zone)`; `enum SyncTrigger { periodic, calendarChange, preAlarm, manual, foreground, pullToRefresh, debug }` with `static SyncTrigger parse(String? name)` (unknown → `manual`); `enum SyncRunOutcome { ok, retry, busy }`; `class SourceSyncResult(String sourceId, SyncOutcome outcome, [String? message])`; `class SyncReport({trigger, outcome, sources, applied, planned, missedSystem})`; `class SyncService({required sources, occurrences, history, syncLog, settings, ruleSets, RulesEngine Function() rulesEngine, engine, recorder, platform, SourceBuilder buildSource, tz.Location Function()? zone, UtcClock? clock, Duration lockWait = 60 s, Duration lockPoll = 500 ms})` with public fields of those names, `Future<SyncReport> run(SyncTrigger trigger)`, `Future<DateTime?> lastFinished()`, `static String brokenTitle(SourceConfig, SyncOutcome)`, `static String staleTitle(Duration age)`, and the constants `lockLease` (5 min), `lastFinishedKey = 'sync.lastFinishedUtcMs'`, `expectedKey = 'sync.missedSystemExpected'`, `historyRetention` (30 days), `syncLogRetention` (7 days), `occurrenceRetention` (1 day), `serverErrorsBeforeBroken` (24 h), `staleAfter` (60 min), `staleHorizon` (2 h).
+- Consumes: `CalendarSource`, `FetchWindow`, `SourceFetched`, `SourceFailed` (Task 1); `SyncOutcomeSeverity` (Task 1); `EngineEventRecorder.drainNow` (Task 6); `MissedSystemDetector`, `preSyncTimes` (Task 7); `SyncPlatform`, `SourceNoticeKind`, `initDeviceZone` (Task 10); `AlarmEngine.applyPlan`, `ApplyResult` (Plan 3); `SourceRepository`, `OccurrenceRepository`, `AlertHistoryRepository` (`acknowledgements`, `since`, `record`, `deleteBefore`), `SyncLogRepository` (`add`, `deleteBefore`; this task adds `Future<SyncLogEntry?> earliestForSource(String sourceId)`), `SettingsRepository` (`getString`, `setString`), `RuleSetLoader`, `RulesEngine`, `EmptyFeedGuard`, `buildPlan`, `keepAfterEnd` (Plan 2).
+- Produces: `typedef SourceBuilder = CalendarSource Function(SourceConfig config, SourceSyncState? state, tz.Location zone)`; `enum SyncTrigger { periodic, calendarChange, preAlarm, manual, timeChange, foreground, pullToRefresh, debug }` with `static SyncTrigger parse(String? name)` (unknown → `manual`); `enum SyncRunOutcome { ok, retry, busy }`; `class SourceSyncResult(String sourceId, SyncOutcome outcome, [String? message])`; `class SyncReport({trigger, outcome, sources, applied, planned, missedSystem})`; `class SyncService({required sources, occurrences, history, syncLog, settings, ruleSets, RulesEngine Function() rulesEngine, engine, recorder, platform, SourceBuilder buildSource, tz.Location Function()? zone, UtcClock? clock, Duration lockWait = 60 s, Duration lockPoll = 500 ms})` with public fields of those names, `Future<SyncReport> run(SyncTrigger trigger)`, `Future<DateTime?> lastFinished()`, `static String brokenTitle(SourceConfig, SyncOutcome)`, `static String staleTitle(Duration age)`, `static String brokenNoticeKey(String sourceId)` (= `'sync.brokenNotice.$sourceId'`, decision 26), and the constants `lockLease` (5 min), `lastFinishedKey = 'sync.lastFinishedUtcMs'`, `expectedKey = 'sync.missedSystemExpected'`, `historyRetention` (30 days), `syncLogRetention` (7 days), `occurrenceRetention` (1 day), `serverErrorsBeforeBroken` (24 h), `staleAfter` (60 min), `staleHorizon` (2 h).
 
 One run, in order (spec §7 "`syncMain()` does"):
 1. Take the lock (decision 3); if it never frees, log a whole-run `otherError` and return `busy`.
-2. `recorder.drainNow()`, so acknowledgements and `fired` rows are current.
-3. Fetch every enabled source in parallel. Then, per source in name order: the empty-feed guard (`emptyKept` keeps the cache); the 24-h server-error escalation (decision 24); the sync state (a failure keeps `lastSuccessUtc`, the validators and the streak); a per-source `sync_log` row; and the Feed broken notice (decisions 9, 10).
-4. Plan: cached occurrences of enabled sources that end after `now − keepAfterEnd`, resolved with a fresh `RulesEngine`, `buildPlan` with the history acknowledgements.
-5. Missed (system): check the stored expectations, record the misses.
-6. `applyPlan`. On failure Kotlin keeps its old plan (spec §9), the run reports `retry`, and the stored expectations keep only the still-pending ones.
-7. `configure` (calendar watch, pre-alarm sync times), Feed stale notices, pruning, the whole-run `sync_log` row, `lastFinishedKey`.
+2. `initDeviceZone`, so this run plans in the zone the phone is in now (decision 28).
+3. `recorder.drainNow()`, so acknowledgements and `fired` rows are current.
+4. Fetch every enabled source in parallel; withdraw every disabled source's notices (decision 27). Then, per enabled source in name order: the empty-feed guard (`emptyKept` keeps the cache); the 24-h server-error escalation (decision 24); the sync state (a failure keeps `lastSuccessUtc`, the validators and the streak); a per-source `sync_log` row; and the Feed broken notice, posted or withdrawn against the outcome stored under `brokenNoticeKey` (decisions 9, 10, 26).
+5. Plan: cached occurrences of enabled sources that end after `now − keepAfterEnd`, resolved with a fresh `RulesEngine`, `buildPlan` with the history acknowledgements.
+6. Missed (system): check the stored expectations, record the misses.
+7. `applyPlan`. On failure Kotlin keeps its old plan (spec §9), the run reports `retry`, and the stored expectations keep only the still-pending ones.
+8. `configure` (calendar watch, pre-alarm sync times), Feed stale notices, pruning, the whole-run `sync_log` row, `lastFinishedKey`.
 
-The run reports `retry` when any source had a temporary failure or `applyPlan` failed; otherwise `ok`. Platform side effects (notices, `configure`) never fail a run.
+The run reports `retry` when any source had a temporary failure or `applyPlan` failed; otherwise `ok`. `SyncWorker` retries a request at most twice (decision 25). Platform side effects (notices, `configure`) never fail a run.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4608,6 +4668,7 @@ The run reports `retry` when any source had a temporary failure or `applyPlan` f
 ```dart
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:timezone/timezone.dart' as tz;
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
 import 'package:tminus/core/model/planned_alert.dart';
@@ -4669,6 +4730,7 @@ void main() {
   late List<Map<String, Object?>> queuedEvents;
   late Object? Function(MethodCall) applyAnswer;
   late bool lockFree;
+  late String? deviceZone;
 
   const work = SourceConfig(
     id: 'work',
@@ -4689,6 +4751,7 @@ void main() {
       syncCalls.where((c) => c.method == method).toList();
 
   setUp(() async {
+    initZones();
     now = DateTime.utc(2026, 10, 6, 6);
     db = openTestDatabase();
     sources = SourceRepository(db);
@@ -4705,6 +4768,7 @@ void main() {
     syncCalls = [];
     queuedEvents = [];
     lockFree = true;
+    deviceZone = null;
     applyAnswer = (call) => {
       'armed': ((call.arguments as Map)['alerts'] as List).length,
       'cancelled': 0,
@@ -4724,7 +4788,11 @@ void main() {
     });
     messenger.setMockMethodCallHandler(syncChannel, (call) async {
       syncCalls.add(call);
-      return call.method == 'acquireLock' ? lockFree : null;
+      return switch (call.method) {
+        'acquireLock' => lockFree,
+        'deviceZone' => deviceZone,
+        _ => null,
+      };
     });
     final engine = AlarmEngine();
     sync = SyncService(
@@ -4760,6 +4828,7 @@ void main() {
   tearDown(() async {
     messenger.setMockMethodCallHandler(engineChannel, null);
     messenger.setMockMethodCallHandler(syncChannel, null);
+    tz.setLocalLocation(tz.UTC);
     await db.close();
   });
 
@@ -4871,6 +4940,65 @@ void main() {
       );
     },
   );
+
+  test(
+    'an amber failure between broken and success neither hides nor repeats the notice',
+    () async {
+      // Decision 26: the notice is tracked in settings, not read back from
+      // the last sync-log row, which would be the amber one here.
+      for (final outcome in [
+        SyncOutcome.httpError,
+        SyncOutcome.networkError,
+        SyncOutcome.httpError,
+      ]) {
+        results['work'] = () => SourceFailed(outcome, 'x');
+        await sync.run(SyncTrigger.periodic);
+      }
+      expect(syncCallsNamed('postSourceNotice'), hasLength(1));
+
+      results['work'] = () => const SourceFailed(SyncOutcome.networkError, 'x');
+      await sync.run(SyncTrigger.periodic);
+      results['work'] = () => SourceFetched([meeting]);
+      syncCalls.clear();
+      await sync.run(SyncTrigger.periodic);
+      expect(
+        syncCallsNamed('cancelSourceNotice').map((c) => c.arguments),
+        anyElement(equals({'kind': 'broken', 'sourceId': 'work'})),
+      );
+      expect(await settings.getString(SyncService.brokenNoticeKey('work')), '');
+
+      // Broken again after recovering: a new notice.
+      results['work'] = () => const SourceFailed(SyncOutcome.httpError, 'x');
+      await sync.run(SyncTrigger.periodic);
+      expect(syncCallsNamed('postSourceNotice'), hasLength(1));
+    },
+  );
+
+  test('a disabled source keeps no notices', () async {
+    results['work'] = () => const SourceFailed(SyncOutcome.httpError, 'x');
+    await sync.run(SyncTrigger.periodic);
+    await sources.save(work.copyWith(enabled: false));
+    syncCalls.clear();
+    await sync.run(SyncTrigger.periodic);
+    expect(
+      syncCallsNamed('cancelSourceNotice').map((c) => c.arguments).toSet(),
+      {
+        {'kind': 'stale', 'sourceId': 'work'},
+        {'kind': 'broken', 'sourceId': 'work'},
+      },
+    );
+    expect(await settings.getString(SyncService.brokenNoticeKey('work')), '');
+  });
+
+  test('each run reads the device zone before it plans', () async {
+    deviceZone = 'Europe/London';
+    await sync.run(SyncTrigger.timeChange);
+    expect(tz.local.name, 'Europe/London');
+    expect(syncCalls.map((c) => c.method).take(2), [
+      'acquireLock',
+      'deviceZone',
+    ]);
+  });
 
   test('server errors with no success for 24 h become a broken link', () async {
     await sync.run(SyncTrigger.periodic); // success at 06:00
@@ -5071,6 +5199,7 @@ void main() {
 
   test('an unknown trigger name reads as manual', () {
     expect(SyncTrigger.parse('preAlarm'), SyncTrigger.preAlarm);
+    expect(SyncTrigger.parse('timeChange'), SyncTrigger.timeChange);
     expect(SyncTrigger.parse('nope'), SyncTrigger.manual);
     expect(SyncTrigger.parse(null), SyncTrigger.manual);
   });
@@ -5126,6 +5255,7 @@ import '../storage/rule_set_loader.dart';
 import '../storage/settings_repository.dart';
 import '../storage/source_repository.dart';
 import '../storage/sync_log_repository.dart';
+import 'device_zone.dart';
 import 'engine_event_recorder.dart';
 import 'missed_system.dart';
 import 'outcome_severity.dart';
@@ -5140,13 +5270,16 @@ typedef SourceBuilder = CalendarSource Function(
   tz.Location zone,
 );
 
-/// What started a sync (spec §7). The Kotlin side passes the first four by
+/// What started a sync (spec §7). The Kotlin side passes the first five by
 /// name to the headless engine.
 enum SyncTrigger {
   periodic,
   calendarChange,
   preAlarm,
   manual,
+
+  /// The clock or the time zone changed (decision 28).
+  timeChange,
   foreground,
   pullToRefresh,
   debug;
@@ -5263,6 +5396,11 @@ class SyncService {
   static const staleAfter = Duration(minutes: 60);
   static const staleHorizon = Duration(hours: 2);
 
+  /// Holds the outcome a source's Feed broken notice was posted for; empty
+  /// or absent while none is up (decision 26).
+  static String brokenNoticeKey(String sourceId) =>
+      'sync.brokenNotice.$sourceId';
+
   final _random = Random();
 
   /// When the last run finished, from any isolate.
@@ -5308,6 +5446,9 @@ class SyncService {
   }
 
   Future<SyncReport> _run(SyncTrigger trigger) async {
+    // The phone may have changed zone since this isolate started; the rules
+    // engine and the sources read `tz.local` (decision 28).
+    await initDeviceZone(platform);
     final now = clock();
     final window = FetchWindow.around(now);
 
@@ -5315,10 +5456,14 @@ class SyncService {
     // check both read it.
     await _quietly(recorder.drainNow);
 
+    final all = await sources.all();
     final configs = [
-      for (final s in await sources.all())
+      for (final s in all)
         if (s.enabled) s,
     ];
+    for (final s in all.where((s) => !s.enabled)) {
+      await _withdrawNotices(s.id);
+    }
     final location = zone();
     final fetched = await Future.wait([
       for (final c in configs) _fetch(c, window, location),
@@ -5419,7 +5564,10 @@ class SyncService {
     SourceResult result,
     DateTime now,
   ) async {
-    final last = (await syncLog.latestForSource(config.id))?.outcome;
+    // Not the last sync-log row: an amber failure in between would hide that
+    // a notice is up (decision 26).
+    final noticeKey = brokenNoticeKey(config.id);
+    final notified = await settings.getString(noticeKey);
     switch (result) {
       case SourceFetched(occurrences: final fresh):
         final verdict = EmptyFeedGuard.evaluate(
@@ -5452,13 +5600,14 @@ class SyncService {
             ? null
             : '${result.issues.length} events skipped: ${result.issues.take(3).join('; ')}';
         await _log(config.id, now, outcome, message, fresh.length);
-        if (last != null && last.notifiesBroken) {
-          await _quietly(
+        if (notified != null && notified.isNotEmpty) {
+          final withdrawn = await _quietly(
             () => platform.cancelSourceNotice(
               kind: SourceNoticeKind.broken,
               sourceId: config.id,
             ),
           );
+          if (withdrawn) await settings.setString(noticeKey, '');
         }
         return SourceSyncResult(config.id, outcome, message);
 
@@ -5481,8 +5630,8 @@ class SyncService {
           ),
         );
         await _log(config.id, now, outcome, message, null);
-        if (outcome.notifiesBroken && last != outcome) {
-          await _quietly(
+        if (outcome.notifiesBroken && notified != outcome.name) {
+          final posted = await _quietly(
             () => platform.postSourceNotice(
               kind: SourceNoticeKind.broken,
               sourceId: config.id,
@@ -5490,6 +5639,7 @@ class SyncService {
               text: message,
             ),
           );
+          if (posted) await settings.setString(noticeKey, outcome.name);
         }
         return SourceSyncResult(config.id, outcome, message);
     }
@@ -5630,14 +5780,28 @@ class SyncService {
     }
   }
 
-  /// Platform side effects never fail a sync.
-  static Future<void> _quietly(Future<Object?> Function() call) async {
+  /// A disabled source keeps no notices (decision 27).
+  Future<void> _withdrawNotices(String sourceId) async {
+    for (final kind in SourceNoticeKind.values) {
+      await _quietly(
+        () => platform.cancelSourceNotice(kind: kind, sourceId: sourceId),
+      );
+    }
+    await settings.setString(brokenNoticeKey(sourceId), '');
+  }
+
+  /// Platform side effects never fail a sync. Returns whether the call went
+  /// through.
+  static Future<bool> _quietly(Future<Object?> Function() call) async {
     try {
       await call();
+      return true;
     } on MissingPluginException {
       // No native side (tests, desktop).
+      return false;
     } on PlatformException catch (e) {
       debugPrint('Sync side effect failed: ${e.code}');
+      return false;
     }
   }
 }
@@ -5647,7 +5811,7 @@ class SyncService {
 
 Run: `dart format lib/core/sync lib/core/storage/sync_log_repository.dart test/core/sync`
 Run: `flutter test test/core/sync/sync_service_test.dart`
-Expected: `All tests passed!` (18 tests). The lock test waits its 30 ms of real time.
+Expected: `All tests passed!` (21 tests). The lock test waits its 30 ms of real time.
 
 - [ ] **Step 6: Run the gates**
 
@@ -5669,8 +5833,8 @@ git commit -m "Sync every source, plan, apply and report missed and stale alarms
 - Test: `test/core/sources/source_admin_test.dart`
 
 **Interfaces:**
-- Consumes: `IcsUrl`, `SourceSecrets`, `FeedBodyCache` (Task 2); `IcsFeedSource` (Task 3); `DeviceCalendar`, `DeviceCalendarApi`, `DeviceCalendarSource` (Task 5); `SourceRepository`, `SettingsRepository` (Plan 2).
-- Produces: `class IcsUrlException(String message)`; `class SourceAdmin({required sources, required secrets, required bodies, Random? random})` with `Future<({SourceConfig source, bool insecure})> addIcsSource({required String name, required int color, required String url, String? defaultProfileId})`, `Future<bool> updateIcsUrl(String sourceId, String url)`, `Future<SourceConfig> addDeviceSource({required DeviceCalendar calendar, String? name, int? color, String? defaultProfileId})`, `Future<void> delete(String sourceId)`; ids are `ics-<12 hex>` / `device-<12 hex>`; `class FastAlarms({required sources, required settings})` with `sourceId = 'debug-fast-alarms'`, `settingsKey = 'debug.fastAlarms'`, `color = 0xFFE89A5B`, `create(DateTime now)`, `clear()`, `occurrences(SourceConfig)`; `class FastAlarmsSource({required config, required fastAlarms}) implements CalendarSource`; `class SourceFactory({required client, required secrets, required bodies, required deviceCalendars, required fastAlarms})` with `CalendarSource create(SourceConfig config, SourceSyncState? state, {required tz.Location zone})`.
+- Consumes: `IcsUrl`, `SourceSecrets`, `FeedBodyCache` (Task 2); `IcsFeedSource` (Task 3); `DeviceCalendar`, `DeviceCalendarApi`, `DeviceCalendarSource` (Task 5); `SyncPlatform.cancelSourceNotice`, `SourceNoticeKind` (Task 10); `SourceRepository`, `SettingsRepository` (Plan 2).
+- Produces: `class IcsUrlException(String message)`; `class SourceAdmin({required sources, required secrets, required bodies, required SyncPlatform platform, Random? random})` with `Future<({SourceConfig source, bool insecure})> addIcsSource({required String name, required int color, required String url, String? defaultProfileId})`, `Future<bool> updateIcsUrl(String sourceId, String url)`, `Future<SourceConfig> addDeviceSource({required DeviceCalendar calendar, String? name, int? color, String? defaultProfileId})`, `Future<void> delete(String sourceId)` (also withdraws the source's Feed stale and Feed broken notices, decision 27); ids are `ics-<12 hex>` / `device-<12 hex>`; `class FastAlarms({required sources, required settings})` with `sourceId = 'debug-fast-alarms'`, `settingsKey = 'debug.fastAlarms'`, `color = 0xFFE89A5B`, `create(DateTime now)`, `clear()`, `occurrences(SourceConfig)`; `class FastAlarmsSource({required config, required fastAlarms}) implements CalendarSource`; `class SourceFactory({required client, required secrets, required bodies, required deviceCalendars, required fastAlarms})` with `CalendarSource create(SourceConfig config, SourceSyncState? state, {required tz.Location zone})`.
 
 `SourceAdmin` does not sync. Its callers (Plan 5's Sources tab and onboarding, Task 14's debug panel) run `SyncService.run` afterwards.
 
@@ -5681,6 +5845,7 @@ git commit -m "Sync every source, plan, apply and report missed and stale alarms
 ```dart
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
@@ -5699,11 +5864,17 @@ import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
+import 'package:tminus/core/sync/sync_platform.dart';
 
 import '../fixtures.dart';
 import '../storage/test_database.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  const syncChannel = MethodChannel(SyncPlatform.channelName);
+  final syncCalls = <MethodCall>[];
   late AppDatabase db;
   late SourceRepository sources;
   late Directory dir;
@@ -5713,14 +5884,25 @@ void main() {
 
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
+    messenger.setMockMethodCallHandler(syncChannel, (call) async {
+      syncCalls.add(call);
+      return null;
+    });
     db = openTestDatabase();
     sources = SourceRepository(db);
     dir = await Directory.systemTemp.createTemp('feeds');
     bodies = FeedBodyCache(() async => dir);
-    admin = SourceAdmin(sources: sources, secrets: secrets, bodies: bodies);
+    admin = SourceAdmin(
+      sources: sources,
+      secrets: secrets,
+      bodies: bodies,
+      platform: SyncPlatform(),
+    );
   });
 
   tearDown(() async {
+    syncCalls.clear();
+    messenger.setMockMethodCallHandler(syncChannel, null);
     await db.close();
     await dir.delete(recursive: true);
   });
@@ -5845,7 +6027,7 @@ void main() {
     );
 
     test(
-      'delete removes the row, its occurrences, its link and its body',
+      'delete removes the row, its occurrences, its link, its body and its notices',
       () async {
         final s = (await admin.addIcsSource(
           name: 'W',
@@ -5862,6 +6044,16 @@ void main() {
         expect(await OccurrenceRepository(db).countForSource(s.id), 0);
         expect(await secrets.readUrl(s.secureStorageKey!), isNull);
         expect(await bodies.read(s.id), isNull);
+        expect(
+          syncCalls
+              .where((c) => c.method == 'cancelSourceNotice')
+              .map((c) => c.arguments)
+              .toSet(),
+          {
+            {'kind': 'stale', 'sourceId': s.id},
+            {'kind': 'broken', 'sourceId': s.id},
+          },
+        );
       },
     );
   });
@@ -5950,8 +6142,11 @@ Expected: compilation fails, `Error when reading 'lib/core/sources/source_admin.
 ```dart
 import 'dart:math';
 
+import 'package:flutter/services.dart';
+
 import '../model/source_config.dart';
 import '../storage/source_repository.dart';
+import '../sync/sync_platform.dart';
 import 'device_calendar_api.dart';
 import 'feed_body_cache.dart';
 import 'ics_url.dart';
@@ -5974,12 +6169,16 @@ class SourceAdmin {
     required this.sources,
     required this.secrets,
     required this.bodies,
+    required this.platform,
     Random? random,
   }) : _random = random ?? Random.secure();
 
   final SourceRepository sources;
   final SourceSecrets secrets;
   final FeedBodyCache bodies;
+
+  /// Withdraws a removed source's notices (decision 27).
+  final SyncPlatform platform;
   final Random _random;
 
   /// Throws [IcsUrlException] for a link [IcsUrl.check] rejects. Returns the
@@ -6051,14 +6250,24 @@ class SourceAdmin {
     return source;
   }
 
-  /// Removes the source, its cached occurrences, its link and its stored
-  /// feed body.
+  /// Removes the source, its cached occurrences, its link, its stored feed
+  /// body and its Feed stale and Feed broken notices (a Fix that opens a
+  /// removed source would lead nowhere).
   Future<void> delete(String sourceId) async {
     final source = await sources.byId(sourceId);
     await sources.delete(sourceId);
     final key = source?.secureStorageKey;
     if (key != null) await secrets.delete(key);
     await bodies.delete(sourceId);
+    for (final kind in SourceNoticeKind.values) {
+      try {
+        await platform.cancelSourceNotice(kind: kind, sourceId: sourceId);
+      } on MissingPluginException {
+        // No native side (tests, desktop).
+      } on PlatformException {
+        // The notice may linger; the source is gone either way.
+      }
+    }
   }
 
   IcsUrlAccepted _accepted(String url) => switch (IcsUrl.check(url)) {
@@ -6532,7 +6741,8 @@ with
 
 ```dart
   // A factory, not a singleton: each engine reads `tz.local` as it is now.
-  // `initDeviceZone` sets it from the device at startup; until then it is UTC.
+  // `initDeviceZone` sets it from the device at startup and before every
+  // sync; until then it is UTC.
   getIt.registerFactory(() => RulesEngine(zone: tz.local));
 
   // Sources and sync (Plan 4).
@@ -6562,7 +6772,12 @@ with
     ),
   );
   getIt.registerLazySingleton(
-    () => SourceAdmin(sources: getIt(), secrets: getIt(), bodies: getIt()),
+    () => SourceAdmin(
+      sources: getIt(),
+      secrets: getIt(),
+      bodies: getIt(),
+      platform: getIt(),
+    ),
   );
   getIt.registerLazySingleton(
     () => EngineEventRecorder(
@@ -6604,7 +6819,6 @@ import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:flutter/widgets.dart';
 
-import '../core/sync/device_zone.dart';
 import '../core/sync/sync_platform.dart';
 import '../core/sync/sync_service.dart';
 import 'di.dart';
@@ -6621,7 +6835,7 @@ Future<void> runHeadlessSync(List<String> args) async {
   var outcome = SyncRunOutcome.retry;
   try {
     configureDependencies();
-    await initDeviceZone(getIt<SyncPlatform>());
+    // SyncService.run sets tz.local from the device first (decision 28).
     final report = await getIt<SyncService>().run(
       SyncTrigger.parse(args.isEmpty ? null : args.first),
     );
@@ -7448,14 +7662,16 @@ Write one line per step (pass/fail, device, Android version) into the PR descrip
 
 **Spec coverage** (§5, §7 sync triggers and pre-alarm sync, §9, §10, §11; roadmap Plan 4 row):
 - `CalendarSource`, window now − 1 h to + 7 days: Task 1. `IcsFeedSource`: URL in secure storage, name, colour, conditional GET, 20 s timeout, `.ics` only: Tasks 2, 3, 12. `DeviceCalendarSource` over `CalendarContract.Instances`, `AVAILABILITY`, `SELF_ATTENDEE_STATUS`, `READ_CALENDAR` only for device sources: Tasks 4, 5 (the request itself is Plan 5's, decision 16). Roadmap §2 mapping (`seriesUid`, `tzFallback`, `cancelled`/`declined` false): Task 1.
-- `SyncWorker` + headless `syncMain()`: Tasks 8, 13. Sync triggers: periodic 15 min with a network (Task 8, `MainActivity` in Task 9). Content-URI trigger on `Events.CONTENT_URI`, re-enqueued after each run, device sources only (Task 8; `configure` in Task 11). Pre-alarm sync, 12 min before each occurrence's earliest alert, expedited, failure leaves the alert to fire with the data it has (Tasks 7, 8, 11). App foreground in the UI isolate (Task 13); pull-to-refresh calls `SyncService.run` (Plan 5). `syncMain()` = fetch → cache → rules → plan → `applyPlan` → log: Task 11.
-- §9 table. Network/5xx/timeout keep data, amber, retry with backoff: Tasks 1, 3, 8 (`resultFor`), 11. 5xx for 24 h with no success → broken (decision 24): Task 11. 401/403/404 red with one notification, alarms kept: Tasks 3, 9, 11. Whole feed won't parse keeps occurrences, red: Tasks 3, 11. One event won't parse is skipped and logged: `ics_core` issues → `SourceFetched.issues` → the sync-log message (Tasks 3, 11). Empty-feed guard: Task 11. Unknown TZID → ⚠: `tzFallback` mapping (Task 1). Missed (system): Tasks 7, 11. `applyPlan` failure keeps the old plan and retries: Task 11. Feed stale > 60 min with an alert due within 2 h: Task 11 (notification Task 9). Force stop → re-arm on start: Plan 3, plus the pre-sync alarm in Task 9.
+- `SyncWorker` + headless `syncMain()`: Tasks 8, 13. Sync triggers: periodic 15 min with a network (Task 8, `MainActivity` in Task 9). Content-URI trigger on `Events.CONTENT_URI`, re-enqueued after each run, device sources only (Task 8; `configure` in Task 11). Pre-alarm sync, 12 min before each occurrence's earliest alert, expedited, failure leaves the alert to fire with the data it has (Tasks 7, 8, 11). App foreground in the UI isolate (Task 13); pull-to-refresh calls `SyncService.run` (Plan 5). A clock or zone change also queues a sync (decision 28, Task 8). `syncMain()` = fetch → cache → rules → plan → `applyPlan` → log: Task 11.
+- §9 table. Network/5xx/timeout keep data, amber, retry with backoff: Tasks 1, 3, 8 (`resultFor`, at most twice per request, decision 25), 11. 5xx for 24 h with no success → broken (decision 24): Task 11. 401/403/404 red with one notification, alarms kept: Tasks 3, 9, 11. Whole feed won't parse keeps occurrences, red: Tasks 3, 11. One event won't parse is skipped and logged: `ics_core` issues → `SourceFetched.issues` → the sync-log message (Tasks 3, 11). Empty-feed guard: Task 11. Unknown TZID → ⚠: `tzFallback` mapping (Task 1). Missed (system): Tasks 7, 11. `applyPlan` failure keeps the old plan and retries: Task 11. Feed stale > 60 min with an alert due within 2 h: Task 11 (notification Task 9). Force stop → re-arm on start: Plan 3, plus the pre-sync alarm in Task 9.
 - §10: URLs in secure storage, masked (`IcsUrl.mask` for Plan 5), never in logs or messages: Tasks 2, 3, 12. Export without links is Plan 5's.
 - §11 fast alarms: Tasks 12, 14, 15.
 - Plan 3 decisions respected: the plan keeps alerts until 15 min after the end (planning from `now − keepAfterEnd`, Task 11). One event consumer (Tasks 6, 14). Headless engine with its own `EngineEvents` listener (Task 13). Boot recovery at 30 s and overdue/orphaned alerts are untouched (Task 15 Step 3 relies on the overdue rule). `ringingChannelEnabled` is untouched. Pruning of Kotlin acks happens in `applyPlan`, which every sync calls.
 
 **Placeholder scan:** no "TBD", "TODO" or "similar to Task N". Every code step embeds the file as it was compiled and run while planning, or gives the exact text of an edit. The `<id>` and `<event id>` in Task 15 are values an emulator prints, with the command that prints them.
 
-**Type consistency:** checked across tasks. `SourceResult` / `SourceFetched(occurrences, issues, notModified, httpEtag, httpLastModified)` / `SourceFailed(outcome, message)` are used the same way in Tasks 3, 5, 11 and 12. `SourceBuilder` (Task 11) matches `SourceFactory.create(config, state, zone:)` in Task 13's DI. `EngineEventRecorder.drainNow()` returns `List<AlertHistoryEntry>` in Tasks 6, 11 and 14. Trigger names are the same in Kotlin (`SyncWorker.TRIGGER_*`) and Dart (`SyncTrigger`). Outcome names: `SyncRunOutcome.name` ↔ `SyncWorker.OUTCOME_*`. `tminus_sync` method names and argument keys are the same in `SyncChannel` (Task 9), `SyncPlatform` (Task 10) and `sync_platform_test`. Notice kinds `stale`/`broken` match `SyncNotifications.KIND_*`. `PreSyncScheduler.PREFS`, `SyncScheduler.nowName` and `CALENDAR_WATCH` are used the same way in Tasks 8 and 9.
+**Type consistency:** checked across tasks. `SourceResult` / `SourceFetched(occurrences, issues, notModified, httpEtag, httpLastModified)` / `SourceFailed(outcome, message)` are used the same way in Tasks 3, 5, 11 and 12. `SourceBuilder` (Task 11) matches `SourceFactory.create(config, state, zone:)` in Task 13's DI. `EngineEventRecorder.drainNow()` returns `List<AlertHistoryEntry>` in Tasks 6, 11 and 14. Trigger names are the same in Kotlin (`SyncWorker.TRIGGER_*`) and Dart (`SyncTrigger`). Outcome names: `SyncRunOutcome.name` ↔ `SyncWorker.OUTCOME_*`. `tminus_sync` method names and argument keys are the same in `SyncChannel` (Task 9), `SyncPlatform` (Task 10) and `sync_platform_test`. Notice kinds `stale`/`broken` match `SyncNotifications.KIND_*`. `SyncWorker.TRIGGER_TIME_CHANGE` matches `SyncTrigger.timeChange`. `PreSyncScheduler.PREFS`, `SyncScheduler.nowName` and `CALENDAR_WATCH` are used the same way in Tasks 8 and 9.
 
 **Verification while planning:** the whole plan was built and run before it was written down. `flutter analyze` was clean; `flutter test` and the full Kotlin unit suite passed. On the API 36 emulator: periodic, manual, calendar-change and pre-alarm headless syncs ran (`Headless sync (…) finished: ok`); the pre-alarm alarm was exact at start − first alert − 12 min; a moved phone event moved it; a removed calendar posted one "calendar was removed" notification; and a force stop produced `missedSystem 3`.
+
+**Changed after review (2026-10-08), not yet built:** decisions 25–28 changed `SyncWorker.resultFor` and `SyncBootReceiver` (Task 8), `SyncPlatform.deviceZone` and `initDeviceZone` (Task 10), `SyncService` (Task 11), `SourceAdmin` (Task 12), `runHeadlessSync` and the DI registration (Task 13), and added their tests. Unlike the rest of the plan, that code was not compiled or run while planning. Each task's gates check it as it is built.

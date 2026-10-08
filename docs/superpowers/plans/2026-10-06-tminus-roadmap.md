@@ -269,7 +269,8 @@ class PlannedAlert {
 | `testAlarm` | `{"strength": "headsUp"\|"alarm", "delaySec": int}` | `null` |
 | `openPermissionSettings` | `{"kind": "notifications"\|"fullScreenIntent"\|"exactAlarm"\|"batteryOptimization"\|"alarmVolume"}` | `null` |
 | `drainEvents` | — | `[EngineEvent JSON, …]` (queued while Flutter wasn't running; queue is cleared) |
-| `queryDeviceCalendars`, `queryInstances` | Plan 4 adds these | |
+| `queryDeviceCalendars` | — | `[{"id": String, "name": String, "accountName": String?, "color": int (opaque ARGB), "visible": bool}, …]`; error `permission_denied` |
+| `queryInstances` | `{"calendarIds": [String], "fromUtcMs": int, "toUtcMs": int}` | `[{"eventId": String, "calendarId": String, "beginMs": int, "endMs": int, "allDay": bool, "title": String?, "location": String?, "description": String?, "organizer": String?, "availability": int, "selfAttendeeStatus": int, "status": int?, "originalId": String?, "originalInstanceTimeMs": int?, "recurring": bool}, …]` by begin; errors `permission_denied`, `calendar_missing` (Plan 4) |
 
 EventChannel `alarm_engine/events` streams the same EngineEvent JSON live:
 `{"type": "fired"|"snoozed"|"dismissed"|"dismissedAll"|"joined"|"missed", "alertId": String, "occurrenceKey": String, "startUtcMs": int, "atUtcMs": int, "snoozeUntilUtcMs": int?}`

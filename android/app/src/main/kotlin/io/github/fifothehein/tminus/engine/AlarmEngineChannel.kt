@@ -15,6 +15,8 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.github.fifothehein.tminus.calendar.DeviceCalendarException
+import io.github.fifothehein.tminus.calendar.DeviceCalendarReader
 import org.json.JSONException
 
 /** Native side of the `alarm_engine` MethodChannel and the `alarm_engine/events` EventChannel (roadmap §3). */
@@ -23,6 +25,7 @@ class AlarmEngineChannel internal constructor(
     private val store: PlanStore = PlanStore(context),
     private val scheduler: AlarmScheduler = AlarmScheduler(context, store),
     presenter: AlertPresenter = AndroidAlertPresenter(context, store),
+    private val calendar: DeviceCalendarReader = DeviceCalendarReader(context),
     private val clock: () -> Long = System::currentTimeMillis,
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private val appContext: Context = context.applicationContext
@@ -43,8 +46,13 @@ class AlarmEngineChannel internal constructor(
                     result.success(null)
                 }
                 "drainEvents" -> result.success(EventQueue(appContext).drain().map { it.toMap() })
+                // Plan 4: the device calendar source (roadmap §3 table).
+                "queryDeviceCalendars" -> result.success(calendar.calendars())
+                "queryInstances" -> result.success(queryInstances(call.mapArgs()))
                 else -> result.notImplemented()
             }
+        } catch (e: DeviceCalendarException) {
+            result.error(e.code, e.message, null)
         } catch (e: IllegalArgumentException) {
             result.error("bad_args", e.message, null)
         } catch (e: JSONException) {
@@ -91,6 +99,13 @@ class AlarmEngineChannel internal constructor(
                 mapOf("id" to it.id, "fireAtUtcMs" to it.fireAtUtcMs, "strength" to it.strength.wire, "title" to it.event.title)
             },
         )
+    }
+
+    private fun queryInstances(args: Map<*, *>): List<Map<String, Any?>> {
+        val ids = (args["calendarIds"] as? List<*>)?.map { it as String } ?: throw IllegalArgumentException("calendarIds missing")
+        val from = (args["fromUtcMs"] as? Number)?.toLong() ?: throw IllegalArgumentException("fromUtcMs missing")
+        val to = (args["toUtcMs"] as? Number)?.toLong() ?: throw IllegalArgumentException("toUtcMs missing")
+        return calendar.instances(ids, from, to)
     }
 
     private fun testAlarm(args: Map<*, *>) {

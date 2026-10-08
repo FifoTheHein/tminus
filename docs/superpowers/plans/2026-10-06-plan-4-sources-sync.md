@@ -55,7 +55,7 @@ Decided with the user while planning (2026-10-07):
 11. **Fast alarms** (debug builds): a debug-panel button stores three events with fixed times under a `SourceKind.debug` source (`debug-fast-alarms`). Two start at +2 min, giving a coalesced alarm at +1 min with the Meeting profile. One starts at +12 min with a Teams link (heads-up at +2 min, alarm at +11 min). They go through the real sync, rules, plan and `applyPlan`. **Clear fast alarms** removes the source.
 12. **Phone-calendar occurrences use the source's colour**, like ICS. `SourceAdmin.addDeviceSource` pre-fills it from the Android calendar's colour.
 
-Made while planning (the spec is silent; flagged for review):
+Made while planning where the spec is silent, then reviewed and accepted by the user (2026-10-08):
 
 13. **`CalendarSource.fetch` takes a `FetchWindow`**, not spec §5's `DateTimeRange`. That type lives in `package:flutter/material.dart`, which `lib/core` does not import. `FetchWindow.around(now)` is spec §5's now − 1 h to now + 7 days.
 14. **Phone-calendar keys mirror ICS keys.** uid = `ORIGINAL_ID` (a moved or edited instance of a series) else `EVENT_ID`. The original start = `ORIGINAL_INSTANCE_TIME` else `BEGIN`. `seriesUid` = that uid for anything with an RRULE/RDATE or an `ORIGINAL_ID`. A moved one-off event gets a new key, as a moved one-off ICS event does (Plan 1). All-day instances become local midnights in the device zone, as `ics_core` does. A blank title reads `(No title)`.

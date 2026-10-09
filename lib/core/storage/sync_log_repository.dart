@@ -43,19 +43,6 @@ class SyncLogRepository {
           .map(_fromRow)
           .getSingleOrNull();
 
-  /// The oldest entry still stored for [sourceId] (Plan 4: when a source
-  /// that never synced started failing).
-  Future<SyncLogEntry?> earliestForSource(String sourceId) =>
-      (_db.select(_db.syncLog)
-            ..where((l) => l.sourceId.equals(sourceId))
-            ..orderBy([
-              (l) => OrderingTerm.asc(l.atUtcMs),
-              (l) => OrderingTerm.asc(l.id),
-            ])
-            ..limit(1))
-          .map(_fromRow)
-          .getSingleOrNull();
-
   /// Deletes entries logged before [cutoffUtc]. Returns the count.
   Future<int> deleteBefore(DateTime cutoffUtc) =>
       (_db.delete(_db.syncLog)..where(

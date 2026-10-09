@@ -74,12 +74,40 @@ Decided with the user after checking a real Outlook link while planning (2026-10
 
 24. **Server errors that last 24 h mean the link is broken.** Outlook does not answer an unknown published-calendar link with 401/403/404, as spec §9 assumes. It redirects to an error page, which `package:http` sees as HTTP 500 (curl, sending different headers, gets 417). So a 5xx stays amber at first. But once a source has had no success for 24 h (since its last success, or since its first logged sync if it never succeeded) and the latest failure is a server error, it is reported as `httpError`: red, with one Feed broken notification. The message reads "The calendar server has kept failing for over 24 h. The link may have been reset or unpublished." Network errors never escalate. Task 15 Step 7 records what a real reset link returns.
 
+    **Revised while building (2026-10-09):** the 24 h are counted from the first server error of the run, not from the last success. Measured from the last success, a feed turned red on its first 5xx after an offline spell, because its last success was then days old. The sync log cannot hold the start either: it is pruned after 7 days, and it logs an escalated run as `httpError`, so a long outage would lose its start and fall back to amber. So the start of a run of server errors is kept in settings under `sync.serverErrorSince.<sourceId>` (epoch ms, `SyncService.serverErrorSinceKey`). It is set at the first `serverError`. It is cleared by any success (`success`, `emptyKept` and `notModified` all count), when the source is disabled, on re-link and on delete. A source is reported as `httpError` (red, one Feed broken notice) once its latest failure is a `serverError` and the run began at least 24 h ago. Network errors and other failures neither count toward the 24 h nor clear the start. The message is unchanged. `SyncLogRepository.earliestForSource` is no longer used and was removed. Decided while building; it can be overturned.
+
 Decided with the user after reviewing the written plan (2026-10-08):
 
 25. **A sync request retries at most twice.** Every run fetches every source, so one feed that keeps failing would make every run report `retry`. With unbounded exponential backoff (30 s doubling to WorkManager's 5 h cap), the periodic sync would slow to every few hours, and `runNow`'s `KEEP` / `APPEND_OR_REPLACE` would drop or queue every pre-alarm, Sync now and calendar-change request behind the waiting one. Decision 24's dead Outlook link is exactly that case, for 24 h. So `SyncWorker` returns `Result.retry()` only while `runAttemptCount < MAX_RETRIES` (2: after 30 s and after 60 s), then success. The next trigger is never held up for more than about 90 s, and the periodic sync stays every 15 min.
 26. **The Feed broken notice is tracked per source in settings** (`sync.brokenNotice.<sourceId>` = the outcome it was posted for), not read back from the sync log. An amber failure between a broken result and a success would otherwise hide that a notice is up: it would never be withdrawn, and a broken → network error → broken sequence would post it again. A notice is posted when a source fails with a notify-class outcome other than the stored one, and withdrawn (and the key cleared) at the source's next success, whatever came between.
 27. **Notices follow their source.** `SourceAdmin.delete` withdraws both of the source's notices. Each sync withdraws them for every disabled source (decision 21), so a source that is switched off or removed never leaves a Feed stale or Feed broken notice with a Fix that opens nothing.
 28. **Every sync reads the device zone first.** `tz.local` is otherwise set only when the isolate starts, and the UI isolate can live for days. After travel, foreground and pull-to-refresh syncs would plan floating and all-day times and "Mute today" in the old zone, and their `applyPlan` would overwrite the headless engine's correct plan. `SyncService.run` calls `initDeviceZone` before it plans. `SyncBootReceiver` also queues a sync (trigger `timeChange`) on `TIME_SET` and `TIMEZONE_CHANGED`, so the plan follows a zone change without waiting for the next periodic sync.
+
+## Built differently from this plan (2026-10-09)
+
+The task code blocks below are the plan as written. Where the code on branch `plan-4-sources-sync` differs from them, the code is authoritative. "Review finding N" means a finding of the review of the built code.
+
+- **Source admin (review finding 1).** `SourceAdmin` requires `settings` (a `SettingsRepository`). `updateIcsUrl` and `delete` clear `SyncService.serverErrorSinceKey(id)`. `delete` removes the row, then runs each cleanup step on its own: the secret, the stored body, both notices, the server-error marker and the broken-notice marker. A step that throws an `Exception` (a `PlatformException` from the Keystore, say) is logged by `runtimeType` only, and the steps after it still run. A re-link does not touch `lastSuccessUtc`. (`lib/core/sources/source_admin.dart`)
+- **Engine `missed` rows (review finding 2).** `MissedSystemDetector.check` (`lib/core/sync/missed_system.dart`) skips an expected alert when history holds an engine `missed` row for the same alert and start but no `fired` row for it. Such an alert is neither reported as missed (system) nor kept pending, because the engine's row already records the miss. A late `fired` row still gives missed (system), as decision 2 says.
+- **`SyncOutcome.skipped` (review finding 3).** `SyncOutcome` gets a fifth appended value, `skipped`, as the last entry in `lib/core/model/sync_log_entry.dart` (Task 1 lists four). Its severity is ok (`lib/core/sync/outcome_severity.dart`), it never retries and it never notifies. The whole-run `sync_log` row of a run that reports `busy` uses it, where Task 11's code block says `otherError`.
+- **Engine event recorder (review finding 4 and its follow-up).** `EngineEventRecorder` (`lib/core/sync/engine_event_recorder.dart`) records each live event inside a try/catch; a failed write is logged by event type and error type only. Drains and live writes run one at a time through one chain (`_inOrder`), so `drainNow()` waits for a drain or live write that is still running. That closes a start-up race in the UI isolate between `start()`'s first drain and the first foreground sync. `start()` never throws, and its log lines name an error type (or a platform error's code), never an error message.
+- **Decision 24, revised.** The start of a run of server errors is kept in settings (`SyncService.serverErrorSinceKey`; see the revision under decision 24). `_escalate` reads it and no longer takes the sync state, and `_endServerErrors` clears it on any success and for a disabled source. `SyncLogRepository.earliestForSource` is removed: Task 11 Step 3 is skipped and `lib/core/storage/sync_log_repository.dart` is unchanged. Task 11's 24 h test is rewritten for the new rule and three tests are added, so `sync_service_test.dart` has 24 tests, not 21.
+- **`IcsUrl.mask`.** It shows the last path segment only when it ends in `.ics`; any other last segment shows as `host/…`, because iCloud links carry the secret token there. Task 2's code block always shows the last segment. (`lib/core/sources/ics_url.dart`)
+- **`IcsFeedSource` and a damaged saved link.** A throw from `secrets.readUrl` gives `SourceFailed(linkMissing, 'The saved calendar link is missing. Add the link again.')`. A saved link that `Uri.tryParse` cannot parse gives `SourceFailed(linkMissing, 'The saved calendar link is not valid. Add the link again.')` and no request, because the `FormatException` from `Uri.parse` quotes the link. Task 3's code block reads the link unguarded and calls `Uri.parse`. (`lib/core/sources/ics_feed_source.dart`)
+- **Task 3's `INTERNET` manifest line** (Step 5) was added by the Task 9 commit, not by Task 3's.
+- **`tminus_sync` on the Kotlin side (Task 9).** `SyncChannel`'s `configure` reads and checks both arguments before it touches a scheduler, so a bad call changes nothing. `watchCalendars` is required (the code block defaults it to false) and a `ClassCastException` is answered as `bad_args`. `SyncNotifications.cancel` leaves the notice it has just cancelled out of its check for other notices in the group, because a cancel is applied asynchronously on a device and the group summary would otherwise stay.
+- **Task 11's device-zone test** (`each run reads the device zone before it plans`) pins decision 28 by planning a floating occurrence after a zone change: the zone is Johannesburg when the isolate starts and New York when the run reads it, and the floating 10:00 must plan in New York time.
+- **Task 13 (headless sync and app wiring).** `runHeadlessSync` (`lib/app/sync_main.dart`) always calls `tminus_sync.finished`, with `retry` if anything throws, and logs a failure by type only. `HeadlessFlutterRunner` tears down each step on its own and detaches `SyncChannel` and `AlarmEngineChannel` on every way out (Dart's report, the timeout, WorkManager stopping the worker, an engine that will not start), so a cut-short sync never leaves the sync lock held. `lib/main.dart` starts the recorder inside a guard (`_startEventRecorder`). Two extra tests: `ForegroundSync` never throws (`a failing sync is logged and never thrown`), and DI's `SyncService.rulesEngine` reads `tz.local` when it is called (`the sync rules engine reads the device zone when it plans`).
+- **Task 14 (debug panels).** `SyncDebugPanel._run` has a final `catch` that shows only the error type, and a `PlatformException` shows only its code, because an error message can carry a feed link. The engine panel's test file has an extra test, `Drain events goes through the recorder into alert history`.
+
+**Notes for Plan 5:**
+
+- `missedSystem` rows are written by `SyncService` straight into `alert_history`. They are not on `EngineEventRecorder.recorded`, so a screen that listens to `recorded` will not see them: watch the database.
+- With review finding 2, a miss while the phone was off is logged as the engine's `missed` row only. A double row (the engine's `missed` and a `missedSystem`) is still possible when no Kotlin reconcile ran before the check.
+- The Fix action's intent extra is `io.github.fifothehein.tminus.ROUTE`, with the value `/sources/<id>`.
+- `SourceAdmin.delete` can leave an orphan secret if the Keystore delete fails. The failure is logged.
+- `android:allowBackup` is still the default (true): `AndroidManifest.xml` does not set it. A restored install cannot decrypt the secure-storage links (each feed reports `linkMissing` until it is re-linked), and the drift database is backed up. Decide this in Plan 5 or 6.
+- `EngineEventRecorder.start()` and `drainNow()` are safe to call at any time: calls run one after another, and `start()` never throws. `drainNow()` still throws what the engine or the database throws.
 
 ## File Structure
 
@@ -125,7 +153,7 @@ Kotlin (`android/app/src/main/kotlin/io/github/fifothehein/tminus/`):
 | `MainActivity.kt` | Registers `tminus_sync`, keeps the periodic sync and pre-sync alarm | 9 |
 | `sync/HeadlessFlutterRunner.kt` | Headless FlutterEngine → Dart `syncMain` | 13 |
 
-Also: `lib/core/storage/sync_log_repository.dart` (Task 11, `earliestForSource`), `pubspec.yaml` (Task 1), `packages/ics_core/lib/ics_core.dart` (Task 1), `lib/core/model/source_config.dart` and `sync_log_entry.dart` (Task 1, appended enum values), `android/app/build.gradle.kts` (Task 8), `AndroidManifest.xml` (Tasks 3, 4, 8, 9), the roadmap (Tasks 1, 4, 9). Dart tests mirror `lib/` under `test/`; Kotlin tests live in `android/app/src/test/kotlin/io/github/fifothehein/tminus/calendar/` and `.../sync/`.
+Also: `pubspec.yaml` (Task 1), `packages/ics_core/lib/ics_core.dart` (Task 1), `lib/core/model/source_config.dart` and `sync_log_entry.dart` (Task 1, appended enum values), `android/app/build.gradle.kts` (Task 8), `AndroidManifest.xml` (Tasks 3, 4, 8, 9), the roadmap (Tasks 1, 4, 9). Dart tests mirror `lib/` under `test/`; Kotlin tests live in `android/app/src/test/kotlin/io/github/fifothehein/tminus/calendar/` and `.../sync/`.
 
 ---
 
@@ -4642,18 +4670,18 @@ git commit -m "Add the Dart sync platform client and set the device time zone"
 
 **Files:**
 - Create: `lib/core/sync/sync_service.dart`
-- Modify: `lib/core/storage/sync_log_repository.dart` (add `earliestForSource`)
+- ~~Modify: `lib/core/storage/sync_log_repository.dart` (add `earliestForSource`)~~ Not built: decision 24 was revised while building and nothing calls it (see "Built differently from this plan").
 - Test: `test/core/sync/sync_service_test.dart`
 
 **Interfaces:**
-- Consumes: `CalendarSource`, `FetchWindow`, `SourceFetched`, `SourceFailed` (Task 1); `SyncOutcomeSeverity` (Task 1); `EngineEventRecorder.drainNow` (Task 6); `MissedSystemDetector`, `preSyncTimes` (Task 7); `SyncPlatform`, `SourceNoticeKind`, `initDeviceZone` (Task 10); `AlarmEngine.applyPlan`, `ApplyResult` (Plan 3); `SourceRepository`, `OccurrenceRepository`, `AlertHistoryRepository` (`acknowledgements`, `since`, `record`, `deleteBefore`), `SyncLogRepository` (`add`, `deleteBefore`; this task adds `Future<SyncLogEntry?> earliestForSource(String sourceId)`), `SettingsRepository` (`getString`, `setString`), `RuleSetLoader`, `RulesEngine`, `EmptyFeedGuard`, `buildPlan`, `keepAfterEnd` (Plan 2).
-- Produces: `typedef SourceBuilder = CalendarSource Function(SourceConfig config, SourceSyncState? state, tz.Location zone)`; `enum SyncTrigger { periodic, calendarChange, preAlarm, manual, timeChange, foreground, pullToRefresh, debug }` with `static SyncTrigger parse(String? name)` (unknown → `manual`); `enum SyncRunOutcome { ok, retry, busy }`; `class SourceSyncResult(String sourceId, SyncOutcome outcome, [String? message])`; `class SyncReport({trigger, outcome, sources, applied, planned, missedSystem})`; `class SyncService({required sources, occurrences, history, syncLog, settings, ruleSets, RulesEngine Function() rulesEngine, engine, recorder, platform, SourceBuilder buildSource, tz.Location Function()? zone, UtcClock? clock, Duration lockWait = 60 s, Duration lockPoll = 500 ms})` with public fields of those names, `Future<SyncReport> run(SyncTrigger trigger)`, `Future<DateTime?> lastFinished()`, `static String brokenTitle(SourceConfig, SyncOutcome)`, `static String staleTitle(Duration age)`, `static String brokenNoticeKey(String sourceId)` (= `'sync.brokenNotice.$sourceId'`, decision 26), and the constants `lockLease` (5 min), `lastFinishedKey = 'sync.lastFinishedUtcMs'`, `expectedKey = 'sync.missedSystemExpected'`, `historyRetention` (30 days), `syncLogRetention` (7 days), `occurrenceRetention` (1 day), `serverErrorsBeforeBroken` (24 h), `staleAfter` (60 min), `staleHorizon` (2 h).
+- Consumes: `CalendarSource`, `FetchWindow`, `SourceFetched`, `SourceFailed` (Task 1); `SyncOutcomeSeverity` (Task 1); `EngineEventRecorder.drainNow` (Task 6); `MissedSystemDetector`, `preSyncTimes` (Task 7); `SyncPlatform`, `SourceNoticeKind`, `initDeviceZone` (Task 10); `AlarmEngine.applyPlan`, `ApplyResult` (Plan 3); `SourceRepository`, `OccurrenceRepository`, `AlertHistoryRepository` (`acknowledgements`, `since`, `record`, `deleteBefore`), `SyncLogRepository` (`add`, `deleteBefore`), `SettingsRepository` (`getString`, `setString`), `RuleSetLoader`, `RulesEngine`, `EmptyFeedGuard`, `buildPlan`, `keepAfterEnd` (Plan 2).
+- Produces: `typedef SourceBuilder = CalendarSource Function(SourceConfig config, SourceSyncState? state, tz.Location zone)`; `enum SyncTrigger { periodic, calendarChange, preAlarm, manual, timeChange, foreground, pullToRefresh, debug }` with `static SyncTrigger parse(String? name)` (unknown → `manual`); `enum SyncRunOutcome { ok, retry, busy }` (a `busy` run logs its whole-run `sync_log` row as `SyncOutcome.skipped`, appended in Task 1 as built); `class SourceSyncResult(String sourceId, SyncOutcome outcome, [String? message])`; `class SyncReport({trigger, outcome, sources, applied, planned, missedSystem})`; `class SyncService({required sources, occurrences, history, syncLog, settings, ruleSets, RulesEngine Function() rulesEngine, engine, recorder, platform, SourceBuilder buildSource, tz.Location Function()? zone, UtcClock? clock, Duration lockWait = 60 s, Duration lockPoll = 500 ms})` with public fields of those names, `Future<SyncReport> run(SyncTrigger trigger)`, `Future<DateTime?> lastFinished()`, `static String brokenTitle(SourceConfig, SyncOutcome)`, `static String staleTitle(Duration age)`, `static String brokenNoticeKey(String sourceId)` (= `'sync.brokenNotice.$sourceId'`, decision 26), `static String serverErrorSinceKey(String sourceId)` (= `'sync.serverErrorSince.$sourceId'`, decision 24 revised), and the constants `lockLease` (5 min), `lastFinishedKey = 'sync.lastFinishedUtcMs'`, `expectedKey = 'sync.missedSystemExpected'`, `historyRetention` (30 days), `syncLogRetention` (7 days), `occurrenceRetention` (1 day), `serverErrorsBeforeBroken` (24 h), `staleAfter` (60 min), `staleHorizon` (2 h).
 
 One run, in order (spec §7 "`syncMain()` does"):
-1. Take the lock (decision 3); if it never frees, log a whole-run `otherError` and return `busy`.
+1. Take the lock (decision 3); if it never frees, log a whole-run `skipped` row (`SyncOutcome.skipped`; the code block below still says `otherError`) and return `busy`.
 2. `initDeviceZone`, so this run plans in the zone the phone is in now (decision 28).
 3. `recorder.drainNow()`, so acknowledgements and `fired` rows are current.
-4. Fetch every enabled source in parallel; withdraw every disabled source's notices (decision 27). Then, per enabled source in name order: the empty-feed guard (`emptyKept` keeps the cache); the 24-h server-error escalation (decision 24); the sync state (a failure keeps `lastSuccessUtc`, the validators and the streak); a per-source `sync_log` row; and the Feed broken notice, posted or withdrawn against the outcome stored under `brokenNoticeKey` (decisions 9, 10, 26).
+4. Fetch every enabled source in parallel; withdraw every disabled source's notices (decision 27). Then, per enabled source in name order: the empty-feed guard (`emptyKept` keeps the cache); the 24-h server-error escalation (decision 24, revised: the 24 h are counted from the first server error, kept under `serverErrorSinceKey`); the sync state (a failure keeps `lastSuccessUtc`, the validators and the streak); a per-source `sync_log` row; and the Feed broken notice, posted or withdrawn against the outcome stored under `brokenNoticeKey` (decisions 9, 10, 26).
 5. Plan: cached occurrences of enabled sources that end after `now − keepAfterEnd`, resolved with a fresh `RulesEngine`, `buildPlan` with the history acknowledgements.
 6. Missed (system): check the stored expectations, record the misses.
 7. `applyPlan`. On failure Kotlin keeps its old plan (spec §9), the run reports `retry`, and the stored expectations keep only the still-pending ones.
@@ -5211,27 +5239,13 @@ void main() {
 Run: `flutter test test/core/sync/sync_service_test.dart`
 Expected: compilation fails, `Error when reading 'lib/core/sync/sync_service.dart'`.
 
-- [ ] **Step 3: Add `earliestForSource` to the sync log**
+- [ ] **Step 3: Skipped (`earliestForSource` was not built)**
 
-In `lib/core/storage/sync_log_repository.dart`, before `/// Deletes entries logged before [cutoffUtc]. Returns the count.` add:
-
-```dart
-  /// The oldest entry still stored for [sourceId] (Plan 4: when a source
-  /// that never synced started failing).
-  Future<SyncLogEntry?> earliestForSource(String sourceId) =>
-      (_db.select(_db.syncLog)
-            ..where((l) => l.sourceId.equals(sourceId))
-            ..orderBy([
-              (l) => OrderingTerm.asc(l.atUtcMs),
-              (l) => OrderingTerm.asc(l.id),
-            ])
-            ..limit(1))
-          .map(_fromRow)
-          .getSingleOrNull();
-
-```
+Decision 24 was revised while building: the start of a run of server errors is kept in settings (`SyncService.serverErrorSinceKey`), so nothing reads the oldest sync-log entry. `SyncLogRepository` stays as it is; do not add `earliestForSource`. The `dart format` and `git add` lines in Steps 5 and 7 can leave out `lib/core/storage/sync_log_repository.dart`.
 
 - [ ] **Step 4: Implement `lib/core/sync/sync_service.dart`**
+
+The code below is the plan as written. As built, `_escalate` does not use `earliestForSource` and does not take the sync state: it reads and writes the settings key `serverErrorSinceKey(sourceId)` (set at the first `serverError`; `_endServerErrors` clears it on any success and for a disabled source), and the busy-run row uses `SyncOutcome.skipped`. See "Built differently from this plan"; the code on the branch is authoritative.
 
 ```dart
 import 'dart:async';
@@ -5834,7 +5848,7 @@ git commit -m "Sync every source, plan, apply and report missed and stale alarms
 
 **Interfaces:**
 - Consumes: `IcsUrl`, `SourceSecrets`, `FeedBodyCache` (Task 2); `IcsFeedSource` (Task 3); `DeviceCalendar`, `DeviceCalendarApi`, `DeviceCalendarSource` (Task 5); `SyncPlatform.cancelSourceNotice`, `SourceNoticeKind` (Task 10); `SourceRepository`, `SettingsRepository` (Plan 2).
-- Produces: `class IcsUrlException(String message)`; `class SourceAdmin({required sources, required secrets, required bodies, required SyncPlatform platform, Random? random})` with `Future<({SourceConfig source, bool insecure})> addIcsSource({required String name, required int color, required String url, String? defaultProfileId})`, `Future<bool> updateIcsUrl(String sourceId, String url)`, `Future<SourceConfig> addDeviceSource({required DeviceCalendar calendar, String? name, int? color, String? defaultProfileId})`, `Future<void> delete(String sourceId)` (also withdraws the source's Feed stale and Feed broken notices, decision 27); ids are `ics-<12 hex>` / `device-<12 hex>`; `class FastAlarms({required sources, required settings})` with `sourceId = 'debug-fast-alarms'`, `settingsKey = 'debug.fastAlarms'`, `color = 0xFFE89A5B`, `create(DateTime now)`, `clear()`, `occurrences(SourceConfig)`; `class FastAlarmsSource({required config, required fastAlarms}) implements CalendarSource`; `class SourceFactory({required client, required secrets, required bodies, required deviceCalendars, required fastAlarms})` with `CalendarSource create(SourceConfig config, SourceSyncState? state, {required tz.Location zone})`.
+- Produces: `class IcsUrlException(String message)`; `class SourceAdmin({required sources, required secrets, required bodies, required SyncPlatform platform, required SettingsRepository settings, Random? random})` with `Future<({SourceConfig source, bool insecure})> addIcsSource({required String name, required int color, required String url, String? defaultProfileId})`, `Future<bool> updateIcsUrl(String sourceId, String url)` (also clears `SyncService.serverErrorSinceKey`, which restarts decision 24's 24 h), `Future<SourceConfig> addDeviceSource({required DeviceCalendar calendar, String? name, int? color, String? defaultProfileId})`, `Future<void> delete(String sourceId)` (also withdraws the source's Feed stale and Feed broken notices, decision 27, and clears its `serverErrorSinceKey` and `brokenNoticeKey` settings; each cleanup step runs on its own); ids are `ics-<12 hex>` / `device-<12 hex>`; `class FastAlarms({required sources, required settings})` with `sourceId = 'debug-fast-alarms'`, `settingsKey = 'debug.fastAlarms'`, `color = 0xFFE89A5B`, `create(DateTime now)`, `clear()`, `occurrences(SourceConfig)`; `class FastAlarmsSource({required config, required fastAlarms}) implements CalendarSource`; `class SourceFactory({required client, required secrets, required bodies, required deviceCalendars, required fastAlarms})` with `CalendarSource create(SourceConfig config, SourceSyncState? state, {required tz.Location zone})`.
 
 `SourceAdmin` does not sync. Its callers (Plan 5's Sources tab and onboarding, Task 14's debug panel) run `SyncService.run` afterwards.
 
@@ -7581,7 +7595,7 @@ git commit -m "Add debug sync controls and drain engine events only through the 
 
 **Files:** none changed. Record results in the PR description: device (AVD name, API level and image, or phone model), Android version, and pass/fail per step.
 
-**Reference device:** the API 36 Google APIs emulator from Plan 3 Task 15, with its PIN. Steps 1–5 were run while planning on that emulator and behaved as written.
+**Reference device:** the API 36 Google APIs emulator from Plan 3 Task 15, with its PIN. Steps 1–5 were run while planning on that emulator and behaved as written. Steps 10 to 16 were added after the build (2026-10-09) and have not been run yet.
 
 Setup, once (Git Bash, repo root). `MSYS_NO_PATHCONV=1` stops Git Bash from rewriting `/sdcard/...` and `content://` arguments:
 
@@ -7652,7 +7666,46 @@ Add the real feed (Step 6) when a meeting with an alert is 1–3 h away. Then tu
 
 With the Step 4 calendar and event in place (recreate them if needed, and **Add phone calendar**), run `adb reboot`, wait for boot, and unlock with the PIN. `dumpsys alarm | grep -A2 PRE_SYNC` lists the alarm again (`SyncBootReceiver` on `BOOT_COMPLETED`). Clean up with Step 5's delete and **Remove all sources**.
 
-- [ ] **Step 10: Record the results**
+- [ ] **Step 10: A background sync leaves nothing behind**
+
+`adb logcat -c`, then tap **Background sync**. Expected: `TMinusSync: Headless sync (manual) finished: ok`. `HeadlessFlutterRunner` logs that line after it has detached both channels and destroyed the headless engine, and a teardown step that failed logs `Headless sync (manual): <step> failed` at error level before it. So the engine is gone when `adb logcat -d -s TMinusSync:E` prints nothing for this run.
+
+- [ ] **Step 11: A stopped worker releases the lock**
+
+Tap **Background sync** and, within a second or two, stop its job: `adb shell cmd jobscheduler timeout io.github.fifothehein.tminus <jobId>` (`adb shell dumpsys jobscheduler` lists the app's jobs and their ids). Expected: `TMinusSync: Headless sync (manual) finished: retry`. Then tap **Sync now**: it finishes at once with a normal status line. A lock left behind would make it wait 60 s and then read `Another sync is running`. If the run had already ended, logcat shows `finished: ok` instead: repeat with a faster tap.
+
+- [ ] **Step 12: A release build runs the headless sync**
+
+Tree-shaking and R8 only apply to release builds, and a release build has no debug panels, so use the periodic sync of Step 1 on a fresh install (this wipes the app's data):
+
+```bash
+adb uninstall io.github.fifothehein.tminus
+flutter build apk --release
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+adb shell pm grant io.github.fifothehein.tminus android.permission.POST_NOTIFICATIONS
+adb logcat -c
+adb shell monkey -p io.github.fifothehein.tminus -c android.intent.category.LAUNCHER 1
+```
+
+Expected within ~20 s, as in Step 1: `TMinusSync: Headless sync (periodic) finished: ok`. That shows that tree-shaking kept `@pragma('vm:entry-point') syncMain` and that R8 kept `SyncWorker`'s two-argument constructor. If either is missing, `finished: ok` does not appear. Reinstall the debug build (Setup) before Step 13.
+
+- [ ] **Step 13: A failing run retries at most twice**
+
+Paste Step 7's unknown Outlook link into **ICS link (debug)** and tap **Add feed** (it answers HTTP 500, so the status reads `serverError`). `adb logcat -c`, then tap **Background sync**. Expected: three `TMinusSync: Headless sync (manual) finished: retry` lines, the second about 30 s after the first and the third about 60 s after the second. WorkManager logs `Worker result RETRY` after the first two runs and `Worker result SUCCESS` after the third (decision 25: the request stops retrying), and no fourth run follows. Then tap **Remove all sources**.
+
+- [ ] **Step 14: An alarm that rings during a background sync is recorded once**
+
+The open app records engine events live, and a background sync drains the same queue, so an event can reach Dart twice. History must still hold it once. In the engine panel pick **1 min** and tap **Test alarm**, then tap **History** (in the sync panel) and note the `fired` count. About 55 s later, with the app still open, tap **Background sync**, so that the alarm rings while the headless engine runs (a run takes a few seconds; the `finished` line in logcat shows when it ended). Dismiss the alarm and tap **History** again. Expected: the test alarm adds one `fired` row (the count can stay level when an older `fired` row has left the window of 20 rows) and never two. If the alarm rang outside the run, repeat with the tap earlier or later.
+
+- [ ] **Step 15: Revoking calendar access is reported once**
+
+With Step 4's calendar and event in place (recreate them if needed) and **Add phone calendar** done, revoke the permission: `adb shell pm revoke io.github.fifothehein.tminus android.permission.READ_CALENDAR`. If the revoke closed the app, open it again, then tap **Sync now**. Expected: the status lists `…: calendarAccessDenied` and one notification "TMinusTest: calendar access was turned off" appears (`adb shell dumpsys notification --noredact | grep android.title`), with **Fix**. Tap **Sync now** twice more: no second notification. Grant the permission again (`adb shell pm grant io.github.fifothehein.tminus android.permission.READ_CALENDAR`) and tap **Sync now**: the notification is withdrawn. Clean up with Step 5's delete and **Remove all sources**.
+
+- [ ] **Step 16: A re-linked feed that answers 5xx stays amber for 24 h**
+
+The debug panel cannot do this: **Add feed** always adds a new source, and nothing in the panel calls `SourceAdmin.updateIcsUrl`. Run it from Plan 5's Sources tab once that can re-link, or record "covered by `source_admin_test` and `sync_service_test`". Start with a feed that has answered HTTP 500 for over 24 h (Step 7's unknown Outlook link, left syncing for a day): it is red (`httpError`) with one "feed link stopped working" notification. Re-link it to another link that also answers 5xx, then sync. Expected: the status reads `serverError` (amber), not `httpError`, and no second notification is posted. It turns red again only after 24 h of server errors counted from that sync.
+
+- [ ] **Step 17: Record the results**
 
 Write one line per step (pass/fail, device, Android version) into the PR description. Any failure becomes a bug task before Plan 5 starts.
 

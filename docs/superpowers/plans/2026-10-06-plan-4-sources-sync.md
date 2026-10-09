@@ -108,6 +108,8 @@ The task code blocks below are the plan as written. Where the code on branch `pl
 - `SourceAdmin.delete` can leave an orphan secret if the Keystore delete fails. The failure is logged.
 - `android:allowBackup` is still the default (true): `AndroidManifest.xml` does not set it. A restored install cannot decrypt the secure-storage links (each feed reports `linkMissing` until it is re-linked), and the drift database is backed up. Decide this in Plan 5 or 6.
 - `EngineEventRecorder.start()` and `drainNow()` are safe to call at any time: calls run one after another, and `start()` never throws. `drainNow()` still throws what the engine or the database throws.
+- Decided with the user (2026-10-09): a meeting that comes from more than one source (say, the same Outlook calendar as a feed and as the phone calendar) must be merged into one set of alerts. Plan 4 plans each source on its own, so it shows twice today. Needs design: matching across sources, which source wins, and what happens to occurrence keys, acknowledgements and history.
+- The link field must be a URL field with autocorrect and suggestions off. On the emulator the keyboard turned `http://` into `https://`. The debug panel's field now does this.
 
 ## File Structure
 
@@ -7595,7 +7597,7 @@ git commit -m "Add debug sync controls and drain engine events only through the 
 
 **Files:** none changed. Record results in the PR description: device (AVD name, API level and image, or phone model), Android version, and pass/fail per step.
 
-**Reference device:** the API 36 Google APIs emulator from Plan 3 Task 15, with its PIN. Steps 1–5 were run while planning on that emulator and behaved as written. Steps 10 to 16 were added after the build (2026-10-09) and have not been run yet.
+**Reference device:** the API 36 Google APIs emulator from Plan 3 Task 15, with its PIN. Steps 1–5 were first run while planning on that emulator. Steps 10 to 16 were added after the build (2026-10-09). The device run of that day is recorded under "Device results" at the end of this task; Steps 1 to 3 were corrected after it.
 
 Setup, once (Git Bash, repo root). `MSYS_NO_PATHCONV=1` stops Git Bash from rewriting `/sdcard/...` and `content://` arguments:
 
@@ -7611,15 +7613,15 @@ Useful while testing: `adb logcat -s TMinusSync:* TMinusEngine:* WM-WorkerWrappe
 
 - [ ] **Step 1: Headless sync on first start**
 
-`adb logcat -c`, then launch the app (`adb shell monkey -p io.github.fifothehein.tminus -c android.intent.category.LAUNCHER 1`). Expected within ~20 s: `Starting work for io.github.fifothehein.tminus.sync.SyncWorker`, `TMinusSync: Headless sync (periodic) finished: ok`, `Worker result SUCCESS`. Then tap **Background sync**: the same lines with `(manual)`.
+`adb logcat -c`, then launch the app (`adb shell monkey -p io.github.fifothehein.tminus -c android.intent.category.LAUNCHER 1`). Expected within ~20 s: `Starting work for io.github.fifothehein.tminus.sync.SyncWorker`, `TMinusSync: Headless sync (periodic) finished: ok`, `Worker result SUCCESS`. The ~20 s first periodic run happens only on a fresh install. If periodic work is already queued (`KEEP`), the next periodic run comes at its scheduled time. Then tap **Background sync**: the same lines with `(manual)`.
 
 - [ ] **Step 2: Fast alarms end to end**
 
-Tap **Fast alarms**. The status reads `Fast alarms added · 6 alerts planned · armed 4, kept 0, cancelled 0`. The two +2 min heads-ups are already past, so they are listed but not armed. At +1 min the coalesced alarm rings, full-screen, "2 meetings starting": press **Dismiss all**. At +2 min a heads-up for "Fast alarm: Teams call" appears with **Join · Snooze · Dismiss all**: press **Dismiss all**, then **Sync now**. "Next 5 scheduled" (engine panel, **Refresh**) no longer lists the Teams call's +11 min alarm, and **History** counts `dismissedAll 2` among the rows. Finish with **Clear fast alarms**.
+Tap **Fast alarms**. The status reads `Fast alarms added · 6 alerts planned · armed 4, kept 0, cancelled 0`. The two +2 min heads-ups are already past, so they are listed but not armed. At +1 min the coalesced alarm rings, full-screen, "2 meetings starting": press **Dismiss all**. At +2 min a heads-up for "Fast alarm: Teams call" appears with **Join · Snooze · Dismiss all**: press **Dismiss all**, then **Sync now**. "Next 5 scheduled" (engine panel, **Refresh**) no longer lists the Teams call's +11 min alarm, and **History** counts `dismissedAll 3` among the rows (one for each of the coalesced alarm's two alerts, one for the Teams heads-up). Finish with **Clear fast alarms**.
 
 - [ ] **Step 3: Missed (system) after a force stop**
 
-Tap **Fast alarms**, then at once `adb shell am force-stop io.github.fifothehein.tminus`. Wait 4 minutes, then launch the app. The overdue alerts ring now (Plan 3: overdue alerts ring if their event has not ended); stop them with a volume key. Scroll to the panel and tap **History**: it counts `missedSystem 3` (the two +1 min alarms and the +2 min heads-up). The foreground sync at launch recorded them, because the last sync was more than 2 min earlier. **Clear fast alarms**.
+Tap **Fast alarms** and wait until the status reads `Fast alarms added · 6 alerts planned …` (the sync has then stored what it expects). Only then run `adb shell am force-stop io.github.fifothehein.tminus`. A force stop before that sync finishes leaves nothing armed or expected, so nothing rings and no missed (system) row is due (decision 2). Wait 4 minutes, then launch the app. The overdue alerts ring now (Plan 3: overdue alerts ring if their event has not ended); stop them with a volume key. Scroll to the panel and tap **History**: it counts `missedSystem 3` (the two +1 min alarms and the +2 min heads-up). The foreground sync at launch recorded them, because the last sync was more than 2 min earlier. **Clear fast alarms**.
 
 - [ ] **Step 4: Phone calendar, calendar-change sync and pre-alarm sync**
 
@@ -7654,7 +7656,7 @@ Paste the published `.ics` link into **ICS link (debug)** and tap **Add feed**. 
 
 Tap **Remove all sources**. Paste `https://example.com/tminus-missing/calendar.ics` (it answers 404) and tap **Add feed**. Expected: the status lists `…: httpError`, and one "Debug feed link stopped working" notification appears with **Fix**. A second **Sync now** posts no second notification.
 
-**Remove all sources**, then paste an unknown Outlook link: `https://outlook.office365.com/owa/calendar/00000000000000000000000000000000@example.com/0000000000000000000000000000000000/calendar.ics`. While planning, `package:http` saw HTTP 500 for it. Expected: `…: serverError`, amber, with no notification for the first 24 h (decision 24). If you can, also reset the published link in Outlook (Settings → Calendar → Shared calendars → reset links) and record what the old link returns. That shows whether decision 24's escalation or spec §9's 401/403/404 row is what catches it.
+**Remove all sources**, then paste an unknown Outlook link: `https://outlook.office365.com/owa/calendar/00000000000000000000000000000000@example.com/0000000000000000000000000000000000/calendar.ics`. While planning, `package:http` saw HTTP 500 for it. Expected: `…: serverError`, amber, with no notification for the first 24 h (decision 24). The link is not a reliable 5xx source: it answered HTTP 500 once and HTTP 400 later, and with a 400 the status reads `httpError` (red, one notification). A host stub that answers a 5xx (see Step 13) is the reliable way to see the amber path. If you can, also reset the published link in Outlook (Settings → Calendar → Shared calendars → reset links) and record what the old link returns. That shows whether decision 24's escalation or spec §9's 401/403/404 row is what catches it.
 
 Finally paste a link ending in `.html`: the status reads "That is the web page link. Copy the link that ends in .ics instead." Then **Remove all sources**.
 
@@ -7672,7 +7674,7 @@ With the Step 4 calendar and event in place (recreate them if needed, and **Add 
 
 - [ ] **Step 11: A stopped worker releases the lock**
 
-Tap **Background sync** and, within a second or two, stop its job: `adb shell cmd jobscheduler timeout io.github.fifothehein.tminus <jobId>` (`adb shell dumpsys jobscheduler` lists the app's jobs and their ids). Expected: `TMinusSync: Headless sync (manual) finished: retry`. Then tap **Sync now**: it finishes at once with a normal status line. A lock left behind would make it wait 60 s and then read `Another sync is running`. If the run had already ended, logcat shows `finished: ok` instead: repeat with a faster tap.
+Tap **Background sync** and, within a second or two, stop its job: `adb shell cmd jobscheduler timeout io.github.fifothehein.tminus <jobId>` (`adb shell dumpsys jobscheduler` lists the app's jobs and their ids). Expected: `TMinusSync: Headless sync (manual) finished: retry`. Then tap **Sync now**: it finishes at once with a normal status line. A lock left behind would make it wait 60 s and then read `Another sync is running`. If the run had already ended, logcat shows `finished: ok` instead: repeat with a faster tap. On the reference emulator (API 36), `cmd jobscheduler timeout` found no executing job even during a 20 s hung run, so this step could not be driven from adb. The stop path is covered by `SyncSchedulingTest` (`a worker without a trigger runs as manual, and stopping it cancels the run`) and the review of `HeadlessFlutterRunner`.
 
 - [ ] **Step 12: A release build runs the headless sync**
 
@@ -7691,11 +7693,11 @@ Expected within ~20 s, as in Step 1: `TMinusSync: Headless sync (periodic) finis
 
 - [ ] **Step 13: A failing run retries at most twice**
 
-Paste Step 7's unknown Outlook link into **ICS link (debug)** and tap **Add feed** (it answers HTTP 500, so the status reads `serverError`). `adb logcat -c`, then tap **Background sync**. Expected: three `TMinusSync: Headless sync (manual) finished: retry` lines, the second about 30 s after the first and the third about 60 s after the second. WorkManager logs `Worker result RETRY` after the first two runs and `Worker result SUCCESS` after the third (decision 25: the request stops retrying), and no fourth run follows. Then tap **Remove all sources**.
+Paste Step 7's unknown Outlook link into **ICS link (debug)** and tap **Add feed** (it answers HTTP 500, so the status reads `serverError`). That link is not a reliable 5xx source: it answered HTTP 500 once and HTTP 400 later. A deterministic way to run this step is a stub web server on the host, reachable from the emulator at `10.0.2.2`, with one URL that fails at once (a 5xx): add that URL as the feed instead. `adb logcat -c`, then tap **Background sync**. Expected: three `TMinusSync: Headless sync (manual) finished: retry` lines, the second about 30 s after the first and the third about 60 s after the second. WorkManager logs `Worker result RETRY` after the first two runs and `Worker result SUCCESS` after the third (decision 25: the request stops retrying), and no fourth run follows. Then tap **Remove all sources**.
 
 - [ ] **Step 14: An alarm that rings during a background sync is recorded once**
 
-The open app records engine events live, and a background sync drains the same queue, so an event can reach Dart twice. History must still hold it once. In the engine panel pick **1 min** and tap **Test alarm**, then tap **History** (in the sync panel) and note the `fired` count. About 55 s later, with the app still open, tap **Background sync**, so that the alarm rings while the headless engine runs (a run takes a few seconds; the `finished` line in logcat shows when it ended). Dismiss the alarm and tap **History** again. Expected: the test alarm adds one `fired` row (the count can stay level when an older `fired` row has left the window of 20 rows) and never two. If the alarm rang outside the run, repeat with the tap earlier or later.
+The open app records engine events live, and a background sync drains the same queue, so an event can reach Dart twice. History must still hold it once. In the engine panel pick **1 min** and tap **Test alarm**, then tap **History** (in the sync panel) and note the `fired` count. About 55 s later, with the app still open, tap **Background sync**, so that the alarm rings while the headless engine runs (a run takes a few seconds; the `finished` line in logcat shows when it ended). Dismiss the alarm and tap **History** again. Expected: the test alarm adds one `fired` row (the count can stay level when an older `fired` row has left the window of 20 rows) and never two. If the alarm rang outside the run, repeat with the tap earlier or later. A deterministic way to hold a sync open is a port on the host, reachable from the emulator at `10.0.2.2`, that accepts the connection and never answers: add a feed whose link points at it, and each sync then lasts until the 20 s fetch timeout. Tap **Background sync** about 50 s after a 1 min **Test alarm**, so that the alarm rings inside that run. Afterwards tap **Remove all sources**.
 
 - [ ] **Step 15: Revoking calendar access is reported once**
 
@@ -7703,11 +7705,32 @@ With Step 4's calendar and event in place (recreate them if needed) and **Add ph
 
 - [ ] **Step 16: A re-linked feed that answers 5xx stays amber for 24 h**
 
-The debug panel cannot do this: **Add feed** always adds a new source, and nothing in the panel calls `SourceAdmin.updateIcsUrl`. Run it from Plan 5's Sources tab once that can re-link, or record "covered by `source_admin_test` and `sync_service_test`". Start with a feed that has answered HTTP 500 for over 24 h (Step 7's unknown Outlook link, left syncing for a day): it is red (`httpError`) with one "feed link stopped working" notification. Re-link it to another link that also answers 5xx, then sync. Expected: the status reads `serverError` (amber), not `httpError`, and no second notification is posted. It turns red again only after 24 h of server errors counted from that sync.
+The debug panel cannot do this: **Add feed** always adds a new source, and nothing in the panel calls `SourceAdmin.updateIcsUrl`. Run it from Plan 5's Sources tab once that can re-link, or record "covered by `source_admin_test` and `sync_service_test`". Start with a feed that has answered HTTP 500 for over 24 h (Step 7's unknown Outlook link, left syncing for a day): it is red (`httpError`) with one "feed link stopped working" notification. The Outlook link is not a reliable source for this: it answered HTTP 500 once and HTTP 400 later, and a 400 is `httpError` (red, one notification) at once, not after 24 h. A host stub that answers a 5xx (see Step 13) is the reliable way, for the first link and for the one you re-link to. Re-link it to another link that also answers 5xx, then sync. Expected: the status reads `serverError` (amber), not `httpError`, and no second notification is posted. It turns red again only after 24 h of server errors counted from that sync.
 
 - [ ] **Step 17: Record the results**
 
 Write one line per step (pass/fail, device, Android version) into the PR description. Any failure becomes a bug task before Plan 5 starts.
+
+**Device results (2026-10-09):** Pixel_9 AVD, Android 16 (API 36).
+
+- Step 1: partial. Periodic work was already queued, so the periodic run came later, at its scheduled time. The manual run was ok.
+- Step 2: pass. History showed `dismissedAll 3`: the coalesced alarm's two alerts plus the heads-up.
+- Step 3: pass on the rerun. The first attempt force-stopped the app before the sync had finished.
+- Step 4: pass.
+- Step 5: pass.
+- Step 6: pass, against an exported Outlook `.ics` file served from the host (40 alerts, and a 304 on the next sync) and against the real published link (19 occurrences). Outlook sends no ETag or Last-Modified, so every sync downloads the full feed.
+- Step 7: pass.
+- Step 8: not run (covered by Task 11 tests).
+- Step 9: pass. The pre-alarm sync fired after the reboot and unlock.
+- Step 10: pass.
+- Step 11: not verified on device (see the step).
+- Step 12: pass. Release build: the headless periodic sync ran ok, with no worker or entry-point errors.
+- Step 13: pass. Two retries, then success.
+- Step 14: pass. An alarm that rang during a 20 s background sync was recorded once.
+- Step 15: pass.
+- Step 16: covered by `source_admin_test` and `sync_service_test` (there is no re-link button until Plan 5).
+
+The debug build's first cold start after a reinstall showed one "isn't responding" dialog (the process failed to complete startup) and recovered. The release build started normally.
 
 ---
 

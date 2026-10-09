@@ -183,6 +183,12 @@ class _SyncDebugPanelState extends State<SyncDebugPanel> {
         TextField(
           key: const Key('icsLinkField'),
           controller: _link,
+          // A link has to reach Add feed exactly as typed, so the keyboard must
+          // neither autocorrect nor suggest.
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.done,
+          autocorrect: false,
+          enableSuggestions: false,
           decoration: const InputDecoration(
             labelText: 'ICS link (debug)',
             isDense: true,

@@ -178,6 +178,19 @@ void main() {
     expect(find.textContaining('Removed 1 sources'), findsOneWidget);
   });
 
+  testWidgets('the ICS link field is a URL field with no autocorrect', (
+    tester,
+  ) async {
+    await pumpPanel(tester);
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('icsLinkField')),
+    );
+    expect(field.keyboardType, TextInputType.url);
+    expect(field.autocorrect, isFalse);
+    expect(field.enableSuggestions, isFalse);
+    expect(field.textInputAction, TextInputAction.done);
+  });
+
   testWidgets('History counts the newest rows by type', (tester) async {
     await pumpPanel(tester);
     await tapAndWait(tester, 'History');

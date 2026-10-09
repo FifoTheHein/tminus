@@ -135,7 +135,7 @@ The window is **now − 1 h to now + 7 days**.
 
 | Field | Notes |
 |---|---|
-| `key` | `sourceId|uid|originalStartUtc`. Stays the same when a meeting is moved. |
+| `key` | `sourceId|uid|originalStartUtc`. Stays the same when a meeting is moved. A meeting found in several sources is merged under one meeting key (§13). |
 | `seriesUid` | Null for one-off events. |
 | `title`, `location`, `organizer`, `joinUrl` | |
 | `startUtc`, `endUtc`, `allDay` | All times stored in UTC. |
@@ -375,6 +375,7 @@ The rule: never lose an alarm because of bad data, and never fail silently.
   - coalescing
   - snooze options in the past are hidden
   - the empty-feed guard
+- **Multi-source meetings (§13):** pure merge tests (matching, ranking, sticky keys, splits) and `SyncService` tests with an ICS feed and a phone calendar holding the same meetings.
 - **Kotlin:** Robolectric tests for `PlanStore` (atomic write, diff) and `AlarmScheduler`; instrumented tests for the boot and time-change receivers.
 - **Manual device checklist:**
   - locked, silent, DND
@@ -394,3 +395,69 @@ The rule: never lose an alarm because of bad data, and never fail silently.
 2. **Published-feed latency:** measure how long Outlook takes to update the published ICS feed after a meeting change. This sets expectations for the pre-alarm sync.
 3. **Teams link in the feed:** confirm the "Can view all details" feed includes the Teams join URL in DESCRIPTION.
 4. **Foreground service type:** confirm `mediaPlayback` is acceptable for alarm ringing under the current Play policy; otherwise use `specialUse`.
+
+## 13. Meetings in more than one source
+
+*Added 2026-10-09, agreed with the user in brainstorming. Plan: `docs/superpowers/plans/2026-10-09-plan-4b-multi-source-meetings.md`.*
+
+The same meeting can reach T-Minus through two sources. For example, the Outlook calendar might be added once as a published ICS link and once as the Exchange-synced phone calendar, or the same feed might be added twice. Each source is fetched, cached and checked on its own (§5, §9), so without merging every alert rings twice. **A meeting present in several sources is merged into one meeting with one set of alerts.**
+
+### Terms
+
+- **Copy:** one cached `EventOccurrence` from one source. Its key stays `sourceId|uid|originalStartUtc` (§5), and the cache, the empty-feed guard, the sync log and Feed stale/broken stay per source and per copy, exactly as before.
+- **Meeting:** one or more copies of the same meeting from different sources, merged into one occurrence. Rules, the plan, acknowledgements, overrides, alert history and the Agenda all work on meetings.
+- **Meeting key:** the key a meeting uses everywhere outside the cache. A meeting with one copy and no stored link uses that copy's key, so nothing changes for anyone who has each meeting in only one source.
+
+### Recognising the same meeting
+
+1. **Different sources only.** Two copies from the same source are never merged, even when identical. If a source has two copies with the same fingerprint or strong key, that value is ambiguous and is not used to merge either of them.
+2. **Strong key:** (iCal UID, original start). ICS copies carry the iCal UID. Phone copies carry it only if the provider exposes it in a column the app reads (Plan 4b Task 1 checks this on the user's phone; Google's adapter is reported to leave `UID_2445` empty).
+3. **Fingerprint:** (normalised title, original start, all-day).
+   - The title is normalised by trimming it, dropping a leading `Canceled:` / `Cancelled:`, collapsing whitespace and lower-casing it.
+   - Untitled copies (empty or `(No title)`) have no fingerprint.
+   - The **original** start is used, not the current start. Both sources already key a moved instance of a series on it (ICS `RECURRENCE-ID`, phone `ORIGINAL_INSTANCE_TIME`, Plan 4 decision 14). So a moved instance still matches while the published feed lags behind the phone.
+4. **Remembered links.** Once copies are merged, a link from each copy's key to the meeting key is stored (`meeting_links`). Linked copies stay together on later syncs even if their times now differ.
+   - A one-off copy whose key changed because it moved (its original start is its start) finds its meeting again by (source, uid). Phone `EVENT_ID` and ICS `UID` survive an edit. So a one-off meeting moved on the phone stays one meeting while the feed still shows the old time.
+   - Links are only stored for meetings that have, or had, two or more copies.
+   - Links are pruned a day after the copy ends. They do not reference the `sources` table, so a deleted source's links outlive it on purpose (see Splitting below).
+5. A copy that could join more than one meeting joins none and stays on its own.
+
+**Known risk:** a false fingerprint match is remembered. That means two genuinely different meetings with the same title and original start in two different calendars. If one of them later moves, only the winning copy's time rings. Until it moves, the false merge costs nothing, because both would ring in the same minute anyway (§6 coalescing). The setting below is the escape hatch.
+
+### Which copy wins
+
+Copies are ranked:
+
+1. copies from sources whose last fetch succeeded, before copies from failing sources (`lastError` set, amber or red), so a phone calendar whose access was revoked cannot hold a frozen time over a fresh feed;
+2. phone calendar, then ICS feed, then debug (phone calendars are fresher: published feeds lag, §12 check 2);
+3. the copy whose key is the meeting key;
+4. source id.
+
+| Field | Rule |
+|---|---|
+| start, end, all-day, warnings, title, `seriesUid`, colour | From the top-ranked copy (the **time source**). |
+| Join link, location, organiser, description | First non-null in rank order (Outlook's phone sync may leave out the body; the feed has the Teams link). |
+| Busy status | First that is not `unknown`. |
+| Declined, cancelled | True if any copy says so (only phone copies know). |
+| Source default profile (§6 step 5) | First source in rank order that has one. |
+| Occurrence and series overrides (§6 steps 1–2) | The override on the meeting key first, then on each copy's key, then on each copy's `seriesUid`, in rank order. |
+
+**Removal:** a meeting lasts while any enabled source lists it (union). If the phone copy disappears but the feed still lists the meeting, the alerts stay until the feed drops it too. That is no worse than today, and it is safe when Intune or an account re-sync empties the phone calendar.
+
+### Keys, acknowledgements, overrides and history
+
+- **A new meeting** (copies merged for the first time) takes the key of its top-ranked copy. Acknowledgements and overrides recorded under any copy's own key still apply (they are looked up under every copy key). So a Dismiss all or an override set on the feed's copy before the phone calendar was added keeps working. The one thing lost at that moment is a snooze running on the other copy's key: Kotlin drops it, because that key leaves the plan (roadmap §3 engine rules).
+- **The meeting key is sticky.** It stays the same on later syncs whatever the ranking does, and after a **split**. A split is a source being removed or disabled, or its copy disappearing (deleted, or the empty-feed guard clearing it); in each case the remaining copies keep the meeting key through their stored links. So Kotlin's acknowledgements (key + start), single dismissals, snoozes and missed-(system) expectations continue unchanged. A broken source keeps its cached copies (§9), so a broken source does not split anything; it only loses rank.
+- **Dismiss all / Join** is keyed (meeting key, start) as before (§6). A merged meeting whose time source changes to a different start re-arms, like any moved meeting.
+- **Alert history** rows carry the meeting key. Rows from before a merge keep their copy keys and still count through the alias lookup above.
+- **Setting `merge.enabled`** (default on; the Settings switch is Plan 5's) turns merging off. Copies are then planned under their own keys, as before this section. A meeting that was dismissed while merged can then ring once. Stored links are kept, so turning merging back on restores the same meeting keys.
+
+### Where merging happens
+
+`SyncService.run` (Plan 4): drain events → fetch every enabled source → per source, apply the empty-feed guard and store the result (unchanged) → read the cache for enabled sources → **merge** → rules → `buildPlan` → missed (system) → `applyPlan` → configure. Merging reads the cache, never a raw fetch result, so a source's empty or failed fetch affects only that source's copies.
+
+- **Empty-feed guard:** still per source. When a source's copies are cleared, its meetings continue from their other copies under the same key.
+- **Feed stale (§9):** an alert counts toward an ICS source's "alert due within 2 h" only if that source is the meeting's time source. A stale feed whose meetings are timed by a healthy phone calendar does not warn.
+- **Feed broken:** unchanged. It is per source, and the failing source's copies lose rank.
+- **Missed (system):** unchanged. Expectations carry the meeting key, which survives a split.
+- **Agenda (Plan 5):** runs the same pure merge on the cache with the stored links (read-only), so it shows each meeting once, exactly as planned, and can list the sources it came from.

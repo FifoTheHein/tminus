@@ -4,7 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tminus/app/di.dart';
 import 'package:tminus/app/theme/tminus_theme.dart';
 import 'package:tminus/core/engine/alarm_engine.dart';
+import 'package:tminus/core/model/alert_history_entry.dart';
+import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/features/token_preview/engine_debug_panel.dart';
+
+import '../../core/storage/test_database.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -70,16 +74,18 @@ void main() {
 
   setUp(() {
     ringingChannelEnabled = true;
-    configureDependencies();
+    // Drain events records through EngineEventRecorder into the database.
+    configureDependencies(openDatabase: openTestDatabase);
     mockEngine();
   });
 
-  tearDown(() {
+  tearDown(() async {
     calls.clear();
     messenger.setMockMethodCallHandler(channel, null);
     messenger.setMockStreamHandler(events, null);
     eventSink = null;
-    getIt.reset();
+    // Closes the in-memory database the drain opened.
+    await getIt.reset();
   });
 
   Future<void> pumpPanel(WidgetTester tester) async {
@@ -184,13 +190,33 @@ void main() {
     expect(find.text('Drained 1: fired'), findsOneWidget);
   });
 
+  testWidgets('Drain events goes through the recorder into alert history', (
+    tester,
+  ) async {
+    await pumpPanel(tester);
+    await tester.tap(find.text('Drain events'));
+    await tester.pumpAndSettle();
+    expect(find.text('Drained 1: fired'), findsOneWidget);
+
+    // The recorder is the one caller of drainEvents, so the drained event is
+    // stored by it rather than lost to the panel.
+    final stored = await tester.runAsync(
+      () => getIt<AlertHistoryRepository>().recent(),
+    );
+    expect(stored, hasLength(1));
+    expect(stored!.single.type, AlertEventType.fired);
+    expect(stored.single.alertId, 'a');
+    expect(stored.single.occurrenceKey, 'src|a|occ');
+  });
+
   testWidgets('Drain events includes the events already seen live', (
     tester,
   ) async {
     await pumpPanel(tester);
     // The engine de-duplicates: events the live stream delivered are dropped when
     // drained again, so the panel itself must remember them. The native side still
-    // returns the same two events (same dedup keys) from drainEvents.
+    // returns the same two events (same dedup keys) from drainEvents, and the
+    // recorder hands back only the rows it newly stored, which is none here.
     final live = [event('fired'), event('dismissed')];
     drained = live;
     await tester.runAsync(() async {

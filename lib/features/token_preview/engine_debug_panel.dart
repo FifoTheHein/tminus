@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../app/di.dart';
 import '../../core/engine/alarm_engine.dart';
 import '../../core/model/alert.dart';
+import '../../core/sync/engine_event_recorder.dart';
 
 /// Debug-only controls for the native alarm engine, so it can be exercised on a
 /// device before the Health screen (Plan 5) and real sources (Plan 4) exist.
@@ -102,12 +103,19 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
     return '${strength == AlertStrength.alarm ? 'Alarm' : 'Heads-up'} in ${_label(_delay)}';
   }
 
+  /// Drains through the recorder, the one caller of `drainEvents` (Plan 4),
+  /// so what the panel drains still reaches `alert_history`. The line lists
+  /// the events seen live since the last drain, then the rows this drain
+  /// recorded.
   Future<String> _drain() async {
-    final drained = await _engine.drainEvents();
-    final events = [..._pending, ...drained];
+    final recorded = await getIt<EngineEventRecorder>().drainNow();
+    final types = [
+      for (final e in _pending) e.type.name,
+      for (final e in recorded) e.type.name,
+    ];
     _pending.clear();
-    if (events.isEmpty) return 'No new engine events';
-    return 'Drained ${events.length}: ${events.map((e) => e.type.name).join(', ')}';
+    if (types.isEmpty) return 'No new engine events';
+    return 'Drained ${types.length}: ${types.join(', ')}';
   }
 
   Future<String> _notificationSettings() async {

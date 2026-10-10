@@ -14,6 +14,12 @@ import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/rule_repository.dart';
 import 'package:tminus/core/storage/rule_set_loader.dart';
 import 'package:tminus/core/storage/source_repository.dart';
+import 'package:tminus/core/sources/source_admin.dart';
+import 'package:tminus/core/sources/source_factory.dart';
+import 'package:tminus/core/sync/engine_event_recorder.dart';
+import 'package:tminus/core/sync/foreground_sync.dart';
+import 'package:tminus/core/sync/sync_platform.dart';
+import 'package:tminus/core/sync/sync_service.dart';
 
 import '../core/fixtures.dart';
 import '../core/storage/test_database.dart';
@@ -38,6 +44,35 @@ void main() {
   test('configureDependencies registers one AlarmEngine', () {
     configureDependencies(openDatabase: openTestDatabase);
     expect(getIt<AlarmEngine>(), same(getIt<AlarmEngine>()));
+  });
+
+  test('the sync services share one engine and one event recorder', () {
+    configureDependencies(openDatabase: openTestDatabase);
+    final sync = getIt<SyncService>();
+    expect(sync.engine, same(getIt<AlarmEngine>()));
+    expect(sync.recorder, same(getIt<EngineEventRecorder>()));
+    expect(getIt<EngineEventRecorder>().engine, same(getIt<AlarmEngine>()));
+    expect(getIt<ForegroundSync>().sync, same(sync));
+    expect(getIt<SyncPlatform>(), same(getIt<SyncPlatform>()));
+    expect(getIt<SourceFactory>(), isNotNull);
+    expect(getIt<SourceAdmin>(), isNotNull);
+  });
+
+  test('the sync rules engine reads the device zone when it plans', () {
+    configureDependencies(openDatabase: openTestDatabase);
+    final before = tz.local;
+    addTearDown(() => tz.setLocalLocation(before));
+    // Built before the phone changes zone, as the long-lived UI isolate's is.
+    final sync = getIt<SyncService>();
+
+    tz.setLocalLocation(tz.getLocation('America/New_York'));
+    expect(sync.rulesEngine().zone.name, 'America/New_York');
+    expect(sync.zone(), tz.local);
+
+    // Read at each call, not captured once: a later change is picked up too.
+    tz.setLocalLocation(tz.getLocation('Africa/Johannesburg'));
+    expect(sync.rulesEngine().zone.name, 'Africa/Johannesburg');
+    expect(sync.zone(), tz.local);
   });
 
   test('configureDependencies loads the time zone database', () {

@@ -196,6 +196,6 @@ class AlarmEngineChannelTest {
 
     @Test
     fun `unknown methods are not implemented`() {
-        assertTrue(call("queryDeviceCalendars").notImplemented)
+        assertTrue(call("noSuchMethod").notImplemented)
     }
 }

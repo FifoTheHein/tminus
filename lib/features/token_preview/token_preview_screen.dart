@@ -6,6 +6,7 @@ import '../../app/theme/tminus_theme.dart';
 import '../../app/theme/tminus_token_catalog.dart';
 import '../../app/theme_mode_controller.dart';
 import 'engine_debug_panel.dart';
+import 'sync_debug_panel.dart';
 
 /// Placeholder home screen: shows the design tokens so the theme can be
 /// compared visually with the design-system sheet.
@@ -46,6 +47,8 @@ class TokenPreviewScreen extends StatelessWidget {
           if (kDebugMode) ...[
             const _SectionLabel('06 · Engine (debug)'),
             const EngineDebugPanel(),
+            const _SectionLabel('07 · Sync (debug)'),
+            const SyncDebugPanel(),
           ],
         ],
       ),

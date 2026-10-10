@@ -69,9 +69,14 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.06.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
+    // Plan 4 (checked on Google Maven, 2026-10-08): WorkManager 2.12.0 declares minCompileSdk=35;
+    // concurrent-futures gives SyncWorker CallbackToFutureAdapter without coroutines of our own.
+    implementation("androidx.work:work-runtime:2.12.0")
+    implementation("androidx.concurrent:concurrent-futures:1.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.work:work-testing:2.12.0")
     androidTestImplementation("androidx.test.ext:junit-ktx:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
 }

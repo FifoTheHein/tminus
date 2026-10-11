@@ -16,6 +16,7 @@ import '../core/sources/source_factory.dart';
 import '../core/sources/source_secrets.dart';
 import '../core/storage/alert_history_repository.dart';
 import '../core/storage/app_database.dart';
+import '../core/storage/meeting_link_repository.dart';
 import '../core/storage/occurrence_repository.dart';
 import '../core/storage/override_repository.dart';
 import '../core/storage/profile_repository.dart';
@@ -51,6 +52,7 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
   );
   getIt.registerLazySingleton(() => SourceRepository(getIt()));
   getIt.registerLazySingleton(() => OccurrenceRepository(getIt()));
+  getIt.registerLazySingleton(() => MeetingLinkRepository(getIt()));
   getIt.registerLazySingleton(() => ProfileRepository(getIt()));
   getIt.registerLazySingleton(() => RuleRepository(getIt()));
   getIt.registerLazySingleton(() => OverrideRepository(getIt()));
@@ -119,6 +121,7 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
     () => SyncService(
       sources: getIt(),
       occurrences: getIt(),
+      links: getIt(),
       history: getIt(),
       syncLog: getIt(),
       settings: getIt(),

@@ -10,10 +10,12 @@ import '../model/planned_alert.dart';
 import '../model/source_config.dart';
 import '../model/sync_log_entry.dart';
 import '../planner/empty_feed_guard.dart';
+import '../planner/meeting_merger.dart';
 import '../planner/plan_builder.dart';
 import '../rules/rules_engine.dart';
 import '../sources/calendar_source.dart';
 import '../storage/alert_history_repository.dart';
+import '../storage/meeting_link_repository.dart';
 import '../storage/occurrence_repository.dart';
 import '../storage/rule_set_loader.dart';
 import '../storage/settings_repository.dart';
@@ -33,6 +35,15 @@ typedef SourceBuilder = CalendarSource Function(
   SourceSyncState? state,
   tz.Location zone,
 );
+
+/// What a run's planning step produced: the plan, the source that decides the
+/// time of each planned meeting (by meeting key), and how many meetings were
+/// made from two or more copies.
+typedef _Planned = ({
+  List<PlannedAlert> plan,
+  Map<String, String> timeSource,
+  int merged,
+});
 
 /// What started a sync (spec §7). The Kotlin side passes the first five by
 /// name to the headless engine.
@@ -84,6 +95,7 @@ class SyncReport {
     this.applied,
     this.planned = 0,
     this.missedSystem = 0,
+    this.merged = 0,
   });
 
   final SyncTrigger trigger;
@@ -96,17 +108,22 @@ class SyncReport {
 
   /// New `missedSystem` history rows this run recorded.
   final int missedSystem;
+
+  /// Meetings this run planned from the copies of two or more sources
+  /// (spec §13). Zero when merging is off.
+  final int merged;
 }
 
 /// `syncMain()`'s work (spec §7): fetch all sources → update the cache →
-/// resolve rules → build the plan → `applyPlan` → log the result. Runs in the
-/// headless engine (SyncWorker) and in the UI isolate (app foreground,
-/// pull-to-refresh); a lock shared through Kotlin keeps two runs from
-/// overlapping (Plan 4 decision).
+/// merge the copies of one meeting → resolve rules → build the plan →
+/// `applyPlan` → log the result. Runs in the headless engine (SyncWorker) and
+/// in the UI isolate (app foreground, pull-to-refresh); a lock shared through
+/// Kotlin keeps two runs from overlapping (Plan 4 decision).
 class SyncService {
   SyncService({
     required this.sources,
     required this.occurrences,
+    required this.links,
     required this.history,
     required this.syncLog,
     required this.settings,
@@ -125,6 +142,9 @@ class SyncService {
 
   final SourceRepository sources;
   final OccurrenceRepository occurrences;
+
+  /// The remembered links from copies to their meetings (spec §13).
+  final MeetingLinkRepository links;
   final AlertHistoryRepository history;
   final SyncLogRepository syncLog;
   final SettingsRepository settings;
@@ -151,6 +171,11 @@ class SyncService {
   static const historyRetention = Duration(days: 30);
   static const syncLogRetention = Duration(days: 7);
   static const occurrenceRetention = Duration(days: 1);
+
+  /// The setting that turns merging off (spec §13). Merging is on unless the
+  /// stored value is exactly `'false'`, so a missing value keeps it on. Plan
+  /// 5's Settings switch writes it; until then the debug panel does.
+  static const mergeEnabledKey = 'merge.enabled';
 
   /// Server errors that have gone on this long, with no success in between,
   /// mean the link is gone (Plan 4 decision 24: Outlook answers a dead link
@@ -251,7 +276,7 @@ class SyncService {
       results.add(await _store(config, state, result, now));
     }
 
-    final plan = await _plan(configs, window, now);
+    final (:plan, :timeSource, :merged) = await _plan(configs, window, now);
     final missed = await _checkMissed(now);
 
     ApplyResult? applied;
@@ -282,20 +307,22 @@ class SyncService {
         preSyncTimes: preSyncTimes(plan, now),
       ),
     );
-    await _staleNotices(configs, plan, now);
+    await _staleNotices(configs, plan, timeSource, now);
 
     await history.deleteBefore(now.subtract(historyRetention));
     await syncLog.deleteBefore(now.subtract(syncLogRetention));
     await occurrences.deleteEndedBefore(now.subtract(occurrenceRetention));
+    await links.deleteEndedBefore(now.subtract(occurrenceRetention));
 
     final finished = clock();
+    final mergedNote = merged > 0 ? ', $merged merged' : '';
     await syncLog.add(
       SyncLogEntry(
         atUtc: finished,
         outcome: applied == null ? SyncOutcome.otherError : SyncOutcome.success,
         message: applied == null
-            ? '${trigger.name}: applyPlan failed ($applyError); the engine kept its previous plan'
-            : '${trigger.name}: ${plan.length} alerts planned; armed ${applied.armed}, cancelled ${applied.cancelled}, kept ${applied.kept}',
+            ? '${trigger.name}: applyPlan failed ($applyError); the engine kept its previous plan$mergedNote'
+            : '${trigger.name}: ${plan.length} alerts planned; armed ${applied.armed}, cancelled ${applied.cancelled}, kept ${applied.kept}$mergedNote',
         duration: finished.difference(now),
       ),
     );
@@ -312,6 +339,7 @@ class SyncService {
       applied: applied,
       planned: plan.length,
       missedSystem: missed.recorded,
+      merged: merged,
     );
   }
 
@@ -490,7 +518,11 @@ class SyncService {
     ),
   );
 
-  Future<List<PlannedAlert>> _plan(
+  /// Reads the cached copies of the enabled sources, merges the copies of one
+  /// meeting (spec §13), saves the link changes and plans the meetings. Also
+  /// returns the source that decides each planned meeting's time, for the Feed
+  /// stale check, and how many meetings were made from two or more copies.
+  Future<_Planned> _plan(
     List<SourceConfig> configs,
     FetchWindow window,
     DateTime now,
@@ -500,16 +532,33 @@ class SyncService {
       now.subtract(keepAfterEnd),
       window.endUtc,
     );
-    final rules = await ruleSets.load();
-    final resolved = rulesEngine().resolveAll(
-      cached.where((o) => enabled.contains(o.sourceId)),
-      rules,
+
+    // `_store` has already written this run's result to each source's sync
+    // state, so a source that failed just now ranks below the healthy ones.
+    final ranks = <String, SourceRank>{};
+    for (final c in configs) {
+      final state = await sources.syncState(c.id);
+      ranks[c.id] = SourceRank(kind: c.kind, failing: state?.lastError != null);
+    }
+    final result = MeetingMerger.merge(
+      copies: [
+        for (final o in cached)
+          if (enabled.contains(o.sourceId)) o,
+      ],
+      links: await links.all(),
+      sources: ranks,
+      enabled: await settings.getString(mergeEnabledKey) != 'false',
     );
-    return buildPlan(
+    await links.apply(upsert: result.upsert, delete: result.delete);
+
+    final rules = await ruleSets.load();
+    final resolved = rulesEngine().resolveAll(result.meetings, rules);
+    final plan = buildPlan(
       resolved,
       now: now,
       acknowledgements: await history.acknowledgements(nowUtc: now),
     );
+    return (plan: plan, timeSource: result.timeSource, merged: result.merged);
   }
 
   Future<({List<ExpectedAlert> pending, int recorded})> _checkMissed(
@@ -534,10 +583,15 @@ class SyncService {
     return (pending: check.pending, recorded: recorded);
   }
 
-  /// Posts or withdraws each ICS source's Feed stale notification.
+  /// Posts or withdraws each ICS source's Feed stale notification. An alert
+  /// counts toward a source only if that source decides its meeting's time
+  /// ([timeSource], spec §13): a stale feed whose meetings a healthy phone
+  /// calendar times does not warn, and one that times a meeting under another
+  /// source's key still does.
   Future<void> _staleNotices(
     List<SourceConfig> configs,
     List<PlannedAlert> plan,
+    Map<String, String> timeSource,
     DateTime now,
   ) async {
     for (final c in configs.where((c) => c.kind == SourceKind.ics)) {
@@ -545,7 +599,7 @@ class SyncService {
       final age = lastSuccess == null ? null : now.difference(lastSuccess);
       final dueSoon = plan.any(
         (a) =>
-            a.occurrenceKey.startsWith('${c.id}|') &&
+            timeSource[a.occurrenceKey] == c.id &&
             a.fireAtUtc.isAfter(now) &&
             !a.fireAtUtc.isAfter(now.add(staleHorizon)),
       );

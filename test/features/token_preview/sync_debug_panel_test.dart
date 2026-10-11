@@ -12,6 +12,7 @@ import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/sources/fast_alarms.dart';
 import 'package:tminus/core/sources/feed_body_cache.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
+import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
 import 'package:tminus/core/sync/sync_platform.dart';
 import 'package:tminus/core/sync/sync_service.dart';
@@ -217,6 +218,81 @@ void main() {
     expect(
       find.text('Last 3 history rows: missedSystem 2, fired 1'),
       findsOneWidget,
+    );
+  });
+
+  group('Merge duplicates', () {
+    final mergeSwitch = find.byKey(const Key('mergeDuplicatesSwitch'));
+
+    /// The `merge.enabled` row, read outside the test's fake async zone.
+    Future<String?> storedSetting(WidgetTester tester) async {
+      final stored = await tester.runAsync(
+        () =>
+            getIt<SettingsRepository>().getString(SyncService.mergeEnabledKey),
+      );
+      return stored;
+    }
+
+    testWidgets('writes merge.enabled and syncs', (tester) async {
+      await pumpPanel(tester);
+      expect(tester.widget<SwitchListTile>(mergeSwitch).value, isTrue);
+
+      await tapAndWait(tester, 'Merge duplicates');
+      expect(await storedSetting(tester), 'false');
+      expect(tester.widget<SwitchListTile>(mergeSwitch).value, isFalse);
+      expect(
+        find.textContaining('Merge duplicates off · 0 alerts planned'),
+        findsOneWidget,
+      );
+
+      await tapAndWait(tester, 'Merge duplicates');
+      expect(await storedSetting(tester), 'true');
+      expect(tester.widget<SwitchListTile>(mergeSwitch).value, isTrue);
+      expect(
+        find.textContaining('Merge duplicates on · 0 alerts planned'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows the stored setting after any action', (tester) async {
+      await pumpPanel(tester);
+      await tapAndWait(tester, 'History');
+      expect(tester.widget<SwitchListTile>(mergeSwitch).value, isTrue);
+
+      await tester.runAsync(
+        () => getIt<SettingsRepository>().setString(
+          SyncService.mergeEnabledKey,
+          'false',
+        ),
+      );
+      await tapAndWait(tester, 'History');
+      expect(tester.widget<SwitchListTile>(mergeSwitch).value, isFalse);
+    });
+  });
+
+  test('describe shows how many meetings were merged', () {
+    expect(
+      SyncDebugPanel.describe(
+        const SyncReport(
+          trigger: SyncTrigger.debug,
+          outcome: SyncRunOutcome.ok,
+          applied: ApplyResult(armed: 2, cancelled: 0, kept: 0),
+          planned: 2,
+          merged: 3,
+        ),
+      ),
+      '2 alerts planned · armed 2, kept 0, cancelled 0 · merged 3',
+    );
+    expect(
+      SyncDebugPanel.describe(
+        const SyncReport(
+          trigger: SyncTrigger.debug,
+          outcome: SyncRunOutcome.ok,
+          applied: ApplyResult(armed: 2, cancelled: 0, kept: 0),
+          planned: 2,
+        ),
+      ),
+      '2 alerts planned · armed 2, kept 0, cancelled 0',
     );
   });
 

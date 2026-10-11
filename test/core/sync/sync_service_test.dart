@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
+import 'package:tminus/core/model/event_occurrence.dart';
+import 'package:tminus/core/model/meeting_link.dart';
 import 'package:tminus/core/model/planned_alert.dart';
 import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
@@ -10,6 +12,7 @@ import 'package:tminus/core/rules/rules_engine.dart';
 import 'package:tminus/core/sources/calendar_source.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
 import 'package:tminus/core/storage/profile_repository.dart';
@@ -19,6 +22,7 @@ import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
 import 'package:tminus/core/storage/sync_log_repository.dart';
 import 'package:tminus/core/sync/engine_event_recorder.dart';
+import 'package:tminus/core/sync/missed_system.dart';
 import 'package:tminus/core/sync/sync_platform.dart';
 import 'package:tminus/core/sync/sync_service.dart';
 
@@ -51,6 +55,7 @@ void main() {
   late AppDatabase db;
   late SourceRepository sources;
   late OccurrenceRepository cache;
+  late MeetingLinkRepository links;
   late AlertHistoryRepository history;
   late SyncLogRepository log;
   late SettingsRepository settings;
@@ -94,6 +99,7 @@ void main() {
     return SyncService(
       sources: sources,
       occurrences: cache,
+      links: links,
       history: history,
       syncLog: log,
       settings: settings,
@@ -131,6 +137,7 @@ void main() {
     db = openTestDatabase();
     sources = SourceRepository(db);
     cache = OccurrenceRepository(db);
+    links = MeetingLinkRepository(db);
     history = AlertHistoryRepository(db);
     log = SyncLogRepository(db);
     settings = SettingsRepository(db);
@@ -664,5 +671,435 @@ void main() {
     expect(SyncTrigger.parse('timeChange'), SyncTrigger.timeChange);
     expect(SyncTrigger.parse('nope'), SyncTrigger.manual);
     expect(SyncTrigger.parse(null), SyncTrigger.manual);
+  });
+
+  // Meetings in more than one source (spec §13). The same Outlook calendar
+  // reaches the app twice: as the published feed ('work') and as the phone
+  // calendar. The phone's id sorts after the feed's, so only its kind, never
+  // its id, can put it first in the ranking.
+  const phone = SourceConfig(
+    id: 'work-phone',
+    name: 'Work (phone)',
+    color: blue,
+    kind: SourceKind.device,
+    deviceCalendarId: '3',
+  );
+
+  // `meeting` as the phone calendar holds it: another uid, the same title and
+  // original start. The phone copy ranks first, so a merged meeting takes its
+  // key.
+  final phoneCopy = occ(
+    sourceId: phone.id,
+    uid: 'e7',
+    title: 'Sprint planning',
+  );
+
+  /// Adds the phone calendar as a second source, holding [phoneCopy].
+  Future<void> addPhone() async {
+    await sources.save(phone);
+    results[phone.id] = () => SourceFetched([phoneCopy]);
+  }
+
+  int utcMs(int hour, int minute) =>
+      DateTime.utc(2026, 10, 6, hour, minute).millisecondsSinceEpoch;
+
+  List<Object?> appliedIds() => applied().map((a) => a['id']).toList();
+
+  List<Object?> appliedTimes() =>
+      applied().map((a) => a['fireAtUtcMs']).toList();
+
+  Set<Object?> appliedKeys() =>
+      applied().map((a) => a['occurrenceKey']).toSet();
+
+  /// Which meeting each stored link puts its copy in.
+  Future<Map<String, String>> linked() async => {
+    for (final l in await links.all()) l.copyKey: l.meetingKey,
+  };
+
+  /// The message of the newest whole-run entry in the sync log.
+  Future<String?> lastRunMessage() async =>
+      (await log.recent()).firstWhere((e) => e.sourceId == null).message;
+
+  Future<List<ExpectedAlert>> expectedAlerts() async =>
+      MissedSystemDetector.decode(
+        await settings.getString(SyncService.expectedKey),
+      );
+
+  test('a single source merges nothing and logs no merged count', () async {
+    final report = await sync.run(SyncTrigger.periodic);
+
+    expect(report.merged, 0);
+    expect(appliedKeys(), {meeting.key});
+    expect(await links.all(), isEmpty);
+    expect(
+      await lastRunMessage(),
+      'periodic: 2 alerts planned; armed 2, cancelled 0, kept 0',
+    );
+  });
+
+  test('an ICS feed and a phone calendar holding the same meeting plan one set of alerts', () async {
+    await addPhone();
+    final report = await sync.run(SyncTrigger.periodic);
+
+    // One heads-up and one alarm, not two of each, under the phone copy's key.
+    expect(appliedKeys(), {phoneCopy.key});
+    expect(appliedTimes(), [utcMs(7, 50), utcMs(7, 59)]);
+    expect(appliedIds(), [
+      PlannedAlert.idFor(phoneCopy.key, 10),
+      PlannedAlert.idFor(phoneCopy.key, 1),
+    ]);
+    expect(report.planned, 2);
+    expect(report.merged, 1);
+    expect(report.applied, const ApplyResult(armed: 2, cancelled: 0, kept: 0));
+
+    // Each source still caches its own copy under its own key.
+    expect(await cache.byKey(meeting.key), meeting);
+    expect(await cache.byKey(phoneCopy.key), phoneCopy);
+
+    // Both copies are remembered as one meeting.
+    expect(await linked(), {
+      meeting.key: phoneCopy.key,
+      phoneCopy.key: phoneCopy.key,
+    });
+    expect(
+      await lastRunMessage(),
+      'periodic: 2 alerts planned; armed 2, cancelled 0, kept 0, 1 merged',
+    );
+  });
+
+  test(
+    'removing the phone source keeps the meeting key and its alert ids',
+    () async {
+      await addPhone();
+      await sync.run(SyncTrigger.periodic);
+      final before = appliedIds();
+
+      // The source's cached copy goes with it, but its links stay: they do not
+      // point at the sources table.
+      await sources.delete(phone.id);
+      final report = await sync.run(SyncTrigger.periodic);
+
+      expect(await cache.byKey(phoneCopy.key), isNull);
+      expect(appliedIds(), before);
+      expect(appliedKeys(), {phoneCopy.key});
+      expect(appliedTimes(), [utcMs(7, 50), utcMs(7, 59)]);
+      expect(report.merged, 0); // the feed's copy is all that is left
+      expect(await linked(), {
+        meeting.key: phoneCopy.key,
+        phoneCopy.key: phoneCopy.key,
+      });
+    },
+  );
+
+  test(
+    'Dismiss all before a source is removed still holds afterwards',
+    () async {
+      await addPhone();
+      await sync.run(SyncTrigger.periodic);
+      queuedEvents.add({
+        'type': 'dismissedAll',
+        'alertId': PlannedAlert.idFor(phoneCopy.key, 10),
+        'occurrenceKey': phoneCopy.key,
+        'startUtcMs': phoneCopy.startUtc.millisecondsSinceEpoch,
+        'atUtcMs': now.millisecondsSinceEpoch,
+        'snoozeUntilUtcMs': null,
+      });
+      await sync.run(SyncTrigger.periodic);
+      expect(applied(), isEmpty);
+
+      // The feed's copy is alone now. It is planned under the meeting key,
+      // which is the one the dismissal was recorded for: under its own key it
+      // would ring again.
+      await sources.delete(phone.id);
+      await sync.run(SyncTrigger.periodic);
+      expect(applied(), isEmpty);
+    },
+  );
+
+  test('a phone calendar cleared by the empty-feed guard leaves its meetings to the feed under the same key', () async {
+    await addPhone();
+    await sync.run(SyncTrigger.periodic);
+    final before = appliedIds();
+    SyncOutcome phoneOutcome(SyncReport r) =>
+        r.sources.firstWhere((s) => s.sourceId == phone.id).outcome;
+
+    // The first empty answer is ignored, so the phone's copy still counts.
+    results[phone.id] = () => const SourceFetched([]);
+    final first = await sync.run(SyncTrigger.periodic);
+    expect(phoneOutcome(first), SyncOutcome.emptyKept);
+    expect(await cache.countForSource(phone.id), 1);
+    expect(first.merged, 1);
+    expect(appliedIds(), before);
+
+    // The second one clears it. The feed carries the meeting on, under the
+    // key it had.
+    final second = await sync.run(SyncTrigger.periodic);
+    expect(phoneOutcome(second), SyncOutcome.success);
+    expect(await cache.countForSource(phone.id), 0);
+    expect(second.merged, 0);
+    expect(appliedIds(), before);
+    expect(appliedKeys(), {phoneCopy.key});
+
+    // When the phone calendar fills up again, the meeting is back under it.
+    results[phone.id] = () => SourceFetched([phoneCopy]);
+    final third = await sync.run(SyncTrigger.periodic);
+    expect(third.merged, 1);
+    expect(appliedIds(), before);
+  });
+
+  test(
+    'a phone source whose access was revoked loses the time to a healthy feed',
+    () async {
+      // A series instance, so that moving it keeps its key.
+      EventOccurrence instance(String sourceId, String uid, {int hour = 8}) =>
+          occ(
+            sourceId: sourceId,
+            uid: uid,
+            title: 'Sprint planning',
+            seriesUid: 'series',
+            start: DateTime.utc(2026, 10, 6, hour),
+            originalStart: DateTime.utc(2026, 10, 6, 8),
+          );
+      await addPhone();
+      results['work'] = () => SourceFetched([instance('work', 'm1')]);
+      results[phone.id] = () => SourceFetched([instance(phone.id, 'e7')]);
+      await sync.run(SyncTrigger.periodic);
+      expect(appliedTimes(), [utcMs(7, 50), utcMs(7, 59)]);
+
+      // The meeting moves to 09:00. The feed shows the move. The phone
+      // calendar can no longer be read, and its cached copy is still at 08:00.
+      results['work'] = () => SourceFetched([instance('work', 'm1', hour: 9)]);
+      results[phone.id] = () => const SourceFailed(
+        SyncOutcome.calendarAccessDenied,
+        'Calendar access was turned off.',
+      );
+      final report = await sync.run(SyncTrigger.periodic);
+
+      expect(appliedTimes(), [utcMs(8, 50), utcMs(8, 59)]);
+      // The meeting is the same one, so what was recorded for it still holds.
+      expect(appliedKeys(), {phoneCopy.key});
+      expect(report.merged, 1);
+    },
+  );
+
+  test('a stale feed whose meeting is timed by a healthy phone calendar posts no Feed stale', () async {
+    // The phone calendar could not be read when the two were first merged,
+    // so the meeting took the feed's key.
+    await addPhone();
+    results[phone.id] = () => const SourceFailed(
+      SyncOutcome.calendarAccessDenied,
+      'Calendar access was turned off.',
+    );
+    await cache.replaceForSource(phone.id, [phoneCopy]);
+    await sync.run(SyncTrigger.periodic);
+    expect(appliedKeys(), {meeting.key});
+
+    // Now the phone calendar is back and the feed fails, 70 min after its
+    // last success, with the heads-up due in 40 min.
+    now = DateTime.utc(2026, 10, 6, 7, 10);
+    results[phone.id] = () => SourceFetched([phoneCopy]);
+    results['work'] = () =>
+        const SourceFailed(SyncOutcome.networkError, 'offline');
+    syncCalls.clear();
+    await sync.run(SyncTrigger.periodic);
+
+    // The meeting is still planned under the feed's key, with its alerts
+    // still ahead. The phone calendar decides its time, so the feed being
+    // stale puts nothing at risk.
+    expect(appliedKeys(), {meeting.key});
+    expect(appliedTimes(), [utcMs(7, 50), utcMs(7, 59)]);
+    expect(syncCallsNamed('postSourceNotice'), isEmpty);
+    expect(
+      syncCallsNamed('cancelSourceNotice').map((c) => c.arguments),
+      anyElement(equals({'kind': 'stale', 'sourceId': 'work'})),
+    );
+  });
+
+  test('a stale feed timing its own meeting still posts Feed stale', () async {
+    await addPhone();
+    await sync.run(SyncTrigger.periodic); // merged under the phone copy's key
+    expect(appliedKeys(), {phoneCopy.key});
+
+    // The phone calendar goes, so the feed decides the time of the meeting,
+    // which is still planned under the key it had. The feed then fails, 70 min
+    // after its last success, with the heads-up due in 40 min.
+    await sources.delete(phone.id);
+    now = DateTime.utc(2026, 10, 6, 7, 10);
+    results['work'] = () =>
+        const SourceFailed(SyncOutcome.networkError, 'offline');
+    syncCalls.clear();
+    await sync.run(SyncTrigger.periodic);
+
+    expect(appliedKeys(), {phoneCopy.key});
+    final stale = syncCallsNamed('postSourceNotice').single.arguments as Map;
+    expect(stale['kind'], 'stale');
+    expect(stale['sourceId'], 'work');
+    expect(
+      stale['title'],
+      "Calendar hasn't synced for 1 h — alarms may be outdated",
+    );
+    expect(stale['text'], 'Work Outlook');
+  });
+
+  test('with merge.enabled false both copies are planned', () async {
+    await addPhone();
+    await sync.run(SyncTrigger.periodic);
+    expect(appliedKeys(), {phoneCopy.key});
+    final merged = await linked();
+
+    await settings.setString(SyncService.mergeEnabledKey, 'false');
+    final unmerged = await sync.run(SyncTrigger.periodic);
+
+    // As before merging existed: each copy under its own key, with its own
+    // alerts.
+    expect(appliedKeys(), {meeting.key, phoneCopy.key});
+    expect(applied(), hasLength(4));
+    expect(unmerged.planned, 4);
+    expect(unmerged.merged, 0);
+    expect(await lastRunMessage(), isNot(contains('merged')));
+    // The links stay, so turning merging back on finds the same meeting.
+    expect(await linked(), merged);
+
+    await settings.setString(SyncService.mergeEnabledKey, 'true');
+    final restored = await sync.run(SyncTrigger.periodic);
+    expect(appliedKeys(), {phoneCopy.key});
+    expect(applied(), hasLength(2));
+    expect(restored.merged, 1);
+  });
+
+  test('merging stays on for any stored value but exactly false', () async {
+    await addPhone();
+    for (final value in ['true', '', 'False', 'FALSE', ' false', '0', 'off']) {
+      await settings.setString(SyncService.mergeEnabledKey, value);
+      final report = await sync.run(SyncTrigger.periodic);
+      expect(report.merged, 1, reason: 'stored value "$value"');
+    }
+    await settings.setString(SyncService.mergeEnabledKey, 'false');
+    expect((await sync.run(SyncTrigger.periodic)).merged, 0);
+  });
+
+  test(
+    'links persist between runs and are pruned a day after the copy ends',
+    () async {
+      await addPhone();
+      await sync.run(SyncTrigger.periodic);
+      final merged = await linked();
+      expect(merged, {
+        meeting.key: phoneCopy.key,
+        phoneCopy.key: phoneCopy.key,
+      });
+
+      // A later run keeps them.
+      now = now.add(const Duration(minutes: 15));
+      await sync.run(SyncTrigger.periodic);
+      expect(await linked(), merged);
+
+      // Both copies end at 08:30. A minute short of a day later the links are
+      // still there, and a minute past it they are gone.
+      final ended = meeting.endUtc;
+      now = ended
+          .add(const Duration(days: 1))
+          .subtract(const Duration(minutes: 1));
+      await sync.run(SyncTrigger.periodic);
+      expect(await linked(), merged);
+
+      now = ended.add(const Duration(days: 1, minutes: 1));
+      await sync.run(SyncTrigger.periodic);
+      expect(await linked(), isEmpty);
+    },
+  );
+
+  test(
+    'no missed (system) row when a merged meeting splits before its alert',
+    () async {
+      await addPhone();
+      await sync.run(SyncTrigger.periodic);
+      final armed = await expectedAlerts();
+      expect(armed.map((e) => (e.id, e.occurrenceKey)), [
+        (PlannedAlert.idFor(phoneCopy.key, 10), phoneCopy.key),
+        (PlannedAlert.idFor(phoneCopy.key, 1), phoneCopy.key),
+      ]);
+
+      // The phone calendar goes before either alert is due. The meeting keeps
+      // its key, so the alerts the engine holds are the ones still expected.
+      await sources.delete(phone.id);
+      now = DateTime.utc(2026, 10, 6, 6, 30);
+      final split = await sync.run(SyncTrigger.periodic);
+      expect(split.missedSystem, 0);
+      expect(await expectedAlerts(), armed);
+
+      // The engine rings both, under the ids it was given.
+      for (final (offset, firedAt) in [
+        (10, DateTime.utc(2026, 10, 6, 7, 50)),
+        (1, DateTime.utc(2026, 10, 6, 7, 59)),
+      ]) {
+        queuedEvents.add({
+          'type': 'fired',
+          'alertId': PlannedAlert.idFor(phoneCopy.key, offset),
+          'occurrenceKey': phoneCopy.key,
+          'startUtcMs': meeting.startUtc.millisecondsSinceEpoch,
+          'atUtcMs': firedAt.millisecondsSinceEpoch,
+          'snoozeUntilUtcMs': null,
+        });
+      }
+      now = DateTime.utc(2026, 10, 6, 8, 5);
+      final after = await sync.run(SyncTrigger.periodic);
+
+      expect(after.missedSystem, 0);
+      expect(
+        (await history.recent()).map((h) => h.type),
+        isNot(contains(AlertEventType.missedSystem)),
+      );
+    },
+  );
+
+  test('disabling the phone source splits the meeting, and enabling it joins the same meeting again', () async {
+    await addPhone();
+    await sync.run(SyncTrigger.periodic);
+    final before = appliedIds();
+
+    // A disabled source keeps its cached copies, but they no longer count.
+    await sources.save(phone.copyWith(enabled: false));
+    final split = await sync.run(SyncTrigger.periodic);
+    expect(split.merged, 0);
+    expect(appliedIds(), before);
+
+    await sources.save(phone);
+    final joined = await sync.run(SyncTrigger.periodic);
+    expect(joined.merged, 1);
+    expect(appliedIds(), before);
+  });
+
+  test('a link the merger drops is deleted from storage', () async {
+    // The phone calendar holds a second event like the feed's meeting. From an
+    // earlier run, all three copies are linked to the meeting, which one
+    // source cannot have two copies of.
+    await addPhone();
+    final twin = occ(sourceId: phone.id, uid: 'e8', title: 'Sprint planning');
+    results[phone.id] = () => SourceFetched([phoneCopy, twin]);
+    MeetingLink linkTo(EventOccurrence c) => MeetingLink(
+      copyKey: c.key,
+      meetingKey: meeting.key,
+      sourceId: c.sourceId,
+      uid: c.uid,
+      oneOff: true,
+      endUtc: c.endUtc,
+      matchedBy: MeetingMatch.remembered,
+    );
+    await links.apply(
+      upsert: [linkTo(meeting), linkTo(phoneCopy), linkTo(twin)],
+      delete: {},
+    );
+
+    final report = await sync.run(SyncTrigger.periodic);
+
+    // The twin is turned away: it is planned on its own, under its own key,
+    // and its link is gone.
+    expect(await linked(), {
+      meeting.key: meeting.key,
+      phoneCopy.key: meeting.key,
+    });
+    expect(appliedKeys(), {meeting.key, twin.key});
+    expect(report.merged, 1);
   });
 }

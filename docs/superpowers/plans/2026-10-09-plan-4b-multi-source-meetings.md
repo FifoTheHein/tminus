@@ -60,20 +60,29 @@ Tests mirror `lib/` under `test/`: `test/core/planner/meeting_merger_test.dart` 
 
 The cloud container has no emulator, and only the user's phone has an Outlook/Exchange account. Run from Git Bash with the phone connected (`export MSYS_NO_PATHCONV=1`). The `adb shell` user can read the calendar provider (Plan 4 Task 15 uses it).
 
-- [ ] **Step 1:** List the calendars and note the `_id` and `account_type` of the Outlook-synced one:
+- [x] **Step 1:** List the calendars and note the `_id` and `account_type` of the Outlook-synced one:
   ```bash
   adb shell content query --uri content://com.android.calendar/calendars --projection _id:calendar_displayName:account_name:account_type
   ```
-- [ ] **Step 2:** Pick a meeting that is also in the published feed (a one-off and an instance of a recurring meeting), then dump its candidate columns. Replace `<id>` and `<word>`:
+- [x] **Step 2:** Pick a meeting that is also in the published feed (a one-off and an instance of a recurring meeting), then dump its candidate columns. Replace `<id>` and `<word>`:
   ```bash
   adb shell "content query --uri content://com.android.calendar/events --projection _id:title:dtstart:original_id:original_instance_time:uid2445:_sync_id:original_sync_id:sync_data1:sync_data2:sync_data3:sync_data4:sync_data5:sync_data6:sync_data7:sync_data8:sync_data9:sync_data10 --where \"calendar_id=<id> AND title LIKE '%<word>%'\""
   adb shell "content query --uri content://com.android.calendar/extendedproperties --projection event_id:name:value --where \"event_id=<event _id>\""
   ```
   If the provider refuses a column, drop it from the projection and note which one.
-- [ ] **Step 3:** Open the published `.ics` file, find the same meeting's `SUMMARY`, and read its `UID:` line. Unfold it first: a line starting with a space continues the previous line. Outlook UIDs look like `040000008200E00074C5B7101A82E008…`.
-- [ ] **Step 4:** Record which column, if any, equals the feed UID: exactly, case-insensitively, or with a prefix/suffix. Note whether it is filled for both the one-off and the recurring instance, and whether `original_instance_time` equals the feed's `RECURRENCE-ID` for a moved instance. **No match → Task 6 is skipped.** Do not paste titles or UIDs into the PR, only column names and yes/no.
+- [ ] *(not done: the cached feed could not be read over `adb`; see "Probe result")* **Step 3:** Open the published `.ics` file, find the same meeting's `SUMMARY`, and read its `UID:` line. Unfold it first: a line starting with a space continues the previous line. Outlook UIDs look like `040000008200E00074C5B7101A82E008…`.
+- [x] **Step 4:** Record which column, if any, equals the feed UID: exactly, case-insensitively, or with a prefix/suffix. Note whether it is filled for both the one-off and the recurring instance, and whether `original_instance_time` equals the feed's `RECURRENCE-ID` for a moved instance. **No match → Task 6 is skipped.** Do not paste titles or UIDs into the PR, only column names and yes/no.
 
-**Probe result:** _(to be filled in)_
+**Probe result (2026-10-10, the user's phone, Android 16 / One UI, Outlook app sync):** **no column holds the iCal UID, so Task 6 is skipped.**
+
+- The probe was a read-only script that printed counts and yes/no only, never titles or UID values. The user ran the final pass themselves.
+- The Outlook-synced calendars have account type `com.microsoft.office.outlook.USER_ACCOUNT` (the Outlook app's own sync adapter, not Samsung's Exchange adapter). There are 5 calendars and one holds events: 798 rows, of which 20 are series masters, 603 are exceptions or instances and 175 are one-offs.
+- The provider allows every candidate column on `Events` (`uid2445`, `_sync_id`, `original_sync_id`, `sync_data1`–`10`). On `Instances` it allows `uid2445`, `_sync_id` and `original_sync_id`, and refuses `sync_data*`.
+- `uid2445` is empty on every row, in Events and in Instances.
+- `_sync_id`, `sync_data1`, `sync_data3` and `sync_data7` (exceptions only) are filled on most rows, and `original_sync_id` on every exception. None of their values starts with the Outlook GOID prefix `040000008200E00074C5B7101A82E008`, and none is a long hex string. They are the adapter's own ids.
+- No exact comparison with the feed's UIDs was possible, because the app's cached feed file was not readable over `adb`. The verdict rests on the pattern check.
+- The `extendedproperties` table returned no rows for these events.
+- Step 2's command names the column `original_instance_time`. The provider calls it `originalInstanceTime` and refuses the whole query on the wrong name. The probe asked for `originalInstanceTime`, but it did not compare it with the feed's `RECURRENCE-ID`, because no feed was readable. Plan 4 decision 14 already relies on the two being equal.
 
 ---
 
@@ -81,9 +90,9 @@ The cloud container has no emulator, and only the user's phone has an Outlook/Ex
 
 **Files:** `tables.dart`, `app_database.dart`, `meeting_link.dart`, `meeting_link_repository.dart`, `event_occurrence.dart` (field only), `occurrence_repository.dart`, `occurrence_mapping.dart`, `drift_schemas/`, tests.
 
-- [ ] **Step 1 (before touching `tables.dart`):** dump schema 1: `dart run drift_dev schema dump lib/core/storage/app_database.dart drift_schemas/`. Do this first, because once the tables change, v1 can't be dumped any more.
-- [ ] **Step 2:** `EventOccurrence` gains `final String? icalUid` (constructor, `copyWith` and `==`; `hashCode` stays as it is). `occurrenceFromIcs` sets it to `o.uid`; `occurrenceFromDevice` leaves it null. `Occurrences` gains a nullable `icalUid` text column; `OccurrenceRepository` reads and writes it.
-- [ ] **Step 3:** The table, model and repository:
+- [x] **Step 1 (before touching `tables.dart`):** dump schema 1: `dart run drift_dev schema dump lib/core/storage/app_database.dart drift_schemas/`. Do this first, because once the tables change, v1 can't be dumped any more.
+- [x] **Step 2:** `EventOccurrence` gains `final String? icalUid` (constructor, `copyWith` and `==`; `hashCode` stays as it is). `occurrenceFromIcs` sets it to `o.uid`; `occurrenceFromDevice` leaves it null. `Occurrences` gains a nullable `icalUid` text column; `OccurrenceRepository` reads and writes it.
+- [x] **Step 3:** The table, model and repository:
   ```dart
   enum MeetingMatch { uid, fingerprint, remembered } // stored by name; append only
 
@@ -99,7 +108,7 @@ The cloud container has no emulator, and only the user's phone has an Outlook/Ex
   ```
   - Table `meeting_links`: PK `copy_key`, plus indexes `(source_id, uid)` and `(meeting_key)`. **No foreign key to `sources`**, because links must outlive a deleted source (spec §13).
   - Repository methods: `all()`; `apply({required List<MeetingLink> upsert, required Set<String> delete})` in one transaction; `deleteEndedBefore(DateTime)`.
-- [ ] **Step 4:** Set `schemaVersion = 2`. Replace the `throw` in `onUpgrade` with an `if (from < 2)` step that adds the column and creates the table, and keep the comment's rule: shipped steps are never edited. Dump v2 and generate the migration test helpers (`drift_dev schema generate drift_schemas/ test/generated_migrations/`).
+- [x] **Step 4:** Set `schemaVersion = 2`. Replace the `throw` in `onUpgrade` with an `if (from < 2)` step that adds the column and creates the table, and keep the comment's rule: shipped steps are never edited. Dump v2 and generate the migration test helpers (`drift_dev schema generate drift_schemas/ test/generated_migrations/`).
 
 **Acceptance (tests):**
 - `app_database_test`: `schema 1 upgrades to 2 keeping sources, occurrences, overrides and history` (SchemaVerifier); `a fresh database is schema 2`.
@@ -113,7 +122,7 @@ The cloud container has no emulator, and only the user's phone has an Outlook/Ex
 
 **Files:** `event_occurrence.dart`, `meeting_occurrence.dart`, `rule_set.dart`, `rules_engine.dart`, `acknowledgements.dart`, `plan_builder.dart`, tests.
 
-- [ ] **Step 1:** Add the lookup getters to `EventOccurrence`, with defaults for a plain copy:
+- [x] **Step 1:** Add the lookup getters to `EventOccurrence`, with defaults for a plain copy:
   ```dart
   /// Keys to look overrides and acknowledgements up under, best first.
   List<String> get lookupKeys => [key];
@@ -121,9 +130,9 @@ The cloud container has no emulator, and only the user's phone has an Outlook/Ex
   /// Sources in rank order, for the source default (§6 step 5).
   List<String> get sourceIds => [sourceId];
   ```
-- [ ] **Step 2:** Add `MeetingOccurrence extends EventOccurrence`. Its fields are the merged values, plus `meetingKey`, `copies` (in rank order) and `timeSourceId`. It overrides `key` (→ `meetingKey`), `lookupKeys` (meeting key, then each copy key, de-duplicated), `lookupSeriesUids` (copies' non-null `seriesUid`s in rank order, de-duplicated), `sourceIds`, `==`, `hashCode` and `copyWith` (which must keep the meeting fields; nothing in the rules or plan path may turn a meeting back into a plain copy).
-- [ ] **Step 3:** `RuleSet` gains `occurrenceOverrideFor(List<String> keys)` and `seriesOverrideFor(List<String> uids)`, each returning the first match, and `sourceDefaultFor(List<String> sourceIds)`, returning the first that has a default. `RulesEngine` uses them wherever it now reads `o.key`, `o.seriesUid` or `sourceDefaults[o.sourceId]` (`resolve`, `_turnedOnProfile`, `_fromRulesAndDefaults`).
-- [ ] **Step 4:** `Acknowledgements` gains `isAnyOccurrenceAcked(Iterable<String> keys, DateTime start)`. `buildPlan` drops an occurrence if any `lookupKeys` entry is acked at `o.startUtc`. It drops an alert if `idFor(k, offset)` is dismissed at `o.startUtc` for any `k` in `lookupKeys`. Ids and `occurrenceKey` stay `idFor(o.key, …)` / `o.key`.
+- [x] **Step 2:** Add `MeetingOccurrence extends EventOccurrence`. Its fields are the merged values, plus `meetingKey`, `copies` (in rank order) and `timeSourceId`. It overrides `key` (→ `meetingKey`), `lookupKeys` (meeting key, then each copy key, de-duplicated), `lookupSeriesUids` (copies' non-null `seriesUid`s in rank order, de-duplicated), `sourceIds`, `==`, `hashCode` and `copyWith` (which must keep the meeting fields; nothing in the rules or plan path may turn a meeting back into a plain copy).
+- [x] **Step 3:** `RuleSet` gains `occurrenceOverrideFor(List<String> keys)` and `seriesOverrideFor(List<String> uids)`, each returning the first match, and `sourceDefaultFor(List<String> sourceIds)`, returning the first that has a default. `RulesEngine` uses them wherever it now reads `o.key`, `o.seriesUid` or `sourceDefaults[o.sourceId]` (`resolve`, `_turnedOnProfile`, `_fromRulesAndDefaults`).
+- [x] **Step 4:** `Acknowledgements` gains `isAnyOccurrenceAcked(Iterable<String> keys, DateTime start)`. `buildPlan` drops an occurrence if any `lookupKeys` entry is acked at `o.startUtc`. It drops an alert if `idFor(k, offset)` is dismissed at `o.startUtc` for any `k` in `lookupKeys`. Ids and `occurrenceKey` stay `idFor(o.key, …)` / `o.key`.
 
 **Acceptance (tests):**
 - `rules_engine_test`:
@@ -233,8 +242,8 @@ Algorithm. It is deterministic, and the input order must not matter, so sort the
 
 **Files:** `sync_service.dart`, `di.dart`, `sync_debug_panel.dart`, `test/core/sync/sync_service_test.dart`, roadmap §4.
 
-- [ ] **Step 1:** `SyncService` takes a `MeetingLinkRepository links` and adds the constant `static const mergeEnabledKey = 'merge.enabled'`. Merging is off only when the stored value is `'false'`.
-- [ ] **Step 2:** In `_plan`:
+- [x] **Step 1:** `SyncService` takes a `MeetingLinkRepository links` and adds the constant `static const mergeEnabledKey = 'merge.enabled'`. Merging is off only when the stored value is `'false'`.
+- [x] **Step 2:** In `_plan`:
   1. Read the cache as today, filtered to enabled sources.
   2. Build `sources` ranks from `configs` and `sources.syncState(id)` (`failing = lastError != null`; `_store` has already written this run's state).
   3. Call `MeetingMerger.merge`, then `links.apply(upsert:, delete:)`.
@@ -242,9 +251,9 @@ Algorithm. It is deterministic, and the input order must not matter, so sort the
   5. Return the plan and `result.timeSource`.
 
   `_run` calls `links.deleteEndedBefore(now − occurrenceRetention)` next to `occurrences.deleteEndedBefore`.
-- [ ] **Step 3:** `_staleNotices` replaces `a.occurrenceKey.startsWith('${c.id}|')` with `timeSource[a.occurrenceKey] == c.id`.
-- [ ] **Step 4:** `SyncReport.merged` (`int`, default 0); the run's sync-log message appends `, N merged` when N > 0. The debug panel's status line shows it, and the panel gets a **Merge duplicates** on/off control that writes `merge.enabled` (debug builds only, a stand-in for Plan 5's switch, like Plan 4 decision 23). In DI, register the repository and pass it in, in both the UI isolate and the headless one.
-- [ ] **Step 5:** Roadmap §4: one line saying that occurrences reach rules and the planner as meetings (spec §13), that `occurrenceKey` in plans and history is the meeting key, and that Plan 5's Agenda must call `MeetingMerger.merge` with `MeetingLinkRepository.all()`.
+- [x] **Step 3:** `_staleNotices` replaces `a.occurrenceKey.startsWith('${c.id}|')` with `timeSource[a.occurrenceKey] == c.id`.
+- [x] **Step 4:** `SyncReport.merged` (`int`, default 0); the run's sync-log message appends `, N merged` when N > 0. The debug panel's status line shows it, and the panel gets a **Merge duplicates** on/off control that writes `merge.enabled` (debug builds only, a stand-in for Plan 5's switch, like Plan 4 decision 23). In DI, register the repository and pass it in, in both the UI isolate and the headless one.
+- [x] **Step 5:** Roadmap §4: one line saying that occurrences reach rules and the planner as meetings (spec §13), that `occurrenceKey` in plans and history is the meeting key, and that Plan 5's Agenda must call `MeetingMerger.merge` with `MeetingLinkRepository.all()`.
 
 **Acceptance (tests, `sync_service_test`, with fake sources):**
 - `an ICS feed and a phone calendar holding the same meeting plan one set of alerts`
@@ -265,7 +274,7 @@ Algorithm. It is deterministic, and the input order must not matter, so sort the
 
 **Files:** `DeviceCalendarReader.kt` (+ test), `device_calendar_api.dart`, `occurrence_mapping.dart`, roadmap §3 `queryInstances` row.
 
-- [ ] Project the column Task 1 found, and send it as `"icalUid": String?`. Normalise it the way Task 1 recorded (for example, upper-case it, or strip a prefix). Empty becomes null. The column comes from `Instances` if the provider allows it there, otherwise from one `Events` query by event id (record which one). `DeviceInstance.icalUid` → `EventOccurrence.icalUid`.
+- [ ] *(skipped: Task 1 found no UID column, run-log decision 1)* Project the column Task 1 found, and send it as `"icalUid": String?`. Normalise it the way Task 1 recorded (for example, upper-case it, or strip a prefix). Empty becomes null. The column comes from `Instances` if the provider allows it there, otherwise from one `Events` query by event id (record which one). `DeviceInstance.icalUid` → `EventOccurrence.icalUid`.
 - **Acceptance:**
   - Kotlin: `instances carry the iCal UID when the provider has one`, `an empty UID is sent as null`.
   - Dart: `a phone copy carries the iCal UID`.
@@ -277,10 +286,28 @@ Algorithm. It is deterministic, and the input order must not matter, so sort the
 
 Record each step's result in the PR description, as in Plan 4 Task 15.
 
-- [ ] **Step 1:** Add the real published feed (debug **Add feed**) and the Outlook-synced phone calendar (**Add phone calendar**, or Plan 5's picker). **Sync now**. The status reads `… merged N`. "Next 5 scheduled" lists each meeting once, and `dumpsys alarm | grep -c tminus.action.FIRE` is about half of the count with merging off (turn **Merge duplicates** off, **Sync now**, count, then turn it back on).
-- [ ] **Step 2:** Move a meeting that starts within the next few hours in Outlook. When the phone calendar updates (a calendar-change sync), the alarm moves to the new time and does not also stay at the old time, even though the feed still lags.
-- [ ] **Step 3:** Use **Dismiss all** on a merged meeting's heads-up, then **Remove all sources** except the phone calendar, then **Sync now**. That meeting does not ring again.
-- [ ] **Step 4:** Revoke `READ_CALENDAR` (Plan 4 Task 15 Step 15). The feed's copy now decides the time. No meeting is lost, and no duplicate appears.
+- [x] **Step 1:** Add the real published feed (debug **Add feed**) and the Outlook-synced phone calendar (**Add phone calendar**, or Plan 5's picker). **Sync now**. The status reads `… merged N`. "Next 5 scheduled" lists each meeting once, and `dumpsys alarm | grep -c tminus.action.FIRE` is about half of the count with merging off (turn **Merge duplicates** off, **Sync now**, count, then turn it back on).
+- [x] **Step 2:** Move a meeting that starts within the next few hours in Outlook. When the phone calendar updates (a calendar-change sync), the alarm moves to the new time and does not also stay at the old time, even though the feed still lags.
+- [x] **Step 3:** Use **Dismiss all** on a merged meeting's heads-up, then **Remove all sources** except the phone calendar, then **Sync now**. That meeting does not ring again.
+- [x] **Step 4:** Revoke `READ_CALENDAR` (Plan 4 Task 15 Step 15). The feed's copy now decides the time. No meeting is lost, and no duplicate appears.
+
+**Device results (2026-10-11):** Pixel_9 AVD, Android 16 (API 36), debug build of f470d2f, installed with `install -r` over the Plan 4 build and its data. The app started with no crash and its first headless sync finished `ok`, so the schema 1 → 2 upgrade ran on a device. The real Outlook feed and phone calendar were not used. The run used a synthetic fixture instead: three meetings (A, B, C) served as an ICS feed from the host at `http://10.0.2.2:8765/merge.ics`, plus the same three meetings at the same UTC times in a local `TMinusTest` phone calendar.
+
+- Step 1: pass.
+  - Adding both sources gave `6 alerts planned · … · merged 3`, and "Next 5 scheduled" listed each meeting once.
+  - With **Merge duplicates** off: `12 alerts planned`, and the duplicates showed. Back on: `6 alerts planned · … · merged 3`.
+  - `dumpsys alarm | grep -c tminus.action.FIRE` gave 13 / 18 / 17. That grep also counts alarm-history lines, and the alerts were firing while it was taken, so the app's planned-alert counts (6 against 12) are the measure.
+- Step 3: pass.
+  - Meeting A's heads-up fired while merging was off, so its notification read "2 meetings starting" and listed A twice, once for each copy. That is expected with merging off.
+  - **Dismiss all** was pressed after merging was back on (History: `dismissedAll 2`). So the acknowledgements were stored under the two *copy* keys.
+  - The phone copy of A was then deleted. The deletion takes the place of "Remove all sources except the phone calendar", which the debug panel cannot do. It split the meeting (`merged 2`).
+  - A was no longer planned, and it did not ring at its start. This also shows that acknowledgements stored under copy keys hold for the meeting.
+- Step 2: pass. Moving the phone copy of B 10 minutes later started a calendar-change sync (`finished: ok`). B was then listed once, at the new time, and not also at the feed's old time.
+- Step 4: pass.
+  - With `READ_CALENDAR` revoked, the status read `… merged 2 · device-…: calendarAccessDenied`, and one "TMinusTest: calendar access was turned off" notification appeared.
+  - B went back to the feed's (old) time, listed once, and C stayed.
+  - With the permission granted again, B returned to the phone's new time.
+- The emulator's cold boot was slow (System UI and the app showed "isn't responding" once, and the scout tapped **Wait**). No app crash was logged.
 
 ---
 
@@ -298,8 +325,47 @@ Record each step's result in the PR description, as in Plan 4 Task 15.
 - Overrides written from the UI go on the **meeting key**. Clearing an override should also clear any override on the copy keys (`lookupKeys`), otherwise it seems to come back.
 - The Settings switch writes `merge.enabled` (`'true'` / `'false'`) and then runs a sync.
 - `SourceAdmin.addDeviceSource` could warn when the same Android calendar is already a source. A duplicate is harmless after this plan but pointless.
+- **History titles after a split (found in the Task 5 review).** `EngineEventRecorder._record` fills a history row's title from `occurrences.byKey(occurrenceKey)`. After a split whose meeting key no longer belongs to any cached copy (for example, the phone source was removed and the feed's copy now plans under the phone copy's key), `fired`, `dismissedAll` and `snoozed` rows get a null title. Acknowledgements are unaffected, because they match on key and start. Either look the title up through a link whose `meetingKey` is the event's key, or carry the title in the engine event.
 
 ## Not covered
 
 - A phone copy titled `Canceled: …` without `STATUS_CANCELED` is not marked cancelled by `occurrenceFromDevice`, unlike ICS (`isCancelledTitle`). That gap predates this plan; merging only ORs the flag. Worth a small Plan 5 fix.
 - Unmerging a single false match from the UI (only the global switch exists).
+
+---
+
+## Run log (orchestrated, 2026-10-10)
+
+Run with `/orchestrate` in a lightweight form, as Plan 4 was: one session directed the whole run, with no Gate-0 stop, no fresh session per wave and no time booking. `dev-worker`s built one task each, together with that task's tests. `scout`s did the setup, re-ran each acceptance and every test run, ran the negative controls and the commits, and did the device work. One `review-worker` reviewed every wave, and `deep-review` took Task 2's schema migration.
+
+**Baseline** (branch `claude/plan-4b-impl-9b39a6`, cut from `plan-4b-multi-source-design` at 718ec2c): `flutter analyze` → No issues found; `flutter test` → 371 passed; `./gradlew :app:testDebugUnitTest` → 241 passed, 0 failed.
+
+**Waves:** 1 = Task 2 (+ deep review); 2 = Task 3; 3 = Task 4; 4 = Task 5; 5 = Task 7 (device). Each wave depends on the one before it. Tasks 2 and 3 both own `event_occurrence.dart`, and Task 6 is skipped.
+
+**Decisions taken while running** (each can be overturned):
+
+1. **Task 6 is skipped.** The Task 1 probe found no column holding the iCal UID (see "Probe result"). Phone copies keep `icalUid == null` and merge on fingerprint and remembered links.
+2. **Each `dev-worker` writes its own task's tests** from the task's Acceptance list, in the same job, as in Plan 4. There is no separate test-author job. Every extra or fix test gets a negative control.
+3. **Task 2: refuse downgrades.** Step 4 replaces `onUpgrade`'s `throw` with a `from < 2` step. A `from > to` throw stays as the first line, because drift 2.35 calls `onUpgrade` on a downgrade too and would otherwise re-stamp the stored version (deep-review finding).
+4. **Task 2: the upgrade step writes first.** It runs in one transaction that starts with `createTable` (`IF NOT EXISTS`). The column is added only if it is missing. The deep review saw a risk of `SQLITE_BUSY` when two isolates migrate at once, but drift 2.35 opens every native transaction with `BEGIN IMMEDIATE` (`lib/src/sqlite3/database.dart:72`), so a second isolate already waits on `busy_timeout` and the order is only a defence if a transaction is ever deferred. No test covers it, because no ordering fails today.
+5. **Task 3: lookups take the first match.** The source default comes from the first ranked source that has an entry in `sourceDefaults`, even if that entry names a deleted profile, which then falls to the global default. Occurrence overrides likewise use the first key in `lookupKeys` that has one. This follows spec §13 ("first in rank order"), and a single source behaves exactly as before.
+6. **Task 3: `EventOccurrence ==` also compares `runtimeType`**, so a plain copy never equals a `MeetingOccurrence`. Plain copies compare as before. As a result, Task 4 emits a lone copy with no stored link as the plain `EventOccurrence`, and a one-copy `MeetingOccurrence` only after a split, when the meeting key differs from the copy's key.
+7. **Task 3: `MeetingOccurrence` guards.** It needs at least one copy (an assert), and its copies are copied into an unmodifiable list. Task 4 must set `timeSourceId == sourceId == copies.first.sourceId`.
+8. **Task 4: canonical order.** The merger sorts copies once, by (failing, kind, source id, key), and returns meetings sorted by key and `upsert` sorted by copy key. With merging off, the copies come back sorted by key and de-duplicated, not in input order. `buildPlan` sorts its own output, so nothing downstream depends on the order.
+9. **Task 4: a copy turned away from a meeting falls through.** When another copy of its source holds its place in a meeting, it tries its next option before it is matched as unlinked: first its own link, then its own key being a meeting key, then the one-off link. The plan says such copies are "treated as unlinked", but read literally that can emit two meetings under one key. The review confirmed that unique keys need this.
+10. **Task 4: links.** `delete` holds only the links of copies present in this run that end up in no linked meeting. Links of absent copies are never touched, so a split keeps its key. Every copy of every linked meeting has its link upserted on every run, so `endUtc` stays current. A source missing from the ranks ranks last, as failing and debug. An empty iCal UID is not a strong key.
+11. **Task 4: `matchedBy`.** It is `remembered` if a stored link placed the copy, `uid` if another member shares its usable strong key, and otherwise `fingerprint`.
+12. **Known limit (Task 4).** If the link table is inconsistent, a copy holding key `m` can sit in another meeting while other copies keep meeting `m`. Both meetings' `lookupKeys` then contain `m`, so a Dismiss all under `m` silences both when they start together. Normal runs cannot produce this, because a copy that holds `m` is never turned away from `m`.
+
+**Steps:**
+
+| Step | State | Evidence / commit |
+|---|---|---|
+| Setup + baseline | done | Gradle files copied, `pub get`, baseline above |
+| Task 1 probe | done | Probe result above. Task 6 skipped |
+| W1 Task 2 | done | analyze clean; `flutter test` 383 passed; review and deep review clean after 2 fixes (downgrade refused, write-first upgrade step) and 1 test fix (the `matchedBy` control survived); 14 negative controls all killed, restore proven by sha256. Commit 223dbd2 |
+| W2 Task 3 | done | analyze clean; `flutter test` 406 passed (+23); existing rules, planner and sync tests unchanged (test diff is insertions only); review clean (notes became decisions 5–7); 23 negative controls all killed, restore proven by sha256. Commit 5fcb04a |
+| W3 Task 4 | done | analyze clean; `flutter test` 455 passed (+49: 28 plan tests and 21 extras, including a 300-round fuzz test); review clean apart from one test gap (seeding order), fixed with a test; 78 negative controls all caught. R25 was caught by the merging-off test; the input-order test is not meant to catch it. Restore proven by sha256. Commit a7f383e |
+| W4 Task 5 | done | analyze clean; `flutter test` 472 passed (+17: the 10 plan tests and 4 extras in `sync_service_test`, 3 in `sync_debug_panel_test`); the setup of existing tests only gained lines; review clean (history-title gap moved to Notes for Plan 5); 23 negative controls all caught, restore proven by sha256 |
+| Final gates | done | On f470d2f: `flutter analyze` → No issues found; `flutter test` → 472 passed; `./gradlew :app:testDebugUnitTest` → 241 tests, 0 failures, 0 errors; `flutter build apk --debug` → built |
+| Task 7 device check | done (emulator) | See "Device results (2026-10-11)" under Task 7 |

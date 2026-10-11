@@ -19,6 +19,7 @@ class EventOccurrence {
     required this.uid,
     required DateTime originalStartUtc,
     this.seriesUid,
+    this.icalUid,
     required this.title,
     this.location,
     this.organizer,
@@ -42,6 +43,12 @@ class EventOccurrence {
 
   /// Null for one-off events.
   final String? seriesUid;
+
+  /// The event's iCalendar UID, when the source exposes it. An ICS feed copy
+  /// always has it (it is [uid]); a phone copy has it only if the calendar
+  /// provider fills a column the app reads. With [originalStartUtc] it is the
+  /// strong key for recognising the same meeting in two sources (spec §13).
+  final String? icalUid;
   final String title;
   final String? location;
   final String? organizer;
@@ -69,9 +76,23 @@ class EventOccurrence {
   static String makeKey(String sourceId, String uid, DateTime originalStart) =>
       '$sourceId|$uid|${plainUtc(originalStart).toIso8601String()}';
 
+  /// Keys to look overrides and acknowledgements up under, best first.
+  ///
+  /// A plain copy has only its own [key]. A `MeetingOccurrence` adds the keys
+  /// of its copies, so what was recorded under any of them still applies.
+  List<String> get lookupKeys => [key];
+
+  /// Series uids to look series overrides up under, best first. Empty for a
+  /// one-off event.
+  List<String> get lookupSeriesUids => [?seriesUid];
+
+  /// Sources in rank order, for the source default (§6 step 5).
+  List<String> get sourceIds => [sourceId];
+
   EventOccurrence copyWith({
     DateTime? startUtc,
     DateTime? endUtc,
+    String? icalUid,
     String? title,
     String? location,
     String? organizer,
@@ -88,6 +109,7 @@ class EventOccurrence {
     uid: uid,
     originalStartUtc: originalStartUtc,
     seriesUid: seriesUid,
+    icalUid: icalUid ?? this.icalUid,
     title: title ?? this.title,
     location: location ?? this.location,
     organizer: organizer ?? this.organizer,
@@ -103,13 +125,17 @@ class EventOccurrence {
     warnings: warnings ?? this.warnings,
   );
 
+  /// A `MeetingOccurrence` is never equal to a plain copy, even with the same
+  /// fields, so `==` stays symmetric.
   @override
   bool operator ==(Object other) =>
       other is EventOccurrence &&
+      other.runtimeType == runtimeType &&
       other.sourceId == sourceId &&
       other.uid == uid &&
       other.originalStartUtc == originalStartUtc &&
       other.seriesUid == seriesUid &&
+      other.icalUid == icalUid &&
       other.title == title &&
       other.location == location &&
       other.organizer == organizer &&

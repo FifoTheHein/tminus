@@ -6,6 +6,7 @@ import '../../core/sources/device_calendar_api.dart';
 import '../../core/sources/fast_alarms.dart';
 import '../../core/sources/source_admin.dart';
 import '../../core/storage/alert_history_repository.dart';
+import '../../core/storage/settings_repository.dart';
 import '../../core/storage/source_repository.dart';
 import '../../core/sync/outcome_severity.dart';
 import '../../core/sync/sync_platform.dart';
@@ -13,11 +14,14 @@ import '../../core/sync/sync_service.dart';
 
 /// Debug-only sync controls (spec §11 "fast alarms"), so Plan 4 can be tried
 /// on a device before the Sources and Health screens (Plan 5) exist: fast
-/// alarms, a pasted ICS link, the first phone calendar, and sync buttons.
+/// alarms, a pasted ICS link, the first phone calendar, sync buttons and the
+/// Merge duplicates switch (spec §13).
 class SyncDebugPanel extends StatefulWidget {
   const SyncDebugPanel({super.key = const Key('syncDebugPanel')});
 
   /// One line per run, e.g. `6 alerts planned · armed 4, kept 0, cancelled 0`.
+  /// `merged 2` follows when two meetings were made from the copies of more
+  /// than one source.
   static String describe(SyncReport r) {
     if (r.outcome == SyncRunOutcome.busy) return 'Another sync is running';
     final applied = r.applied;
@@ -31,6 +35,7 @@ class SyncDebugPanel extends StatefulWidget {
       applied == null
           ? 'applyPlan failed'
           : 'armed ${applied.armed}, kept ${applied.kept}, cancelled ${applied.cancelled}',
+      if (r.merged > 0) 'merged ${r.merged}',
       if (r.missedSystem > 0) '${r.missedSystem} missed (system)',
       ...problems,
     ].join(' · ');
@@ -44,6 +49,12 @@ class _SyncDebugPanelState extends State<SyncDebugPanel> {
   final _link = TextEditingController();
   String? _status;
   bool _busy = false;
+
+  /// What the Merge duplicates switch shows. It starts on, like the setting,
+  /// and follows the stored value after every action. Building the panel does
+  /// not read it, so a panel built before anything has opened the database
+  /// does not open it.
+  bool _merge = true;
 
   @override
   void dispose() {
@@ -67,16 +78,41 @@ class _SyncDebugPanelState extends State<SyncDebugPanel> {
     } catch (e) {
       status = 'Failed: ${e.runtimeType}';
     }
+    final merge = await _storedMerge();
     if (!mounted) return;
     setState(() {
       _busy = false;
       _status = status;
+      _merge = merge ?? _merge;
     });
+  }
+
+  /// Whether merging is on in settings, or null if they cannot be read. That
+  /// only keeps the switch as it was; it never changes the status shown.
+  Future<bool?> _storedMerge() async {
+    try {
+      final stored = await getIt<SettingsRepository>().getString(
+        SyncService.mergeEnabledKey,
+      );
+      return stored != 'false';
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String> _sync() async => SyncDebugPanel.describe(
     await getIt<SyncService>().run(SyncTrigger.debug),
   );
+
+  /// Writes `merge.enabled` and syncs, as Plan 5's Settings switch will.
+  Future<String> _setMerge(bool on) async {
+    setState(() => _merge = on);
+    await getIt<SettingsRepository>().setString(
+      SyncService.mergeEnabledKey,
+      on ? 'true' : 'false',
+    );
+    return 'Merge duplicates ${on ? 'on' : 'off'} · ${await _sync()}';
+  }
 
   Future<String> _fastAlarms() async {
     await getIt<FastAlarms>().create(DateTime.now().toUtc());
@@ -212,6 +248,14 @@ class _SyncDebugPanelState extends State<SyncDebugPanel> {
               child: const Text('Remove all sources'),
             ),
           ],
+        ),
+        SwitchListTile(
+          key: const Key('mergeDuplicatesSwitch'),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Merge duplicates'),
+          value: _merge,
+          onChanged: enabled ? (on) => _run(() => _setMerge(on)) : null,
         ),
         if (_status != null)
           Padding(

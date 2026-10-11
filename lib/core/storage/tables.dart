@@ -4,6 +4,7 @@ import '../model/alert_history_entry.dart';
 import '../model/event_occurrence.dart';
 import '../model/event_override.dart';
 import '../model/keyword_rule.dart';
+import '../model/meeting_link.dart';
 import '../model/source_config.dart';
 import '../model/sync_log_entry.dart';
 
@@ -71,6 +72,11 @@ class Occurrences extends Table {
 
   /// Comma-separated [OccurrenceWarning] names; empty for none.
   TextColumn get warnings => text().withDefault(const Constant(''))();
+
+  /// The event's iCalendar UID where the source has one; null otherwise and
+  /// for rows cached before schema 2. Declared last, because a column added
+  /// by a migration is appended to the table.
+  TextColumn get icalUid => text().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {occurrenceKey};
@@ -209,4 +215,44 @@ class Settings extends Table {
 
   @override
   Set<Column<Object>> get primaryKey => {name};
+}
+
+/// Remembered links from a copy to its meeting (spec §13), one row per copy.
+/// Added in schema 2.
+///
+/// Deliberately no foreign key to [Sources]: links outlive a deleted source,
+/// so the copies that remain keep the meeting key, and with it the
+/// acknowledgements and history recorded under it. They are pruned a day
+/// after the copy ends (`MeetingLinkRepository.deleteEndedBefore`).
+@DataClassName('MeetingLinkRow')
+@TableIndex.sql(
+  'CREATE INDEX IF NOT EXISTS meeting_links_source_uid '
+  'ON meeting_links (source_id, uid)',
+)
+@TableIndex.sql(
+  'CREATE INDEX IF NOT EXISTS meeting_links_meeting_key '
+  'ON meeting_links (meeting_key)',
+)
+class MeetingLinks extends Table {
+  /// `EventOccurrence.key` of the copy.
+  TextColumn get copyKey => text()();
+
+  /// The sticky key the meeting is planned under.
+  TextColumn get meetingKey => text()();
+
+  /// The copy's source. Not a reference, see above.
+  TextColumn get sourceId => text()();
+
+  /// The copy's uid, to find a one-off again after it moved.
+  TextColumn get uid => text()();
+
+  /// The copy has no series uid.
+  BoolColumn get oneOff => boolean()();
+
+  /// The copy's end, for pruning.
+  IntColumn get endUtcMs => integer()();
+  TextColumn get matchedBy => textEnum<MeetingMatch>()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {copyKey};
 }

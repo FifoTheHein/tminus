@@ -91,6 +91,33 @@ void main() {
       expect(await cache.byKey(full.key), full);
     });
 
+    test('icalUid round-trips', () async {
+      final withUid = occ(
+        sourceId: 'work',
+        uid: 'with',
+      ).copyWith(icalUid: '040000008200E00074C5B7101A82E008');
+      final without = occ(sourceId: 'work', uid: 'without');
+      await cache.replaceForSource('work', [withUid, without]);
+
+      // `==` compares icalUid, so these also show the other fields survived.
+      expect(await cache.byKey(withUid.key), withUid);
+      expect(await cache.byKey(without.key), without);
+      expect(
+        (await cache.byKey(withUid.key))!.icalUid,
+        '040000008200E00074C5B7101A82E008',
+      );
+      expect((await cache.byKey(without.key))!.icalUid, isNull);
+
+      final listed = await cache.between(
+        DateTime.utc(2026, 10, 6),
+        DateTime.utc(2026, 10, 7),
+      );
+      expect(
+        {for (final o in listed) o.uid: o.icalUid},
+        {'with': '040000008200E00074C5B7101A82E008', 'without': null},
+      );
+    });
+
     test('a key from a microsecond instant survives a round trip', () async {
       final o = occ(
         sourceId: 'work',

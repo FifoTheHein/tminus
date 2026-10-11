@@ -73,7 +73,16 @@ The cloud container has no emulator, and only the user's phone has an Outlook/Ex
 - [ ] **Step 3:** Open the published `.ics` file, find the same meeting's `SUMMARY`, and read its `UID:` line. Unfold it first: a line starting with a space continues the previous line. Outlook UIDs look like `040000008200E00074C5B7101A82E008…`.
 - [ ] **Step 4:** Record which column, if any, equals the feed UID: exactly, case-insensitively, or with a prefix/suffix. Note whether it is filled for both the one-off and the recurring instance, and whether `original_instance_time` equals the feed's `RECURRENCE-ID` for a moved instance. **No match → Task 6 is skipped.** Do not paste titles or UIDs into the PR, only column names and yes/no.
 
-**Probe result:** _(to be filled in)_
+**Probe result (2026-10-10, the user's phone, Android 16 / One UI, Outlook app sync):** **no column holds the iCal UID, so Task 6 is skipped.**
+
+- The probe was a read-only script that printed counts and yes/no only, never titles or UID values. The user ran the final pass themselves.
+- The Outlook-synced calendars have account type `com.microsoft.office.outlook.USER_ACCOUNT` (the Outlook app's own sync adapter, not Samsung's Exchange adapter). There are 5 calendars and one holds events: 798 rows, of which 20 are series masters, 603 are exceptions or instances and 175 are one-offs.
+- The provider allows every candidate column on `Events` (`uid2445`, `_sync_id`, `original_sync_id`, `sync_data1`–`10`). On `Instances` it allows `uid2445`, `_sync_id` and `original_sync_id`, and refuses `sync_data*`.
+- `uid2445` is empty on every row, in Events and in Instances.
+- `_sync_id`, `sync_data1`, `sync_data3` and `sync_data7` (exceptions only) are filled on most rows, and `original_sync_id` on every exception. None of their values starts with the Outlook GOID prefix `040000008200E00074C5B7101A82E008`, and none is a long hex string. They are the adapter's own ids.
+- No exact comparison with the feed's UIDs was possible, because the app's cached feed file was not readable over `adb`. The verdict rests on the pattern check.
+- The `extendedproperties` table returned no rows for these events.
+- Step 2's command names the column `original_instance_time`. The provider calls it `originalInstanceTime` and refuses the whole query on the wrong name. The probe asked for `originalInstanceTime`, but it did not compare it with the feed's `RECURRENCE-ID`, because no feed was readable. Plan 4 decision 14 already relies on the two being equal.
 
 ---
 
@@ -303,3 +312,28 @@ Record each step's result in the PR description, as in Plan 4 Task 15.
 
 - A phone copy titled `Canceled: …` without `STATUS_CANCELED` is not marked cancelled by `occurrenceFromDevice`, unlike ICS (`isCancelledTitle`). That gap predates this plan; merging only ORs the flag. Worth a small Plan 5 fix.
 - Unmerging a single false match from the UI (only the global switch exists).
+
+---
+
+## Run log (orchestrated, 2026-10-10)
+
+Run with `/orchestrate` in a lightweight form, as Plan 4 was: one session directed the whole run, with no Gate-0 stop, no fresh session per wave and no time booking. `dev-worker`s built one task each, together with that task's tests. `scout`s did the setup, re-ran each acceptance and every test run, ran the negative controls and the commits, and did the device work. One `review-worker` reviewed every wave, and `deep-review` took Task 2's schema migration.
+
+**Baseline** (branch `claude/plan-4b-impl-9b39a6`, cut from `plan-4b-multi-source-design` at 718ec2c): `flutter analyze` → No issues found; `flutter test` → 371 passed; `./gradlew :app:testDebugUnitTest` → 241 passed, 0 failed.
+
+**Waves:** 1 = Task 2 (+ deep review); 2 = Task 3; 3 = Task 4; 4 = Task 5; 5 = Task 7 (device). Each wave depends on the one before it. Tasks 2 and 3 both own `event_occurrence.dart`, and Task 6 is skipped.
+
+**Decisions taken while running** (each can be overturned):
+
+1. **Task 6 is skipped.** The Task 1 probe found no column holding the iCal UID (see "Probe result"). Phone copies keep `icalUid == null` and merge on fingerprint and remembered links.
+2. **Each `dev-worker` writes its own task's tests** from the task's Acceptance list, in the same job, as in Plan 4. There is no separate test-author job. Every extra or fix test gets a negative control.
+3. **Task 2: refuse downgrades.** Step 4 replaces `onUpgrade`'s `throw` with a `from < 2` step. A `from > to` throw stays as the first line, because drift 2.35 calls `onUpgrade` on a downgrade too and would otherwise re-stamp the stored version (deep-review finding).
+4. **Task 2: the upgrade step writes first.** It runs in one transaction that starts with `createTable` (`IF NOT EXISTS`). The column is added only if it is missing. The deep review saw a risk of `SQLITE_BUSY` when two isolates migrate at once, but drift 2.35 opens every native transaction with `BEGIN IMMEDIATE` (`lib/src/sqlite3/database.dart:72`), so a second isolate already waits on `busy_timeout` and the order is only a defence if a transaction is ever deferred. No test covers it, because no ordering fails today.
+
+**Steps:**
+
+| Step | State | Evidence / commit |
+|---|---|---|
+| Setup + baseline | done | Gradle files copied, `pub get`, baseline above |
+| Task 1 probe | done | Probe result above. Task 6 skipped |
+| W1 Task 2 | done | analyze clean; `flutter test` 383 passed; review and deep review clean after 2 fixes (downgrade refused, write-first upgrade step) and 1 test fix (the `matchedBy` control survived); 14 negative controls all killed, restore proven by sha256 |

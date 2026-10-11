@@ -307,6 +307,7 @@ Record each step's result in the PR description, as in Plan 4 Task 15.
 - Overrides written from the UI go on the **meeting key**. Clearing an override should also clear any override on the copy keys (`lookupKeys`), otherwise it seems to come back.
 - The Settings switch writes `merge.enabled` (`'true'` / `'false'`) and then runs a sync.
 - `SourceAdmin.addDeviceSource` could warn when the same Android calendar is already a source. A duplicate is harmless after this plan but pointless.
+- **History titles after a split (found in the Task 5 review).** `EngineEventRecorder._record` fills a history row's title from `occurrences.byKey(occurrenceKey)`. After a split whose meeting key no longer belongs to any cached copy (for example, the phone source was removed and the feed's copy now plans under the phone copy's key), `fired`, `dismissedAll` and `snoozed` rows get a null title. Acknowledgements are unaffected, because they match on key and start. Either look the title up through a link whose `meetingKey` is the event's key, or carry the title in the engine event.
 
 ## Not covered
 
@@ -346,5 +347,6 @@ Run with `/orchestrate` in a lightweight form, as Plan 4 was: one session direct
 | Task 1 probe | done | Probe result above. Task 6 skipped |
 | W1 Task 2 | done | analyze clean; `flutter test` 383 passed; review and deep review clean after 2 fixes (downgrade refused, write-first upgrade step) and 1 test fix (the `matchedBy` control survived); 14 negative controls all killed, restore proven by sha256. Commit 223dbd2 |
 | W2 Task 3 | done | analyze clean; `flutter test` 406 passed (+23); existing rules, planner and sync tests unchanged (test diff is insertions only); review clean (notes became decisions 5–7); 23 negative controls all killed, restore proven by sha256. Commit 5fcb04a |
-| W3 Task 4 | done | analyze clean; `flutter test` 455 passed (+49: 28 plan tests and 21 extras, including a 300-round fuzz test); review clean apart from one test gap (seeding order), fixed with a test; 78 negative controls all caught. R25 was caught by the merging-off test; the input-order test is not meant to catch it. Restore proven by sha256 |
-| W4 Task 5 | pending | |
+| W3 Task 4 | done | analyze clean; `flutter test` 455 passed (+49: 28 plan tests and 21 extras, including a 300-round fuzz test); review clean apart from one test gap (seeding order), fixed with a test; 78 negative controls all caught. R25 was caught by the merging-off test; the input-order test is not meant to catch it. Restore proven by sha256. Commit a7f383e |
+| W4 Task 5 | done | analyze clean; `flutter test` 472 passed (+17: the 10 plan tests and 4 extras in `sync_service_test`, 3 in `sync_debug_panel_test`); the setup of existing tests only gained lines; review clean (history-title gap moved to Notes for Plan 5); 23 negative controls all caught, restore proven by sha256 |
+| Final gates | pending | |

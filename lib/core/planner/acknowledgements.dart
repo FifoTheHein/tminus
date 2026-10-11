@@ -10,6 +10,10 @@
 ///   fire time, so Dart keys it by (alertId, startUtc). The two are
 ///   equivalent: alertId fixes the offset, and fireAt = start − offset, so the
 ///   pair matches exactly when Kotlin's pair matches.
+///
+/// A meeting found in several sources is looked up under its own key and each
+/// copy's key (`EventOccurrence.lookupKeys`), so an acknowledgement recorded
+/// before the copies merged still holds (spec §13).
 class Acknowledgements {
   Acknowledgements({
     Iterable<(String occurrenceKey, DateTime startUtc)> occurrences = const [],
@@ -24,6 +28,11 @@ class Acknowledgements {
 
   bool isOccurrenceAcked(String occurrenceKey, DateTime startUtc) =>
       _occurrences.contains(_k(occurrenceKey, startUtc));
+
+  /// True when any of [keys] was acknowledged at [start]. Pass an
+  /// occurrence's `lookupKeys`.
+  bool isAnyOccurrenceAcked(Iterable<String> keys, DateTime start) =>
+      keys.any((key) => isOccurrenceAcked(key, start));
 
   bool isAlertDismissed(String alertId, DateTime occurrenceStartUtc) =>
       _alerts.contains(_k(alertId, occurrenceStartUtc));

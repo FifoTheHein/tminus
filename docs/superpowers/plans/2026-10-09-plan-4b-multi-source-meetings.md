@@ -329,6 +329,9 @@ Run with `/orchestrate` in a lightweight form, as Plan 4 was: one session direct
 2. **Each `dev-worker` writes its own task's tests** from the task's Acceptance list, in the same job, as in Plan 4. There is no separate test-author job. Every extra or fix test gets a negative control.
 3. **Task 2: refuse downgrades.** Step 4 replaces `onUpgrade`'s `throw` with a `from < 2` step. A `from > to` throw stays as the first line, because drift 2.35 calls `onUpgrade` on a downgrade too and would otherwise re-stamp the stored version (deep-review finding).
 4. **Task 2: the upgrade step writes first.** It runs in one transaction that starts with `createTable` (`IF NOT EXISTS`). The column is added only if it is missing. The deep review saw a risk of `SQLITE_BUSY` when two isolates migrate at once, but drift 2.35 opens every native transaction with `BEGIN IMMEDIATE` (`lib/src/sqlite3/database.dart:72`), so a second isolate already waits on `busy_timeout` and the order is only a defence if a transaction is ever deferred. No test covers it, because no ordering fails today.
+5. **Task 3: lookups take the first match.** The source default comes from the first ranked source that has an entry in `sourceDefaults`, even if that entry names a deleted profile, which then falls to the global default. Occurrence overrides likewise use the first key in `lookupKeys` that has one. This follows spec §13 ("first in rank order"), and a single source behaves exactly as before.
+6. **Task 3: `EventOccurrence ==` also compares `runtimeType`**, so a plain copy never equals a `MeetingOccurrence`. Plain copies compare as before. As a result, Task 4 emits a lone copy with no stored link as the plain `EventOccurrence`, and a one-copy `MeetingOccurrence` only after a split, when the meeting key differs from the copy's key.
+7. **Task 3: `MeetingOccurrence` guards.** It needs at least one copy (an assert), and its copies are copied into an unmodifiable list. Task 4 must set `timeSourceId == sourceId == copies.first.sourceId`.
 
 **Steps:**
 
@@ -336,4 +339,5 @@ Run with `/orchestrate` in a lightweight form, as Plan 4 was: one session direct
 |---|---|---|
 | Setup + baseline | done | Gradle files copied, `pub get`, baseline above |
 | Task 1 probe | done | Probe result above. Task 6 skipped |
-| W1 Task 2 | done | analyze clean; `flutter test` 383 passed; review and deep review clean after 2 fixes (downgrade refused, write-first upgrade step) and 1 test fix (the `matchedBy` control survived); 14 negative controls all killed, restore proven by sha256 |
+| W1 Task 2 | done | analyze clean; `flutter test` 383 passed; review and deep review clean after 2 fixes (downgrade refused, write-first upgrade step) and 1 test fix (the `matchedBy` control survived); 14 negative controls all killed, restore proven by sha256. Commit 223dbd2 |
+| W2 Task 3 | done | analyze clean; `flutter test` 406 passed (+23); existing rules, planner and sync tests unchanged (test diff is insertions only); review clean (notes became decisions 5–7); 23 negative controls all killed, restore proven by sha256 |

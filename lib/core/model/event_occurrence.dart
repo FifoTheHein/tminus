@@ -19,6 +19,7 @@ class EventOccurrence {
     required this.uid,
     required DateTime originalStartUtc,
     this.seriesUid,
+    this.icalUid,
     required this.title,
     this.location,
     this.organizer,
@@ -42,6 +43,12 @@ class EventOccurrence {
 
   /// Null for one-off events.
   final String? seriesUid;
+
+  /// The event's iCalendar UID, when the source exposes it. An ICS feed copy
+  /// always has it (it is [uid]); a phone copy has it only if the calendar
+  /// provider fills a column the app reads. With [originalStartUtc] it is the
+  /// strong key for recognising the same meeting in two sources (spec §13).
+  final String? icalUid;
   final String title;
   final String? location;
   final String? organizer;
@@ -72,6 +79,7 @@ class EventOccurrence {
   EventOccurrence copyWith({
     DateTime? startUtc,
     DateTime? endUtc,
+    String? icalUid,
     String? title,
     String? location,
     String? organizer,
@@ -88,6 +96,7 @@ class EventOccurrence {
     uid: uid,
     originalStartUtc: originalStartUtc,
     seriesUid: seriesUid,
+    icalUid: icalUid ?? this.icalUid,
     title: title ?? this.title,
     location: location ?? this.location,
     organizer: organizer ?? this.organizer,
@@ -110,6 +119,7 @@ class EventOccurrence {
       other.uid == uid &&
       other.originalStartUtc == originalStartUtc &&
       other.seriesUid == seriesUid &&
+      other.icalUid == icalUid &&
       other.title == title &&
       other.location == location &&
       other.organizer == organizer &&

@@ -1063,6 +1063,17 @@ class $OccurrencesTable extends Occurrences
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _icalUidMeta = const VerificationMeta(
+    'icalUid',
+  );
+  @override
+  late final GeneratedColumn<String> icalUid = GeneratedColumn<String>(
+    'ical_uid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     occurrenceKey,
@@ -1083,6 +1094,7 @@ class $OccurrencesTable extends Occurrences
     cancelled,
     calendarColor,
     warnings,
+    icalUid,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1235,6 +1247,12 @@ class $OccurrencesTable extends Occurrences
         warnings.isAcceptableOrUnknown(data['warnings']!, _warningsMeta),
       );
     }
+    if (data.containsKey('ical_uid')) {
+      context.handle(
+        _icalUidMeta,
+        icalUid.isAcceptableOrUnknown(data['ical_uid']!, _icalUidMeta),
+      );
+    }
     return context;
   }
 
@@ -1318,6 +1336,10 @@ class $OccurrencesTable extends Occurrences
         DriftSqlType.string,
         data['${effectivePrefix}warnings'],
       )!,
+      icalUid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ical_uid'],
+      ),
     );
   }
 
@@ -1351,6 +1373,11 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
 
   /// Comma-separated [OccurrenceWarning] names; empty for none.
   final String warnings;
+
+  /// The event's iCalendar UID where the source has one; null otherwise and
+  /// for rows cached before schema 2. Declared last, because a column added
+  /// by a migration is appended to the table.
+  final String? icalUid;
   const OccurrenceRow({
     required this.occurrenceKey,
     required this.sourceId,
@@ -1370,6 +1397,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
     required this.cancelled,
     required this.calendarColor,
     required this.warnings,
+    this.icalUid,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1406,6 +1434,9 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
     map['cancelled'] = Variable<bool>(cancelled);
     map['calendar_color'] = Variable<int>(calendarColor);
     map['warnings'] = Variable<String>(warnings);
+    if (!nullToAbsent || icalUid != null) {
+      map['ical_uid'] = Variable<String>(icalUid);
+    }
     return map;
   }
 
@@ -1439,6 +1470,9 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
       cancelled: Value(cancelled),
       calendarColor: Value(calendarColor),
       warnings: Value(warnings),
+      icalUid: icalUid == null && nullToAbsent
+          ? const Value.absent()
+          : Value(icalUid),
     );
   }
 
@@ -1468,6 +1502,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
       cancelled: serializer.fromJson<bool>(json['cancelled']),
       calendarColor: serializer.fromJson<int>(json['calendarColor']),
       warnings: serializer.fromJson<String>(json['warnings']),
+      icalUid: serializer.fromJson<String?>(json['icalUid']),
     );
   }
   @override
@@ -1494,6 +1529,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
       'cancelled': serializer.toJson<bool>(cancelled),
       'calendarColor': serializer.toJson<int>(calendarColor),
       'warnings': serializer.toJson<String>(warnings),
+      'icalUid': serializer.toJson<String?>(icalUid),
     };
   }
 
@@ -1516,6 +1552,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
     bool? cancelled,
     int? calendarColor,
     String? warnings,
+    Value<String?> icalUid = const Value.absent(),
   }) => OccurrenceRow(
     occurrenceKey: occurrenceKey ?? this.occurrenceKey,
     sourceId: sourceId ?? this.sourceId,
@@ -1535,6 +1572,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
     cancelled: cancelled ?? this.cancelled,
     calendarColor: calendarColor ?? this.calendarColor,
     warnings: warnings ?? this.warnings,
+    icalUid: icalUid.present ? icalUid.value : this.icalUid,
   );
   OccurrenceRow copyWithCompanion(OccurrencesCompanion data) {
     return OccurrenceRow(
@@ -1568,6 +1606,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
           ? data.calendarColor.value
           : this.calendarColor,
       warnings: data.warnings.present ? data.warnings.value : this.warnings,
+      icalUid: data.icalUid.present ? data.icalUid.value : this.icalUid,
     );
   }
 
@@ -1591,7 +1630,8 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
           ..write('declined: $declined, ')
           ..write('cancelled: $cancelled, ')
           ..write('calendarColor: $calendarColor, ')
-          ..write('warnings: $warnings')
+          ..write('warnings: $warnings, ')
+          ..write('icalUid: $icalUid')
           ..write(')'))
         .toString();
   }
@@ -1616,6 +1656,7 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
     cancelled,
     calendarColor,
     warnings,
+    icalUid,
   );
   @override
   bool operator ==(Object other) =>
@@ -1638,7 +1679,8 @@ class OccurrenceRow extends DataClass implements Insertable<OccurrenceRow> {
           other.declined == this.declined &&
           other.cancelled == this.cancelled &&
           other.calendarColor == this.calendarColor &&
-          other.warnings == this.warnings);
+          other.warnings == this.warnings &&
+          other.icalUid == this.icalUid);
 }
 
 class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
@@ -1660,6 +1702,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
   final Value<bool> cancelled;
   final Value<int> calendarColor;
   final Value<String> warnings;
+  final Value<String?> icalUid;
   final Value<int> rowid;
   const OccurrencesCompanion({
     this.occurrenceKey = const Value.absent(),
@@ -1680,6 +1723,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
     this.cancelled = const Value.absent(),
     this.calendarColor = const Value.absent(),
     this.warnings = const Value.absent(),
+    this.icalUid = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   OccurrencesCompanion.insert({
@@ -1701,6 +1745,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
     required bool cancelled,
     required int calendarColor,
     this.warnings = const Value.absent(),
+    this.icalUid = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : occurrenceKey = Value(occurrenceKey),
        sourceId = Value(sourceId),
@@ -1733,6 +1778,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
     Expression<bool>? cancelled,
     Expression<int>? calendarColor,
     Expression<String>? warnings,
+    Expression<String>? icalUid,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1755,6 +1801,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
       if (cancelled != null) 'cancelled': cancelled,
       if (calendarColor != null) 'calendar_color': calendarColor,
       if (warnings != null) 'warnings': warnings,
+      if (icalUid != null) 'ical_uid': icalUid,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1778,6 +1825,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
     Value<bool>? cancelled,
     Value<int>? calendarColor,
     Value<String>? warnings,
+    Value<String?>? icalUid,
     Value<int>? rowid,
   }) {
     return OccurrencesCompanion(
@@ -1799,6 +1847,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
       cancelled: cancelled ?? this.cancelled,
       calendarColor: calendarColor ?? this.calendarColor,
       warnings: warnings ?? this.warnings,
+      icalUid: icalUid ?? this.icalUid,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1862,6 +1911,9 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
     if (warnings.present) {
       map['warnings'] = Variable<String>(warnings.value);
     }
+    if (icalUid.present) {
+      map['ical_uid'] = Variable<String>(icalUid.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1889,6 +1941,7 @@ class OccurrencesCompanion extends UpdateCompanion<OccurrenceRow> {
           ..write('cancelled: $cancelled, ')
           ..write('calendarColor: $calendarColor, ')
           ..write('warnings: $warnings, ')
+          ..write('icalUid: $icalUid, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4754,6 +4807,492 @@ class SettingsCompanion extends UpdateCompanion<SettingRow> {
   }
 }
 
+class $MeetingLinksTable extends MeetingLinks
+    with TableInfo<$MeetingLinksTable, MeetingLinkRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MeetingLinksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _copyKeyMeta = const VerificationMeta(
+    'copyKey',
+  );
+  @override
+  late final GeneratedColumn<String> copyKey = GeneratedColumn<String>(
+    'copy_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _meetingKeyMeta = const VerificationMeta(
+    'meetingKey',
+  );
+  @override
+  late final GeneratedColumn<String> meetingKey = GeneratedColumn<String>(
+    'meeting_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
+    'source_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _oneOffMeta = const VerificationMeta('oneOff');
+  @override
+  late final GeneratedColumn<bool> oneOff = GeneratedColumn<bool>(
+    'one_off',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("one_off" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _endUtcMsMeta = const VerificationMeta(
+    'endUtcMs',
+  );
+  @override
+  late final GeneratedColumn<int> endUtcMs = GeneratedColumn<int>(
+    'end_utc_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<MeetingMatch, String> matchedBy =
+      GeneratedColumn<String>(
+        'matched_by',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      ).withConverter<MeetingMatch>($MeetingLinksTable.$convertermatchedBy);
+  @override
+  List<GeneratedColumn> get $columns => [
+    copyKey,
+    meetingKey,
+    sourceId,
+    uid,
+    oneOff,
+    endUtcMs,
+    matchedBy,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'meeting_links';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MeetingLinkRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('copy_key')) {
+      context.handle(
+        _copyKeyMeta,
+        copyKey.isAcceptableOrUnknown(data['copy_key']!, _copyKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_copyKeyMeta);
+    }
+    if (data.containsKey('meeting_key')) {
+      context.handle(
+        _meetingKeyMeta,
+        meetingKey.isAcceptableOrUnknown(data['meeting_key']!, _meetingKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_meetingKeyMeta);
+    }
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceIdMeta);
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
+    }
+    if (data.containsKey('one_off')) {
+      context.handle(
+        _oneOffMeta,
+        oneOff.isAcceptableOrUnknown(data['one_off']!, _oneOffMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_oneOffMeta);
+    }
+    if (data.containsKey('end_utc_ms')) {
+      context.handle(
+        _endUtcMsMeta,
+        endUtcMs.isAcceptableOrUnknown(data['end_utc_ms']!, _endUtcMsMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_endUtcMsMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {copyKey};
+  @override
+  MeetingLinkRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MeetingLinkRow(
+      copyKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}copy_key'],
+      )!,
+      meetingKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}meeting_key'],
+      )!,
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_id'],
+      )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
+      oneOff: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}one_off'],
+      )!,
+      endUtcMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}end_utc_ms'],
+      )!,
+      matchedBy: $MeetingLinksTable.$convertermatchedBy.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}matched_by'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $MeetingLinksTable createAlias(String alias) {
+    return $MeetingLinksTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<MeetingMatch, String, String> $convertermatchedBy =
+      const EnumNameConverter<MeetingMatch>(MeetingMatch.values);
+}
+
+class MeetingLinkRow extends DataClass implements Insertable<MeetingLinkRow> {
+  /// `EventOccurrence.key` of the copy.
+  final String copyKey;
+
+  /// The sticky key the meeting is planned under.
+  final String meetingKey;
+
+  /// The copy's source. Not a reference, see above.
+  final String sourceId;
+
+  /// The copy's uid, to find a one-off again after it moved.
+  final String uid;
+
+  /// The copy has no series uid.
+  final bool oneOff;
+
+  /// The copy's end, for pruning.
+  final int endUtcMs;
+  final MeetingMatch matchedBy;
+  const MeetingLinkRow({
+    required this.copyKey,
+    required this.meetingKey,
+    required this.sourceId,
+    required this.uid,
+    required this.oneOff,
+    required this.endUtcMs,
+    required this.matchedBy,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['copy_key'] = Variable<String>(copyKey);
+    map['meeting_key'] = Variable<String>(meetingKey);
+    map['source_id'] = Variable<String>(sourceId);
+    map['uid'] = Variable<String>(uid);
+    map['one_off'] = Variable<bool>(oneOff);
+    map['end_utc_ms'] = Variable<int>(endUtcMs);
+    {
+      map['matched_by'] = Variable<String>(
+        $MeetingLinksTable.$convertermatchedBy.toSql(matchedBy),
+      );
+    }
+    return map;
+  }
+
+  MeetingLinksCompanion toCompanion(bool nullToAbsent) {
+    return MeetingLinksCompanion(
+      copyKey: Value(copyKey),
+      meetingKey: Value(meetingKey),
+      sourceId: Value(sourceId),
+      uid: Value(uid),
+      oneOff: Value(oneOff),
+      endUtcMs: Value(endUtcMs),
+      matchedBy: Value(matchedBy),
+    );
+  }
+
+  factory MeetingLinkRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MeetingLinkRow(
+      copyKey: serializer.fromJson<String>(json['copyKey']),
+      meetingKey: serializer.fromJson<String>(json['meetingKey']),
+      sourceId: serializer.fromJson<String>(json['sourceId']),
+      uid: serializer.fromJson<String>(json['uid']),
+      oneOff: serializer.fromJson<bool>(json['oneOff']),
+      endUtcMs: serializer.fromJson<int>(json['endUtcMs']),
+      matchedBy: $MeetingLinksTable.$convertermatchedBy.fromJson(
+        serializer.fromJson<String>(json['matchedBy']),
+      ),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'copyKey': serializer.toJson<String>(copyKey),
+      'meetingKey': serializer.toJson<String>(meetingKey),
+      'sourceId': serializer.toJson<String>(sourceId),
+      'uid': serializer.toJson<String>(uid),
+      'oneOff': serializer.toJson<bool>(oneOff),
+      'endUtcMs': serializer.toJson<int>(endUtcMs),
+      'matchedBy': serializer.toJson<String>(
+        $MeetingLinksTable.$convertermatchedBy.toJson(matchedBy),
+      ),
+    };
+  }
+
+  MeetingLinkRow copyWith({
+    String? copyKey,
+    String? meetingKey,
+    String? sourceId,
+    String? uid,
+    bool? oneOff,
+    int? endUtcMs,
+    MeetingMatch? matchedBy,
+  }) => MeetingLinkRow(
+    copyKey: copyKey ?? this.copyKey,
+    meetingKey: meetingKey ?? this.meetingKey,
+    sourceId: sourceId ?? this.sourceId,
+    uid: uid ?? this.uid,
+    oneOff: oneOff ?? this.oneOff,
+    endUtcMs: endUtcMs ?? this.endUtcMs,
+    matchedBy: matchedBy ?? this.matchedBy,
+  );
+  MeetingLinkRow copyWithCompanion(MeetingLinksCompanion data) {
+    return MeetingLinkRow(
+      copyKey: data.copyKey.present ? data.copyKey.value : this.copyKey,
+      meetingKey: data.meetingKey.present
+          ? data.meetingKey.value
+          : this.meetingKey,
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      oneOff: data.oneOff.present ? data.oneOff.value : this.oneOff,
+      endUtcMs: data.endUtcMs.present ? data.endUtcMs.value : this.endUtcMs,
+      matchedBy: data.matchedBy.present ? data.matchedBy.value : this.matchedBy,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MeetingLinkRow(')
+          ..write('copyKey: $copyKey, ')
+          ..write('meetingKey: $meetingKey, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('uid: $uid, ')
+          ..write('oneOff: $oneOff, ')
+          ..write('endUtcMs: $endUtcMs, ')
+          ..write('matchedBy: $matchedBy')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    copyKey,
+    meetingKey,
+    sourceId,
+    uid,
+    oneOff,
+    endUtcMs,
+    matchedBy,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MeetingLinkRow &&
+          other.copyKey == this.copyKey &&
+          other.meetingKey == this.meetingKey &&
+          other.sourceId == this.sourceId &&
+          other.uid == this.uid &&
+          other.oneOff == this.oneOff &&
+          other.endUtcMs == this.endUtcMs &&
+          other.matchedBy == this.matchedBy);
+}
+
+class MeetingLinksCompanion extends UpdateCompanion<MeetingLinkRow> {
+  final Value<String> copyKey;
+  final Value<String> meetingKey;
+  final Value<String> sourceId;
+  final Value<String> uid;
+  final Value<bool> oneOff;
+  final Value<int> endUtcMs;
+  final Value<MeetingMatch> matchedBy;
+  final Value<int> rowid;
+  const MeetingLinksCompanion({
+    this.copyKey = const Value.absent(),
+    this.meetingKey = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.oneOff = const Value.absent(),
+    this.endUtcMs = const Value.absent(),
+    this.matchedBy = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MeetingLinksCompanion.insert({
+    required String copyKey,
+    required String meetingKey,
+    required String sourceId,
+    required String uid,
+    required bool oneOff,
+    required int endUtcMs,
+    required MeetingMatch matchedBy,
+    this.rowid = const Value.absent(),
+  }) : copyKey = Value(copyKey),
+       meetingKey = Value(meetingKey),
+       sourceId = Value(sourceId),
+       uid = Value(uid),
+       oneOff = Value(oneOff),
+       endUtcMs = Value(endUtcMs),
+       matchedBy = Value(matchedBy);
+  static Insertable<MeetingLinkRow> custom({
+    Expression<String>? copyKey,
+    Expression<String>? meetingKey,
+    Expression<String>? sourceId,
+    Expression<String>? uid,
+    Expression<bool>? oneOff,
+    Expression<int>? endUtcMs,
+    Expression<String>? matchedBy,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (copyKey != null) 'copy_key': copyKey,
+      if (meetingKey != null) 'meeting_key': meetingKey,
+      if (sourceId != null) 'source_id': sourceId,
+      if (uid != null) 'uid': uid,
+      if (oneOff != null) 'one_off': oneOff,
+      if (endUtcMs != null) 'end_utc_ms': endUtcMs,
+      if (matchedBy != null) 'matched_by': matchedBy,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MeetingLinksCompanion copyWith({
+    Value<String>? copyKey,
+    Value<String>? meetingKey,
+    Value<String>? sourceId,
+    Value<String>? uid,
+    Value<bool>? oneOff,
+    Value<int>? endUtcMs,
+    Value<MeetingMatch>? matchedBy,
+    Value<int>? rowid,
+  }) {
+    return MeetingLinksCompanion(
+      copyKey: copyKey ?? this.copyKey,
+      meetingKey: meetingKey ?? this.meetingKey,
+      sourceId: sourceId ?? this.sourceId,
+      uid: uid ?? this.uid,
+      oneOff: oneOff ?? this.oneOff,
+      endUtcMs: endUtcMs ?? this.endUtcMs,
+      matchedBy: matchedBy ?? this.matchedBy,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (copyKey.present) {
+      map['copy_key'] = Variable<String>(copyKey.value);
+    }
+    if (meetingKey.present) {
+      map['meeting_key'] = Variable<String>(meetingKey.value);
+    }
+    if (sourceId.present) {
+      map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (oneOff.present) {
+      map['one_off'] = Variable<bool>(oneOff.value);
+    }
+    if (endUtcMs.present) {
+      map['end_utc_ms'] = Variable<int>(endUtcMs.value);
+    }
+    if (matchedBy.present) {
+      map['matched_by'] = Variable<String>(
+        $MeetingLinksTable.$convertermatchedBy.toSql(matchedBy.value),
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MeetingLinksCompanion(')
+          ..write('copyKey: $copyKey, ')
+          ..write('meetingKey: $meetingKey, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('uid: $uid, ')
+          ..write('oneOff: $oneOff, ')
+          ..write('endUtcMs: $endUtcMs, ')
+          ..write('matchedBy: $matchedBy, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4766,6 +5305,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AlertHistoryTable alertHistory = $AlertHistoryTable(this);
   late final $SyncLogTable syncLog = $SyncLogTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
+  late final $MeetingLinksTable meetingLinks = $MeetingLinksTable(this);
   late final Index occurrencesStart = Index(
     'occurrences_start',
     'CREATE INDEX IF NOT EXISTS occurrences_start ON occurrences (start_utc_ms)',
@@ -4782,6 +5322,14 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'sync_log_at',
     'CREATE INDEX IF NOT EXISTS sync_log_at ON sync_log (at_utc_ms)',
   );
+  late final Index meetingLinksSourceUid = Index(
+    'meeting_links_source_uid',
+    'CREATE INDEX IF NOT EXISTS meeting_links_source_uid ON meeting_links (source_id, uid)',
+  );
+  late final Index meetingLinksMeetingKey = Index(
+    'meeting_links_meeting_key',
+    'CREATE INDEX IF NOT EXISTS meeting_links_meeting_key ON meeting_links (meeting_key)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4796,10 +5344,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     alertHistory,
     syncLog,
     settings,
+    meetingLinks,
     occurrencesStart,
     occurrencesSource,
     alertHistoryStart,
     syncLogAt,
+    meetingLinksSourceUid,
+    meetingLinksMeetingKey,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -5317,6 +5868,7 @@ typedef $$OccurrencesTableCreateCompanionBuilder =
       required bool cancelled,
       required int calendarColor,
       Value<String> warnings,
+      Value<String?> icalUid,
       Value<int> rowid,
     });
 typedef $$OccurrencesTableUpdateCompanionBuilder =
@@ -5339,6 +5891,7 @@ typedef $$OccurrencesTableUpdateCompanionBuilder =
       Value<bool> cancelled,
       Value<int> calendarColor,
       Value<String> warnings,
+      Value<String?> icalUid,
       Value<int> rowid,
     });
 
@@ -5456,6 +6009,11 @@ class $$OccurrencesTableFilterComposer
 
   ColumnFilters<String> get warnings => $composableBuilder(
     column: $table.warnings,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get icalUid => $composableBuilder(
+    column: $table.icalUid,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5577,6 +6135,11 @@ class $$OccurrencesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get icalUid => $composableBuilder(
+    column: $table.icalUid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$SourcesTableOrderingComposer get sourceId {
     final $$SourcesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -5674,6 +6237,9 @@ class $$OccurrencesTableAnnotationComposer
   GeneratedColumn<String> get warnings =>
       $composableBuilder(column: $table.warnings, builder: (column) => column);
 
+  GeneratedColumn<String> get icalUid =>
+      $composableBuilder(column: $table.icalUid, builder: (column) => column);
+
   $$SourcesTableAnnotationComposer get sourceId {
     final $$SourcesTableAnnotationComposer composer = $composerBuilder(
       composer: this,
@@ -5744,6 +6310,7 @@ class $$OccurrencesTableTableManager
                 Value<bool> cancelled = const Value.absent(),
                 Value<int> calendarColor = const Value.absent(),
                 Value<String> warnings = const Value.absent(),
+                Value<String?> icalUid = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => OccurrencesCompanion(
                 occurrenceKey: occurrenceKey,
@@ -5764,6 +6331,7 @@ class $$OccurrencesTableTableManager
                 cancelled: cancelled,
                 calendarColor: calendarColor,
                 warnings: warnings,
+                icalUid: icalUid,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -5786,6 +6354,7 @@ class $$OccurrencesTableTableManager
                 required bool cancelled,
                 required int calendarColor,
                 Value<String> warnings = const Value.absent(),
+                Value<String?> icalUid = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => OccurrencesCompanion.insert(
                 occurrenceKey: occurrenceKey,
@@ -5806,6 +6375,7 @@ class $$OccurrencesTableTableManager
                 cancelled: cancelled,
                 calendarColor: calendarColor,
                 warnings: warnings,
+                icalUid: icalUid,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -7409,6 +7979,256 @@ typedef $$SettingsTableProcessedTableManager =
       SettingRow,
       PrefetchHooks Function()
     >;
+typedef $$MeetingLinksTableCreateCompanionBuilder =
+    MeetingLinksCompanion Function({
+      required String copyKey,
+      required String meetingKey,
+      required String sourceId,
+      required String uid,
+      required bool oneOff,
+      required int endUtcMs,
+      required MeetingMatch matchedBy,
+      Value<int> rowid,
+    });
+typedef $$MeetingLinksTableUpdateCompanionBuilder =
+    MeetingLinksCompanion Function({
+      Value<String> copyKey,
+      Value<String> meetingKey,
+      Value<String> sourceId,
+      Value<String> uid,
+      Value<bool> oneOff,
+      Value<int> endUtcMs,
+      Value<MeetingMatch> matchedBy,
+      Value<int> rowid,
+    });
+
+class $$MeetingLinksTableFilterComposer
+    extends Composer<_$AppDatabase, $MeetingLinksTable> {
+  $$MeetingLinksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get copyKey => $composableBuilder(
+    column: $table.copyKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get meetingKey => $composableBuilder(
+    column: $table.meetingKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get oneOff => $composableBuilder(
+    column: $table.oneOff,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get endUtcMs => $composableBuilder(
+    column: $table.endUtcMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<MeetingMatch, MeetingMatch, String>
+  get matchedBy => $composableBuilder(
+    column: $table.matchedBy,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
+  );
+}
+
+class $$MeetingLinksTableOrderingComposer
+    extends Composer<_$AppDatabase, $MeetingLinksTable> {
+  $$MeetingLinksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get copyKey => $composableBuilder(
+    column: $table.copyKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get meetingKey => $composableBuilder(
+    column: $table.meetingKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get oneOff => $composableBuilder(
+    column: $table.oneOff,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get endUtcMs => $composableBuilder(
+    column: $table.endUtcMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get matchedBy => $composableBuilder(
+    column: $table.matchedBy,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MeetingLinksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $MeetingLinksTable> {
+  $$MeetingLinksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get copyKey =>
+      $composableBuilder(column: $table.copyKey, builder: (column) => column);
+
+  GeneratedColumn<String> get meetingKey => $composableBuilder(
+    column: $table.meetingKey,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceId =>
+      $composableBuilder(column: $table.sourceId, builder: (column) => column);
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<bool> get oneOff =>
+      $composableBuilder(column: $table.oneOff, builder: (column) => column);
+
+  GeneratedColumn<int> get endUtcMs =>
+      $composableBuilder(column: $table.endUtcMs, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<MeetingMatch, String> get matchedBy =>
+      $composableBuilder(column: $table.matchedBy, builder: (column) => column);
+}
+
+class $$MeetingLinksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $MeetingLinksTable,
+          MeetingLinkRow,
+          $$MeetingLinksTableFilterComposer,
+          $$MeetingLinksTableOrderingComposer,
+          $$MeetingLinksTableAnnotationComposer,
+          $$MeetingLinksTableCreateCompanionBuilder,
+          $$MeetingLinksTableUpdateCompanionBuilder,
+          (
+            MeetingLinkRow,
+            BaseReferences<_$AppDatabase, $MeetingLinksTable, MeetingLinkRow>,
+          ),
+          MeetingLinkRow,
+          PrefetchHooks Function()
+        > {
+  $$MeetingLinksTableTableManager(_$AppDatabase db, $MeetingLinksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MeetingLinksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MeetingLinksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MeetingLinksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> copyKey = const Value.absent(),
+                Value<String> meetingKey = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String> uid = const Value.absent(),
+                Value<bool> oneOff = const Value.absent(),
+                Value<int> endUtcMs = const Value.absent(),
+                Value<MeetingMatch> matchedBy = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MeetingLinksCompanion(
+                copyKey: copyKey,
+                meetingKey: meetingKey,
+                sourceId: sourceId,
+                uid: uid,
+                oneOff: oneOff,
+                endUtcMs: endUtcMs,
+                matchedBy: matchedBy,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String copyKey,
+                required String meetingKey,
+                required String sourceId,
+                required String uid,
+                required bool oneOff,
+                required int endUtcMs,
+                required MeetingMatch matchedBy,
+                Value<int> rowid = const Value.absent(),
+              }) => MeetingLinksCompanion.insert(
+                copyKey: copyKey,
+                meetingKey: meetingKey,
+                sourceId: sourceId,
+                uid: uid,
+                oneOff: oneOff,
+                endUtcMs: endUtcMs,
+                matchedBy: matchedBy,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$MeetingLinksTable, MeetingLinkRow>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $MeetingLinksTable,
+                    MeetingLinkRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$MeetingLinksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $MeetingLinksTable,
+      MeetingLinkRow,
+      $$MeetingLinksTableFilterComposer,
+      $$MeetingLinksTableOrderingComposer,
+      $$MeetingLinksTableAnnotationComposer,
+      $$MeetingLinksTableCreateCompanionBuilder,
+      $$MeetingLinksTableUpdateCompanionBuilder,
+      (
+        MeetingLinkRow,
+        BaseReferences<_$AppDatabase, $MeetingLinksTable, MeetingLinkRow>,
+      ),
+      MeetingLinkRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -7431,4 +8251,6 @@ class $AppDatabaseManager {
       $$SyncLogTableTableManager(_db, _db.syncLog);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
+  $$MeetingLinksTableTableManager get meetingLinks =>
+      $$MeetingLinksTableTableManager(_db, _db.meetingLinks);
 }

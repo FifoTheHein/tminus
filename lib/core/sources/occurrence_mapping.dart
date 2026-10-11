@@ -7,13 +7,16 @@ import 'device_calendar_api.dart';
 
 /// Roadmap §2: `seriesUid = recurring ? uid : null`, both ICS warnings become
 /// [OccurrenceWarning.tzFallback], never cancelled or declined (ICS feeds
-/// carry neither). The colour is the source's.
+/// carry neither). The colour is the source's. [EventOccurrence.icalUid] is
+/// the feed's UID, the strong key for merging with a copy from another source
+/// (spec §13).
 EventOccurrence occurrenceFromIcs(IcsOccurrence o, SourceConfig source) =>
     EventOccurrence(
       sourceId: source.id,
       uid: o.uid,
       originalStartUtc: o.originalStartUtc,
       seriesUid: o.recurring ? o.uid : null,
+      icalUid: o.uid,
       title: o.title,
       location: o.location,
       organizer: o.organizer,
@@ -37,7 +40,9 @@ EventOccurrence occurrenceFromIcs(IcsOccurrence o, SourceConfig source) =>
 /// (Plan 4 decision): uid is the series' event id for any instance of a
 /// series (`ORIGINAL_ID` for a moved one), and the original start is
 /// `ORIGINAL_INSTANCE_TIME`, else `BEGIN`. All-day instances arrive as UTC
-/// midnights and become local midnights in [zone], as `ics_core` does.
+/// midnights and become local midnights in [zone], as `ics_core` does. A phone
+/// copy has no [EventOccurrence.icalUid]: the calendar provider has no column
+/// the app reads that holds it.
 EventOccurrence occurrenceFromDevice(
   DeviceInstance i,
   SourceConfig source,

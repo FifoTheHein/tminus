@@ -106,6 +106,7 @@ class OccurrenceRepository {
         cancelled: o.cancelled,
         calendarColor: o.calendarColor,
         warnings: Value(o.warnings.map((w) => w.name).join(',')),
+        icalUid: Value(o.icalUid),
       );
 
   static EventOccurrence _fromRow(OccurrenceRow r) {
@@ -115,6 +116,7 @@ class OccurrenceRepository {
       uid: r.uid,
       originalStartUtc: t(r.originalStartUtcMs),
       seriesUid: r.seriesUid,
+      icalUid: r.icalUid,
       title: r.title,
       location: r.location,
       organizer: r.organizer,

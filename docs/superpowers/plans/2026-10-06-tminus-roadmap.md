@@ -10,7 +10,8 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 | 2 | Domain, storage, rules, planner | `2026-10-06-plan-2-domain-rules-planner.md` | 1 (only for the field mapping notes) | Domain model, drift database, profile resolution, quiet modes, explanations, `PlannedAlert` plan building |
 | 3 | Native alarm engine | `2026-10-06-plan-3-alarm-engine.md` | contract §3 only | Kotlin scheduling, ringing, Compose alarm screen, notifications, re-arm, `alarm_engine` channel + Dart client, debug test-alarm buttons |
 | 4 | Sources + sync | written later | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
-| 5 | UI | written later | 2, 4 | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
+| 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
+| 5 | UI | written later | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
 | 6 | Play readiness (phase 1.5) | written later | all | Privacy policy, store listing, Play declarations, FGS type decision |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).

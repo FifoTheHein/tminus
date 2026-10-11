@@ -20,6 +20,11 @@ DateTime systemUtcNow() => DateTime.now().toUtc();
 /// 1. occurrence override, 2. series override, 3. skip filters,
 /// 4. keyword rules by position, 5. source default, 6. global default.
 /// Quiet modes are applied afterwards.
+///
+/// Overrides and the source default are looked up through the occurrence's
+/// `lookupKeys`, `lookupSeriesUids` and `sourceIds`, so a meeting found in
+/// several sources takes them from any of its copies (spec §13). A plain copy
+/// looks up only itself.
 class RulesEngine {
   RulesEngine({required this.zone, UtcClock? clock})
     : clock = clock ?? systemUtcNow;
@@ -36,8 +41,8 @@ class RulesEngine {
   ) => [for (final o in occurrences) resolve(o, rules)];
 
   ResolvedOccurrence resolve(EventOccurrence o, RuleSet rules) {
-    final occ = rules.occurrenceOverride(o.key);
-    final ser = rules.seriesOverride(o.seriesUid);
+    final occ = rules.occurrenceOverrideFor(o.lookupKeys);
+    final ser = rules.seriesOverrideFor(o.lookupSeriesUids);
     final d = _decide(o, rules, occ, ser);
     if (d.alerts.isEmpty) return d.toResolved(o);
 
@@ -138,7 +143,7 @@ class RulesEngine {
     final candidates = <String?>[
       for (final r in rules.rules)
         if (r.matches(o)) r.profileId,
-      rules.sourceDefaults[o.sourceId],
+      rules.sourceDefaultFor(o.sourceIds),
       rules.globalDefaultProfileId,
     ];
     for (final id in candidates) {
@@ -188,7 +193,7 @@ class RulesEngine {
         );
       }
     }
-    final sourceDefault = rules.sourceDefaults[o.sourceId];
+    final sourceDefault = rules.sourceDefaultFor(o.sourceIds);
     final sp = sourceDefault == null ? null : rules.profile(sourceDefault);
     if (sp != null) {
       return _Decision(

@@ -3,6 +3,7 @@ import 'package:tminus/core/model/alert.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/event_override.dart';
 import 'package:tminus/core/model/keyword_rule.dart';
+import 'package:tminus/core/model/meeting_occurrence.dart';
 import 'package:tminus/core/rules/resolved_occurrence.dart';
 import 'package:tminus/core/rules/rule_set.dart';
 import 'package:tminus/core/rules/rules_engine.dart';
@@ -60,6 +61,39 @@ EventOverride onSeries(
   customAlerts: customAlerts,
   enabled: enabled,
 );
+
+/// A meeting merged from [copies], best ranked first. Every field is taken from
+/// the first copy, the time source. [meetingKey] defaults to that copy's key;
+/// pass another to model a meeting whose key no copy carries any more.
+MeetingOccurrence meetingOf(
+  List<EventOccurrence> copies, {
+  String? meetingKey,
+}) {
+  final top = copies.first;
+  return MeetingOccurrence(
+    sourceId: top.sourceId,
+    uid: top.uid,
+    originalStartUtc: top.originalStartUtc,
+    seriesUid: top.seriesUid,
+    icalUid: top.icalUid,
+    title: top.title,
+    location: top.location,
+    organizer: top.organizer,
+    description: top.description,
+    joinUrl: top.joinUrl,
+    startUtc: top.startUtc,
+    endUtc: top.endUtc,
+    allDay: top.allDay,
+    busyStatus: top.busyStatus,
+    declined: top.declined,
+    cancelled: top.cancelled,
+    calendarColor: top.calendarColor,
+    warnings: top.warnings,
+    meetingKey: meetingKey ?? top.key,
+    copies: copies,
+    timeSourceId: top.sourceId,
+  );
+}
 
 class Case {
   Case(

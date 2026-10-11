@@ -525,4 +525,113 @@ void main() {
       expect(r.alerts, const [AlertSpec(1, AlertStrength.alarm)]);
     });
   });
+
+  group('a meeting found in several sources (spec §13)', () {
+    // Ranked best first: the phone copy decides the time.
+    final phone = occ(sourceId: 'phone', uid: 'p1', seriesUid: 'phone-series');
+    final feed = occ(sourceId: 'feed', uid: 'f1', seriesUid: 'feed-series');
+    final work = occ(sourceId: 'work', uid: 'w1', seriesUid: 'work-series');
+    // The key a source that has since gone gave the meeting. No copy has it.
+    final meetingKey = EventOccurrence.makeKey(
+      'gone',
+      'm1',
+      phone.originalStartUtc,
+    );
+    final meeting = meetingOf([phone, feed, work], meetingKey: meetingKey);
+
+    test('an occurrence override on a copy key applies to the meeting', () {
+      // The last copy's key is the one furthest down the lookup list.
+      final r = engine().resolve(
+        meeting,
+        RuleSet(overrides: [onOcc(work, profileId: 'quick')]),
+      );
+      expect(r.explanation, 'Quick · this event');
+      expect(r.alerts, quickAlerts);
+      expect(r.step, ResolutionStep.occurrenceOverride);
+      expect(r.occurrence, same(meeting));
+    });
+
+    test('an override on the meeting key beats one on a copy key', () {
+      final r = engine().resolve(
+        meeting,
+        RuleSet(
+          overrides: [
+            onOcc(feed, profileId: 'quick'),
+            onOcc(meeting, profileId: 'important'),
+          ],
+        ),
+      );
+      expect(r.explanation, 'Important · this event');
+      expect(r.alerts, importantAlerts);
+      expect(r.step, ResolutionStep.occurrenceOverride);
+    });
+
+    test("of two copy keys, the better ranked copy's override wins", () {
+      final r = engine().resolve(
+        meeting,
+        RuleSet(
+          overrides: [
+            onOcc(work, profileId: 'quick'),
+            onOcc(feed, profileId: 'important'),
+          ],
+        ),
+      );
+      expect(r.explanation, 'Important · this event');
+      expect(r.alerts, importantAlerts);
+    });
+
+    test("a series override on any copy's seriesUid applies", () {
+      // The last copy's series is the one furthest down the lookup list.
+      final r = engine().resolve(
+        meeting,
+        RuleSet(overrides: [onSeries('work-series', profileId: 'important')]),
+      );
+      expect(r.explanation, 'Important · series');
+      expect(r.alerts, importantAlerts);
+      expect(r.step, ResolutionStep.seriesOverride);
+      expect(r.occurrence, same(meeting));
+    });
+
+    test("of two series overrides, the better ranked copy's wins", () {
+      final r = engine().resolve(
+        meeting,
+        RuleSet(
+          overrides: [
+            onSeries('work-series', profileId: 'quick'),
+            onSeries('feed-series', profileId: 'important'),
+          ],
+        ),
+      );
+      expect(r.explanation, 'Important · series');
+      expect(r.alerts, importantAlerts);
+    });
+
+    test(
+      'the source default comes from the first ranked source that has one',
+      () {
+        // The phone has none, the feed has Important and work has Quick.
+        final r = engine().resolve(
+          meeting,
+          RuleSet(sourceDefaults: {'feed': 'important', 'work': 'quick'}),
+        );
+        expect(r.explanation, 'Important · source default');
+        expect(r.alerts, importantAlerts);
+        expect(r.step, ResolutionStep.sourceDefault);
+      },
+    );
+
+    test('a meeting turned on takes the default of the first ranked source '
+        'that has one', () {
+      final r = engine().resolve(
+        meeting,
+        RuleSet(
+          sourceDefaults: {'feed': 'important', 'work': 'quick'},
+          globalDefaultProfileId: 'silent',
+          overrides: [onOcc(meeting, enabled: true)],
+        ),
+      );
+      expect(r.explanation, 'Important · this event');
+      expect(r.alerts, importantAlerts);
+    });
+  });
 }

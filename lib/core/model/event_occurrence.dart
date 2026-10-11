@@ -76,6 +76,19 @@ class EventOccurrence {
   static String makeKey(String sourceId, String uid, DateTime originalStart) =>
       '$sourceId|$uid|${plainUtc(originalStart).toIso8601String()}';
 
+  /// Keys to look overrides and acknowledgements up under, best first.
+  ///
+  /// A plain copy has only its own [key]. A `MeetingOccurrence` adds the keys
+  /// of its copies, so what was recorded under any of them still applies.
+  List<String> get lookupKeys => [key];
+
+  /// Series uids to look series overrides up under, best first. Empty for a
+  /// one-off event.
+  List<String> get lookupSeriesUids => [?seriesUid];
+
+  /// Sources in rank order, for the source default (§6 step 5).
+  List<String> get sourceIds => [sourceId];
+
   EventOccurrence copyWith({
     DateTime? startUtc,
     DateTime? endUtc,
@@ -112,9 +125,12 @@ class EventOccurrence {
     warnings: warnings ?? this.warnings,
   );
 
+  /// A `MeetingOccurrence` is never equal to a plain copy, even with the same
+  /// fields, so `==` stays symmetric.
   @override
   bool operator ==(Object other) =>
       other is EventOccurrence &&
+      other.runtimeType == runtimeType &&
       other.sourceId == sourceId &&
       other.uid == uid &&
       other.originalStartUtc == originalStartUtc &&

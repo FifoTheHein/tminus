@@ -8,6 +8,7 @@ import 'package:tminus/core/planner/plan_builder.dart';
 import 'package:tminus/core/rules/resolved_occurrence.dart';
 
 import '../fixtures.dart';
+import '../rules/rules_test_helpers.dart' show meetingOf;
 
 final now = DateTime.utc(2026, 10, 6, 6);
 
@@ -297,5 +298,114 @@ void main() {
       unorderedEquals([planning.key, other.key]),
     );
     expect(plan.map((a) => a.id).toSet(), hasLength(4));
+  });
+
+  group('a meeting found in several sources (spec §13)', () {
+    // Ranked best first: the phone copy decides the time. All three start at
+    // 08:00, so the Meeting profile's alerts are due at 07:50 and 07:59.
+    final phone = occ(
+      sourceId: 'phone',
+      uid: 'p1',
+      start: DateTime.utc(2026, 10, 6, 8),
+    );
+    final feed = occ(
+      sourceId: 'feed',
+      uid: 'f1',
+      start: DateTime.utc(2026, 10, 6, 8),
+    );
+    final work = occ(
+      sourceId: 'work',
+      uid: 'w1',
+      start: DateTime.utc(2026, 10, 6, 8),
+    );
+    // The key a source that has since gone gave the meeting. No copy has it.
+    final meetingKey = EventOccurrence.makeKey(
+      'gone',
+      'm1',
+      phone.originalStartUtc,
+    );
+    final meeting = meetingOf([phone, feed, work], meetingKey: meetingKey);
+
+    test(
+      'Dismiss all under a copy key drops the meeting at the same start',
+      () {
+        // The last copy's key is the one furthest down the lookup list.
+        final plan = buildPlan(
+          [resolved(meeting), resolved(standup)],
+          now: now,
+          acknowledgements: Acknowledgements(
+            occurrences: [(work.key, meeting.startUtc)],
+          ),
+        );
+        expect(plan.map((a) => a.occurrenceKey).toSet(), {standup.key});
+      },
+    );
+
+    test(
+      'Dismiss all under a copy key does not drop the meeting at a different '
+      'start',
+      () {
+        final plan = buildPlan(
+          [resolved(meeting)],
+          now: now,
+          acknowledgements: Acknowledgements(
+            occurrences: [(work.key, DateTime.utc(2026, 10, 6, 7))],
+          ),
+        );
+        expect(plan.map((a) => a.offsetMinutes), [10, 1]);
+      },
+    );
+
+    test('Dismiss all under the meeting key drops the meeting', () {
+      final plan = buildPlan(
+        [resolved(meeting), resolved(standup)],
+        now: now,
+        acknowledgements: Acknowledgements(
+          occurrences: [(meetingKey, meeting.startUtc)],
+        ),
+      );
+      expect(plan.map((a) => a.occurrenceKey).toSet(), {standup.key});
+    });
+
+    test("a single dismissal under a copy key's alert id drops that offset "
+        'only', () {
+      final plan = buildPlan(
+        [resolved(meeting)],
+        now: now,
+        acknowledgements: Acknowledgements(
+          alerts: [(PlannedAlert.idFor(work.key, 10), meeting.startUtc)],
+        ),
+      );
+      expect(plan.map((a) => a.offsetMinutes), [1]);
+      expect(plan.single.id, PlannedAlert.idFor(meetingKey, 1));
+    });
+
+    test("a single dismissal under the meeting key's alert id drops that "
+        'offset only', () {
+      final plan = buildPlan(
+        [resolved(meeting)],
+        now: now,
+        acknowledgements: Acknowledgements(
+          alerts: [(PlannedAlert.idFor(meetingKey, 10), meeting.startUtc)],
+        ),
+      );
+      expect(plan.map((a) => a.offsetMinutes), [1]);
+    });
+
+    test("a meeting's alerts are keyed by the meeting key", () {
+      final plan = buildPlan([resolved(meeting)], now: now);
+      expect(plan.map((a) => a.occurrenceKey).toSet(), {meetingKey});
+      expect(plan.map((a) => a.id), [
+        PlannedAlert.idFor(meetingKey, 10),
+        PlannedAlert.idFor(meetingKey, 1),
+      ]);
+      for (final copy in [phone, feed, work]) {
+        expect(
+          plan.map((a) => a.id),
+          isNot(contains(PlannedAlert.idFor(copy.key, 10))),
+          reason: 'no alert id is built from ${copy.key}',
+        );
+      }
+    });
   });
 }

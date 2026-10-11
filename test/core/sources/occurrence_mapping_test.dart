@@ -3,7 +3,10 @@ import 'package:ics_core/ics_core.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/sources/calendar_source.dart';
+import 'package:tminus/core/sources/device_calendar_api.dart';
 import 'package:tminus/core/sources/occurrence_mapping.dart';
+
+import '../fixtures.dart';
 
 void main() {
   const work = SourceConfig(
@@ -57,6 +60,60 @@ void main() {
 
   test('a recurring instance gets its uid as seriesUid', () {
     expect(occurrenceFromIcs(ics(recurring: true), work).seriesUid, 'uid1');
+  });
+
+  test('an ICS copy carries its UID as icalUid', () {
+    expect(occurrenceFromIcs(ics(), work).icalUid, 'uid1');
+    // A recurring instance carries the series' UID, which is also its uid.
+    final instance = occurrenceFromIcs(ics(recurring: true), work);
+    expect(instance.icalUid, 'uid1');
+    expect(instance.icalUid, instance.uid);
+  });
+
+  test('a phone copy has no icalUid', () {
+    const phone = SourceConfig(
+      id: 'phone',
+      name: 'Outlook on the phone',
+      color: 0xFF33AA66,
+      kind: SourceKind.device,
+      deviceCalendarId: '3',
+    );
+    final begin = DateTime.utc(2026, 10, 12, 8);
+    DeviceInstance instance({
+      String? originalId,
+      int? originalInstanceTimeMs,
+      bool recurring = false,
+    }) => DeviceInstance(
+      eventId: '10',
+      calendarId: '3',
+      beginMs: begin.millisecondsSinceEpoch,
+      endMs: begin.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+      allDay: false,
+      title: 'Sprint planning',
+      availability: DeviceInstance.availabilityBusy,
+      selfAttendeeStatus: 1,
+      originalId: originalId,
+      originalInstanceTimeMs: originalInstanceTimeMs,
+      recurring: recurring,
+    );
+
+    // A one-off, a series instance and a moved instance of a series.
+    final copies = [
+      occurrenceFromDevice(instance(), phone, johannesburg),
+      occurrenceFromDevice(instance(recurring: true), phone, johannesburg),
+      occurrenceFromDevice(
+        instance(
+          originalId: '9',
+          originalInstanceTimeMs: begin
+              .subtract(const Duration(days: 1))
+              .millisecondsSinceEpoch,
+        ),
+        phone,
+        johannesburg,
+      ),
+    ];
+    expect(copies.map((c) => c.icalUid), everyElement(isNull));
+    expect(copies.map((c) => c.sourceId), everyElement('phone'));
   });
 
   test('both time-zone warnings become tzFallback', () {

@@ -16,6 +16,9 @@ import 'acknowledgements.dart';
 ///   entirely.
 /// - Occurrences acked by Dismiss all / Join at the same start are dropped.
 /// - Single alerts dismissed at the same start are dropped.
+/// - Acks are looked up under every key in the occurrence's `lookupKeys`, so
+///   one recorded under a copy's key still holds for a meeting (spec §13). Ids
+///   and `occurrenceKey` always use the occurrence's own key.
 /// - Two alerts with the same offset would share an id, so only one is kept:
 ///   the alarm if either is an alarm.
 /// - Sorted by fireAt, then id.
@@ -36,7 +39,8 @@ List<PlannedAlert> buildPlan(
     if (r.alerts.isEmpty) continue;
     final end = o.endUtc.isAfter(o.startUtc) ? o.endUtc : o.startUtc;
     if (!end.add(keepAfterEnd).isAfter(nowUtc)) continue;
-    if (acks.isOccurrenceAcked(o.key, o.startUtc)) continue;
+    final keys = o.lookupKeys;
+    if (acks.isAnyOccurrenceAcked(keys, o.startUtc)) continue;
 
     // The engine already collapses duplicates; this guard covers a
     // ResolvedOccurrence built elsewhere.
@@ -54,7 +58,13 @@ List<PlannedAlert> buildPlan(
     for (final a in alerts) {
       final fireAt = o.startUtc.subtract(Duration(minutes: a.offsetMinutes));
       final id = PlannedAlert.idFor(o.key, a.offsetMinutes);
-      if (acks.isAlertDismissed(id, o.startUtc)) continue;
+      final dismissed = keys.any(
+        (k) => acks.isAlertDismissed(
+          PlannedAlert.idFor(k, a.offsetMinutes),
+          o.startUtc,
+        ),
+      );
+      if (dismissed) continue;
       plan.add(
         PlannedAlert(
           id: id,

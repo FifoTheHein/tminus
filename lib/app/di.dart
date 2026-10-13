@@ -107,6 +107,8 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
       bodies: getIt(),
       platform: getIt(),
       settings: getIt(),
+      occurrences: getIt(),
+      db: getIt(),
     ),
   );
   getIt.registerLazySingleton<EngineEventRecorder>(

@@ -3,6 +3,7 @@ import 'package:tminus/core/model/alert.dart';
 import 'package:tminus/core/model/alert_profile.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/keyword_rule.dart';
+import 'package:tminus/core/model/quiet_state.dart';
 import 'package:tminus/core/model/skip_filters.dart';
 import 'package:tminus/core/rules/resolved_occurrence.dart';
 import 'package:tminus/core/rules/rule_set.dart';
@@ -633,5 +634,153 @@ void main() {
       expect(r.explanation, 'Important · this event');
       expect(r.alerts, importantAlerts);
     });
+  });
+
+  test('withoutOccurrenceEnabled drops only enabled on the given keys', () {
+    final a = occ(uid: 'a');
+    final b = occ(uid: 'b');
+    final c = occ(uid: 'c');
+    final edited = BuiltInProfiles.meeting.copyWith(alerts: custom);
+    final quiet = MuteToday(DateTime.utc(2026, 10, 7, 5));
+    final rules = RuleSet(
+      profiles: [edited],
+      overrides: [
+        onOcc(a, profileId: 'quick', enabled: false),
+        onOcc(b, enabled: true),
+        onOcc(c, enabled: false),
+        onSeries('series-1', enabled: false),
+      ],
+      rules: [titleRule('standup', 'quick')],
+      skipFilters: const SkipFilters(tentative: false),
+      sourceDefaults: {'work': 'important'},
+      globalDefaultProfileId: 'quick',
+      quiet: quiet,
+    );
+
+    final natural = rules.withoutOccurrenceEnabled([
+      a.key,
+      b.key,
+      'no-such-key',
+    ]);
+
+    // An override with a profile keeps it; only the toggle goes.
+    expect(natural.occurrenceOverride(a.key), onOcc(a, profileId: 'quick'));
+    // An override with only the toggle disappears.
+    expect(natural.occurrenceOverride(b.key), isNull);
+    // Keys that were not given keep their override, and so do series ones.
+    expect(natural.occurrenceOverride(c.key), onOcc(c, enabled: false));
+    expect(
+      natural.seriesOverride('series-1'),
+      onSeries('series-1', enabled: false),
+    );
+    // Everything else comes across unchanged.
+    expect(natural.rules, rules.rules);
+    expect(natural.skipFilters, rules.skipFilters);
+    expect(natural.sourceDefaults, {'work': 'important'});
+    expect(natural.globalDefaultProfileId, 'quick');
+    expect(natural.quiet, quiet);
+    expect(natural.profile('meeting'), edited);
+    // The rule set it came from is not changed.
+    expect(
+      rules.occurrenceOverride(a.key),
+      onOcc(a, profileId: 'quick', enabled: false),
+    );
+    expect(rules.occurrenceOverride(b.key), onOcc(b, enabled: true));
+
+    // What the Agenda toggle compares against: a tentative event that a skip
+    // filter silences, switched on, falls back to the filter without it.
+    final toggled = RuleSet(overrides: [onOcc(tentative, enabled: true)]);
+    expect(
+      engine().resolve(tentative, toggled).explanation,
+      'Meeting · this event',
+    );
+    expect(
+      engine()
+          .resolve(
+            tentative,
+            toggled.withoutOccurrenceEnabled(tentative.lookupKeys),
+          )
+          .explanation,
+      'Silent · tentative',
+    );
+  });
+
+  test('the natural state drops the overrides on the other lookup keys', () {
+    // A meeting no copy has the key of any more, with one copy. Its lookup
+    // keys are the meeting key (A) and the copy's key (B).
+    final copy = occ(sourceId: 'phone', uid: 'p1');
+    final meetingKey = EventOccurrence.makeKey(
+      'gone',
+      'm1',
+      copy.originalStartUtc,
+    );
+    final meeting = meetingOf([copy], meetingKey: meetingKey);
+    expect(meeting.lookupKeys, [meetingKey, copy.key]);
+    // A is switched off. B holds a profile chosen while merging was off. B is
+    // listed first on purpose: only the order of the keys decides.
+    final rules = RuleSet(
+      globalDefaultProfileId: 'silent',
+      overrides: [
+        onOcc(copy, profileId: 'meeting'),
+        onOcc(meeting, enabled: false),
+      ],
+    );
+    // B's override alone would turn the meeting on.
+    expect(
+      engine()
+          .resolve(
+            meeting,
+            RuleSet(
+              globalDefaultProfileId: 'silent',
+              overrides: [onOcc(copy, profileId: 'meeting')],
+            ),
+          )
+          .explanation,
+      'Meeting · this event',
+    );
+
+    final natural = rules.withoutOccurrenceEnabled(meeting.lookupKeys);
+
+    // Clearing the toggle through rewriteFor leaves A with nothing set, which
+    // deletes it, and deletes B too. So the rules are the plain ones, and the
+    // meeting follows the default, Silent.
+    final afterRewrite = RuleSet(globalDefaultProfileId: 'silent');
+    final got = engine().resolve(meeting, natural);
+    final want = engine().resolve(meeting, afterRewrite);
+    expect(got.explanation, want.explanation);
+    expect(got.alerts, want.alerts);
+    expect(got.explanation, 'Silent · default');
+    expect(got.alerts, isEmpty);
+    expect(natural.occurrenceOverride(meetingKey), isNull);
+    expect(natural.occurrenceOverride(copy.key), isNull);
+  });
+
+  test('the natural state keeps the override in effect wherever it sits', () {
+    // Nothing on the meeting key. The first copy's override is in effect, and
+    // the second copy's, listed first here on purpose, is not.
+    final first = occ(sourceId: 'phone', uid: 'p1');
+    final second = occ(sourceId: 'feed', uid: 'f1');
+    final meetingKey = EventOccurrence.makeKey(
+      'gone',
+      'm1',
+      first.originalStartUtc,
+    );
+    final meeting = meetingOf([first, second], meetingKey: meetingKey);
+    expect(meeting.lookupKeys, [meetingKey, first.key, second.key]);
+    final rules = RuleSet(
+      overrides: [
+        onOcc(second, profileId: 'important'),
+        onOcc(first, profileId: 'quick', enabled: false),
+      ],
+    );
+
+    final natural = rules.withoutOccurrenceEnabled(meeting.lookupKeys);
+
+    // The first copy's profile stays, without its toggle. The second copy's
+    // override is gone.
+    final r = engine().resolve(meeting, natural);
+    expect(r.explanation, 'Quick · this event');
+    expect(r.alerts, quickAlerts);
+    expect(natural.occurrenceOverride(second.key), isNull);
   });
 }

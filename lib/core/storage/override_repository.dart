@@ -69,6 +69,48 @@ class OverrideRepository {
         );
       });
 
+  /// Rewrites the override that is in effect for a meeting (Plan 4b: the
+  /// first of its lookup keys or series uids that has one) onto
+  /// `targets.first`, and deletes the overrides on the other targets, in one
+  /// transaction. [change] gets that effective override (null when there is
+  /// none) and returns the new one, which must be for [scope] and
+  /// `targets.first`: anything else throws an [ArgumentError], in release
+  /// builds too, and changes nothing. So a field set on a copy key, a profile
+  /// while merging was off, say, is carried over instead of being hidden behind
+  /// the meeting key, and a cleared field cannot come back from a copy key
+  /// (Plan 5 decision 9).
+  ///
+  /// [find] skips a row whose custom alerts cannot be read (decision 15), so
+  /// such a row is never the effective one; it is still deleted from the other
+  /// targets. A row with nothing set is not the effective one either: the rules
+  /// drop it, so the lookup passes over it.
+  Future<void> rewriteFor(
+    OverrideScope scope,
+    List<String> targets,
+    EventOverride Function(EventOverride? effective) change,
+  ) => _db.transaction(() async {
+    final unique = targets.toSet().toList();
+    EventOverride? effective;
+    for (final t in unique) {
+      final found = await find(scope, t);
+      if (found != null && !found.isEmpty) {
+        effective = found;
+        break;
+      }
+    }
+    final next = change(effective);
+    if (next.scope != scope || next.target != unique.first) {
+      throw ArgumentError(
+        'rewriteFor: change must return an override for the scope and the '
+        'first target',
+      );
+    }
+    await save(next); // an empty override deletes the row
+    for (final t in unique.skip(1)) {
+      await delete(scope, t);
+    }
+  });
+
   static List<EventOverride> _readable(List<OverrideRow> rows) => [
     for (final r in rows) ?_fromRow(r),
   ];

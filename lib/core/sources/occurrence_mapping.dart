@@ -42,7 +42,9 @@ EventOccurrence occurrenceFromIcs(IcsOccurrence o, SourceConfig source) =>
 /// `ORIGINAL_INSTANCE_TIME`, else `BEGIN`. All-day instances arrive as UTC
 /// midnights and become local midnights in [zone], as `ics_core` does. A phone
 /// copy has no [EventOccurrence.icalUid]: the calendar provider has no column
-/// the app reads that holds it.
+/// the app reads that holds it. A title that starts `Canceled:` or
+/// `Cancelled:` marks the instance cancelled, as it does for ICS: Outlook
+/// leaves such a meeting in the calendar under that title.
 EventOccurrence occurrenceFromDevice(
   DeviceInstance i,
   SourceConfig source,
@@ -76,7 +78,8 @@ EventOccurrence occurrenceFromDevice(
       _ => BusyStatus.unknown,
     },
     declined: i.selfAttendeeStatus == DeviceInstance.attendeeDeclined,
-    cancelled: i.status == DeviceInstance.statusCancelled,
+    cancelled:
+        i.status == DeviceInstance.statusCancelled || isCancelledTitle(title),
     calendarColor: source.color,
   );
 }

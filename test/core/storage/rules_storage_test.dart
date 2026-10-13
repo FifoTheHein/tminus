@@ -337,6 +337,246 @@ void main() {
         isTrue,
       );
     });
+
+    // Overrides on a meeting key and on the keys of its copies.
+    EventOverride onKey(
+      String target, {
+      OverrideScope scope = OverrideScope.occurrence,
+      String? profileId,
+      List<AlertSpec>? customAlerts,
+      bool? enabled,
+    }) => EventOverride(
+      scope: scope,
+      target: target,
+      profileId: profileId,
+      customAlerts: customAlerts,
+      enabled: enabled,
+    );
+
+    test('rewriteFor starts from the first target that has an override and writes to the first target', () async {
+      const alerts = [AlertSpec(2, AlertStrength.alarm)];
+      // The meeting key has none. The first copy has a profile and alerts;
+      // the second copy has another profile, lower in the list.
+      await overrides.save(
+        onKey('copy-1', profileId: 'quick', customAlerts: alerts),
+      );
+      await overrides.save(onKey('copy-2', profileId: 'important'));
+      final seen = <EventOverride?>[];
+
+      await overrides.rewriteFor(
+        OverrideScope.occurrence,
+        ['meeting', 'copy-1', 'copy-2'],
+        (effective) {
+          seen.add(effective);
+          return onKey(
+            'meeting',
+            profileId: effective?.profileId,
+            customAlerts: effective?.customAlerts,
+            enabled: false,
+          );
+        },
+      );
+
+      expect(seen, [onKey('copy-1', profileId: 'quick', customAlerts: alerts)]);
+      expect(
+        await overrides.find(OverrideScope.occurrence, 'meeting'),
+        onKey(
+          'meeting',
+          profileId: 'quick',
+          customAlerts: alerts,
+          enabled: false,
+        ),
+      );
+    });
+
+    test('rewriteFor deletes the overrides on every other target', () async {
+      await overrides.save(onKey('meeting', enabled: true));
+      await overrides.save(onKey('copy-1', profileId: 'quick'));
+      await overrides.save(onKey('copy-2', enabled: false));
+      // The same text under the other scope is not one of the targets.
+      final series = onKey(
+        'copy-1',
+        scope: OverrideScope.series,
+        profileId: 'important',
+      );
+      await overrides.save(series);
+      // A row whose custom alerts cannot be read is never the effective
+      // override, but it goes too.
+      await db.customStatement(
+        'INSERT OR REPLACE INTO overrides '
+        '(scope, target, custom_alerts_json) VALUES (?, ?, ?)',
+        ['occurrence', 'copy-3', 'not json'],
+      );
+
+      await overrides.rewriteFor(
+        OverrideScope.occurrence,
+        // The first target is listed again; it must survive that.
+        ['meeting', 'copy-1', 'copy-2', 'copy-3', 'meeting'],
+        (effective) => onKey(
+          'meeting',
+          profileId: 'important',
+          enabled: effective?.enabled,
+        ),
+      );
+
+      expect(
+        await overrides.all(),
+        unorderedEquals([
+          onKey('meeting', profileId: 'important', enabled: true),
+          series,
+        ]),
+      );
+      final unreadable = await db
+          .customSelect(
+            "SELECT COUNT(*) AS n FROM overrides WHERE target = 'copy-3'",
+          )
+          .getSingle();
+      expect(unreadable.read<int>('n'), 0);
+    });
+
+    test('a rewrite that leaves nothing set deletes the override', () async {
+      await overrides.save(onKey('meeting', enabled: true));
+      await overrides.save(onKey('copy-1', profileId: 'quick'));
+
+      await overrides.rewriteFor(OverrideScope.occurrence, [
+        'meeting',
+        'copy-1',
+      ], (_) => onKey('meeting'));
+
+      expect(await overrides.all(), isEmpty);
+    });
+
+    test(
+      'targets with no override are untouched and nothing is written for them',
+      () async {
+        await overrides.save(onKey('other', profileId: 'quick'));
+        final seen = <EventOverride?>[];
+
+        await overrides.rewriteFor(
+          OverrideScope.occurrence,
+          ['meeting', 'copy-1', 'copy-2'],
+          (effective) {
+            seen.add(effective);
+            return onKey('meeting', enabled: true);
+          },
+        );
+
+        // Nothing was in effect, and only the first target got a row. The
+        // copy keys got none, and an override on another key is still there.
+        expect(seen, [null]);
+        expect(
+          await overrides.all(),
+          unorderedEquals([
+            onKey('meeting', enabled: true),
+            onKey('other', profileId: 'quick'),
+          ]),
+        );
+        expect(
+          await overrides.find(OverrideScope.occurrence, 'copy-1'),
+          isNull,
+        );
+        expect(
+          await overrides.find(OverrideScope.occurrence, 'copy-2'),
+          isNull,
+        );
+
+        // With nothing to write either, no row appears.
+        await overrides.rewriteFor(OverrideScope.occurrence, [
+          'fresh',
+          'fresh-copy',
+        ], (_) => onKey('fresh'));
+        expect(await overrides.find(OverrideScope.occurrence, 'fresh'), isNull);
+        expect(await overrides.all(), hasLength(2));
+      },
+    );
+
+    test('an empty stored override is not the effective one', () async {
+      // `save` never writes a row with nothing set, but one can be there all
+      // the same (an older build, say). The rules drop it, so it is not in
+      // effect.
+      Future<void> storeEmpty(String target) => db.customStatement(
+        'INSERT OR REPLACE INTO overrides (scope, target) VALUES (?, ?)',
+        ['occurrence', target],
+      );
+
+      // An empty row on the first target must not hide the copy's override.
+      await storeEmpty('meeting');
+      await overrides.save(onKey('copy-1', profileId: 'quick'));
+      final seen = <EventOverride?>[];
+
+      await overrides.rewriteFor(
+        OverrideScope.occurrence,
+        ['meeting', 'copy-1'],
+        (effective) {
+          seen.add(effective);
+          return onKey(
+            'meeting',
+            profileId: effective?.profileId,
+            enabled: true,
+          );
+        },
+      );
+
+      expect(seen, [onKey('copy-1', profileId: 'quick')]);
+      expect(await overrides.all(), [
+        onKey('meeting', profileId: 'quick', enabled: true),
+      ]);
+
+      // An empty row on the last target, with nothing else set: nothing is in
+      // effect, so change gets null and not the empty row.
+      await storeEmpty('other-copy');
+      final seenNone = <EventOverride?>[];
+
+      await overrides.rewriteFor(
+        OverrideScope.occurrence,
+        ['other', 'other-copy'],
+        (effective) {
+          seenNone.add(effective);
+          return onKey('other', enabled: true);
+        },
+      );
+
+      expect(seenNone, [null]);
+      expect(
+        await overrides.all(),
+        unorderedEquals([
+          onKey('meeting', profileId: 'quick', enabled: true),
+          onKey('other', enabled: true),
+        ]),
+      );
+    });
+
+    test('a change that targets another key is refused', () async {
+      await overrides.save(onKey('meeting', enabled: true));
+      await overrides.save(onKey('copy-1', profileId: 'quick'));
+
+      // An override for a copy key instead of the first target.
+      await expectLater(
+        overrides.rewriteFor(OverrideScope.occurrence, [
+          'meeting',
+          'copy-1',
+        ], (_) => onKey('copy-1', enabled: false)),
+        throwsArgumentError,
+      );
+      // An override for the first target, but in the other scope.
+      await expectLater(
+        overrides.rewriteFor(
+          OverrideScope.occurrence,
+          ['meeting', 'copy-1'],
+          (_) => onKey('meeting', scope: OverrideScope.series, enabled: false),
+        ),
+        throwsArgumentError,
+      );
+
+      // Both attempts changed nothing.
+      expect(
+        await overrides.all(),
+        unorderedEquals([
+          onKey('meeting', enabled: true),
+          onKey('copy-1', profileId: 'quick'),
+        ]),
+      );
+    });
   });
 
   group('SettingsRepository', () {

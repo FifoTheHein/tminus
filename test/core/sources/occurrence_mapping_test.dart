@@ -135,4 +135,62 @@ void main() {
     expect(w.startUtc, DateTime.utc(2026, 10, 6, 7));
     expect(w.endUtc, DateTime.utc(2026, 10, 13, 8));
   });
+
+  /// Whether the phone event with this title and calendar status maps to a
+  /// cancelled occurrence.
+  bool phoneEventCancelled(String? title, {int? status}) =>
+      occurrenceFromDevice(
+        DeviceInstance(
+          eventId: '10',
+          calendarId: '3',
+          beginMs: DateTime.utc(2026, 10, 12, 8).millisecondsSinceEpoch,
+          endMs: DateTime.utc(2026, 10, 12, 9).millisecondsSinceEpoch,
+          allDay: false,
+          title: title,
+          availability: DeviceInstance.availabilityBusy,
+          selfAttendeeStatus: 1,
+          status: status,
+          recurring: false,
+        ),
+        const SourceConfig(
+          id: 'phone',
+          name: 'Outlook on the phone',
+          color: 0xFF33AA66,
+          kind: SourceKind.device,
+          deviceCalendarId: '3',
+        ),
+        johannesburg,
+      ).cancelled;
+
+  test('a phone event titled Canceled: is cancelled', () {
+    for (final title in [
+      'Canceled: Sprint planning',
+      'Cancelled: Sprint planning',
+      '  canceled: Sprint planning',
+    ]) {
+      expect(phoneEventCancelled(title), isTrue, reason: title);
+    }
+    // The calendar's own cancelled status still counts.
+    expect(
+      phoneEventCancelled(
+        'Sprint planning',
+        status: DeviceInstance.statusCancelled,
+      ),
+      isTrue,
+    );
+  });
+
+  test('a phone title merely containing "cancelled" is not', () {
+    for (final title in <String?>[
+      'Sprint planning (cancelled?)',
+      'Was cancelled: no, it is on',
+      'Re: Canceled: thing',
+      'Cancellation policy review',
+      'Canceled',
+      '',
+      null,
+    ]) {
+      expect(phoneEventCancelled(title), isFalse, reason: '$title');
+    }
+  });
 }

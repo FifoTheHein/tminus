@@ -34,6 +34,18 @@ class RuleSet {
        },
        rules = List.unmodifiable(<KeywordRule>[...rules]..sort(_byPosition));
 
+  /// Shares everything already built; used by [withoutOccurrenceEnabled].
+  RuleSet._copy(
+    this._profiles,
+    this._occurrenceOverrides,
+    this._seriesOverrides,
+    this.rules,
+    this.skipFilters,
+    this.sourceDefaults,
+    this.globalDefaultProfileId,
+    this.quiet,
+  );
+
   final Map<String, AlertProfile> _profiles;
   final Map<String, EventOverride> _occurrenceOverrides;
   final Map<String, EventOverride> _seriesOverrides;
@@ -86,6 +98,46 @@ class RuleSet {
       if (found != null) return found;
     }
     return null;
+  }
+
+  /// The same rules as they are without an event's Agenda toggle: what the
+  /// event does on its own (Plan 5 decision 8). Pass a meeting's `lookupKeys`,
+  /// best first.
+  ///
+  /// This is the state `OverrideRepository.rewriteFor` leaves when the toggle
+  /// is written (decision 9). Of [keys] only the override in effect survives,
+  /// the first that has one, and it loses its `enabled`; it goes too if nothing
+  /// else is set on it. The overrides on the other [keys] go, so a profile set
+  /// on a copy key does not show through. Overrides on keys that are not in
+  /// [keys] are not touched, and neither are series overrides.
+  RuleSet withoutOccurrenceEnabled(Iterable<String> keys) {
+    final given = keys.toSet();
+    EventOverride? effective;
+    for (final k in given) {
+      effective = _occurrenceOverrides[k];
+      if (effective != null) break;
+    }
+    final occurrence = Map.of(_occurrenceOverrides)
+      ..removeWhere((k, _) => given.contains(k));
+    if (effective != null) {
+      final rest = EventOverride(
+        scope: effective.scope,
+        target: effective.target,
+        profileId: effective.profileId,
+        customAlerts: effective.customAlerts,
+      );
+      if (!rest.isEmpty) occurrence[rest.target] = rest;
+    }
+    return RuleSet._copy(
+      _profiles,
+      occurrence,
+      _seriesOverrides,
+      rules,
+      skipFilters,
+      sourceDefaults,
+      globalDefaultProfileId,
+      quiet,
+    );
   }
 
   static int _byPosition(KeywordRule a, KeywordRule b) {

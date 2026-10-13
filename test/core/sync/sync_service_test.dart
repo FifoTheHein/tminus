@@ -4,8 +4,10 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
+import 'package:tminus/core/model/local_date.dart';
 import 'package:tminus/core/model/meeting_link.dart';
 import 'package:tminus/core/model/planned_alert.dart';
+import 'package:tminus/core/model/quiet_state.dart';
 import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/rules/rules_engine.dart';
@@ -68,6 +70,7 @@ void main() {
   late Object? Function(MethodCall) applyAnswer;
   late bool lockFree;
   late String? deviceZone;
+  late Map<String, Object?>? quietRequest;
 
   const work = SourceConfig(
     id: 'work',
@@ -151,6 +154,7 @@ void main() {
     queuedEvents = [];
     lockFree = true;
     deviceZone = null;
+    quietRequest = null;
     applyAnswer = (call) => {
       'armed': ((call.arguments as Map)['alerts'] as List).length,
       'cancelled': 0,
@@ -173,6 +177,7 @@ void main() {
       return switch (call.method) {
         'acquireLock' => lockFree,
         'deviceZone' => deviceZone,
+        'takeQuietRequest' => quietRequest,
         _ => null,
       };
     });
@@ -1101,5 +1106,258 @@ void main() {
     });
     expect(appliedKeys(), {meeting.key, twin.key});
     expect(report.merged, 1);
+  });
+
+  // Runs that only re-plan, and the quick-settings tile (Plan 5 decisions 2
+  // and 3).
+  test(
+    'an edit run fetches nothing, plans from the cache and keeps lastFinished',
+    () async {
+      await sync.run(SyncTrigger.periodic);
+      final finished = await settings.getString(SyncService.lastFinishedKey);
+      built.clear();
+      now = now.add(const Duration(minutes: 5));
+
+      final report = await sync.run(SyncTrigger.edit);
+
+      expect(built, isEmpty);
+      expect(report.sources, isEmpty);
+      expect(report.outcome, SyncRunOutcome.ok);
+      expect(applied(), hasLength(2));
+      expect(await settings.getString(SyncService.lastFinishedKey), finished);
+      expect(
+        (await log.recent()).where(
+          (e) => e.message?.startsWith('edit:') ?? false,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test('an edit run whose applyPlan fails is logged', () async {
+    applyAnswer = (_) => throw PlatformException(code: 'apply_failed');
+    await sync.run(SyncTrigger.edit);
+    expect(
+      (await log.recent()).first.message,
+      startsWith('edit: applyPlan failed (apply_failed)'),
+    );
+  });
+
+  test('a busy edit run writes no sync-log row', () async {
+    lockFree = false;
+    final report = await sync.run(SyncTrigger.edit);
+    expect(report.outcome, SyncRunOutcome.busy);
+    // A run that only re-plans leaves a row only when applyPlan failed; the
+    // skipped row is for the runs that fetch.
+    expect(await log.recent(), isEmpty);
+  });
+
+  test(
+    'an edit run neither posts nor withdraws a Feed broken notice',
+    () async {
+      // The link is broken and its notice is up.
+      results['work'] = () => const SourceFailed(
+        SyncOutcome.httpError,
+        'The link no longer works (HTTP 404).',
+      );
+      await sync.run(SyncTrigger.periodic);
+      final noticeKey = SyncService.brokenNoticeKey('work');
+      expect(await settings.getString(noticeKey), 'httpError');
+
+      // The feed would answer now. An edit run does not ask it, so it sees no
+      // recovery and leaves the notice up.
+      results['work'] = () => SourceFetched([meeting]);
+      syncCalls.clear();
+      await sync.run(SyncTrigger.edit);
+
+      expect(
+        syncCallsNamed('postSourceNotice')
+            .where((c) => (c.arguments as Map)['kind'] == 'broken'),
+        isEmpty,
+      );
+      expect(
+        syncCallsNamed('cancelSourceNotice')
+            .where((c) => (c.arguments as Map)['kind'] == 'broken'),
+        isEmpty,
+      );
+      expect(await settings.getString(noticeKey), 'httpError');
+    },
+  );
+
+  test('an edit run does not post a Feed broken notice for a source that now fails', () async {
+    await sync.run(SyncTrigger.periodic); // the feed answers: no notice
+
+    // The feed would fail now. An edit run does not ask it, so there is no
+    // failure to post a notice for.
+    results['work'] = () => const SourceFailed(
+      SyncOutcome.httpError,
+      'The link no longer works (HTTP 404).',
+    );
+    syncCalls.clear();
+    await sync.run(SyncTrigger.edit);
+
+    expect(
+      syncCallsNamed('postSourceNotice')
+          .where((c) => (c.arguments as Map)['kind'] == 'broken'),
+      isEmpty,
+    );
+  });
+
+  test('an edit run withdraws the notices of a disabled source', () async {
+    results['work'] = () => const SourceFailed(SyncOutcome.httpError, 'x');
+    await sync.run(SyncTrigger.periodic);
+    // A server error on top leaves the start of its run behind.
+    results['work'] = () => const SourceFailed(SyncOutcome.serverError, 'x');
+    await sync.run(SyncTrigger.periodic);
+    final serverErrorSince = SyncService.serverErrorSinceKey('work');
+    expect(await settings.getString(serverErrorSince), isNotEmpty);
+    expect(
+      await settings.getString(SyncService.brokenNoticeKey('work')),
+      'httpError',
+    );
+
+    await sources.save(work.copyWith(enabled: false));
+    syncCalls.clear();
+    await sync.run(SyncTrigger.edit);
+
+    expect(
+      syncCallsNamed('cancelSourceNotice').map((c) => c.arguments).toSet(),
+      {
+        {'kind': 'stale', 'sourceId': 'work'},
+        {'kind': 'broken', 'sourceId': 'work'},
+      },
+    );
+    expect(await settings.getString(SyncService.brokenNoticeKey('work')), '');
+    expect(await settings.getString(serverErrorSince), '');
+  });
+
+  test('a waiting tile request is applied before planning', () async {
+    await sync.run(SyncTrigger.periodic);
+    quietRequest = {'action': 'mute', 'atMs': now.millisecondsSinceEpoch};
+    await sync.run(SyncTrigger.quietTile);
+    expect(await settings.quietState(), isA<MuteToday>());
+    expect(applied(), isEmpty); // Meeting does not ring in quiet mode
+    expect(syncCallsNamed('takeQuietRequest'), hasLength(2)); // every run asks
+  });
+
+  test('an end request clears any quiet mode', () async {
+    // Fills the cache: quietTile runs do not fetch.
+    await sync.run(SyncTrigger.periodic);
+    await settings.setQuietState(
+      QuietState.muteToday(nowUtc: now, zone: johannesburg),
+    );
+    quietRequest = {'action': 'end', 'atMs': now.millisecondsSinceEpoch};
+    await sync.run(SyncTrigger.quietTile);
+    expect(await settings.quietState(), const QuietNone());
+    expect(applied(), hasLength(2));
+  });
+
+  test('a tile request older than an in-app quiet change is dropped', () async {
+    await settings.setQuietStateAt(const QuietNone(), changedAtUtc: now);
+    quietRequest = {
+      'action': 'mute',
+      'atMs': now.subtract(const Duration(seconds: 1)).millisecondsSinceEpoch,
+    };
+    await sync.run(SyncTrigger.quietTile);
+    expect(await settings.quietState(), const QuietNone());
+  });
+
+  test('a tile request newer than the last in-app change is applied', () async {
+    await settings.setQuietStateAt(
+      const QuietNone(),
+      changedAtUtc: now.subtract(const Duration(seconds: 1)),
+    );
+    quietRequest = {'action': 'mute', 'atMs': now.millisecondsSinceEpoch};
+    await sync.run(SyncTrigger.quietTile);
+    expect(await settings.quietState(), isA<MuteToday>());
+
+    // The request applied is itself a change, stamped with its own time. A
+    // tap in between (newer than the in-app change, older than the mute) is
+    // dropped; it is an end tap so that applying it would show as QuietNone.
+    quietRequest = {
+      'action': 'end',
+      'atMs': now
+          .subtract(const Duration(milliseconds: 500))
+          .millisecondsSinceEpoch,
+    };
+    await sync.run(SyncTrigger.quietTile);
+    expect(await settings.quietState(), isA<MuteToday>());
+
+    // A later tap is newer than the mute and wins.
+    quietRequest = {
+      'action': 'end',
+      'atMs': now.add(const Duration(seconds: 1)).millisecondsSinceEpoch,
+    };
+    await sync.run(SyncTrigger.quietTile);
+    expect(await settings.quietState(), const QuietNone());
+  });
+
+  test('configure tells the tile when quiet ends and what to show', () async {
+    await settings.setQuietState(
+      QuietState.muteToday(nowUtc: now, zone: johannesburg),
+    );
+    await sync.run(SyncTrigger.edit);
+    final args = syncCallsNamed('configure').last.arguments as Map;
+    // 07:00 on 7 Oct in Johannesburg = 05:00 UTC.
+    expect(
+      args['quietUntilMs'],
+      DateTime.utc(2026, 10, 7, 5).millisecondsSinceEpoch,
+    );
+    expect(args['quietText'], 'Until 07:00');
+  });
+
+  test('a vacation that has not started does not show on the tile', () async {
+    await settings.setQuietState(
+      Vacation(LocalDate(2026, 10, 12), LocalDate(2026, 10, 16)),
+    );
+    await sync.run(SyncTrigger.edit);
+    final args = syncCallsNamed('configure').last.arguments as Map;
+    expect(args['quietUntilMs'], isNull);
+    expect(args['quietText'], isNull);
+  });
+
+  test('the tile for a vacation in progress ends after its last local day and reads Vacation', () {
+    // `now` is 08:00 on 6 Oct in Johannesburg, inside the vacation.
+    final vacation = Vacation(LocalDate(2026, 10, 5), LocalDate(2026, 10, 9));
+    // Local midnight after the 9th: 00:00 on 10 Oct is 22:00 UTC on the 9th.
+    final end = DateTime.utc(2026, 10, 9, 22);
+
+    expect(SyncService.quietEnd(vacation, johannesburg, now), end);
+    expect(SyncService.quietTileText(vacation, johannesburg, now), 'Vacation');
+
+    // The last minute of the 9th is still covered, and the end is not.
+    final lastMinute = end.subtract(const Duration(minutes: 1));
+    expect(SyncService.quietEnd(vacation, johannesburg, lastMinute), end);
+    expect(SyncService.quietEnd(vacation, johannesburg, end), isNull);
+    expect(SyncService.quietTileText(vacation, johannesburg, end), isNull);
+  });
+
+  test(
+    'the tile for a pause in progress ends at its end and reads Paused until',
+    () {
+      // `now` is 08:00 on 6 Oct in Johannesburg; the pause ends at 14:00.
+      final until = DateTime.utc(2026, 10, 6, 12);
+      final pause = PausedUntil(until);
+
+      expect(SyncService.quietEnd(pause, johannesburg, now), until);
+      expect(
+        SyncService.quietTileText(pause, johannesburg, now),
+        'Paused until 14:00',
+      );
+
+      // At its end it no longer shows.
+      expect(SyncService.quietEnd(pause, johannesburg, until), isNull);
+      expect(SyncService.quietTileText(pause, johannesburg, until), isNull);
+    },
+  );
+
+  test('quietTile and edit parse by name and do not fetch', () {
+    expect(SyncTrigger.parse('quietTile'), SyncTrigger.quietTile);
+    expect(SyncTrigger.edit.fetches, isFalse);
+    expect(SyncTrigger.quietTile.fetches, isFalse);
+    expect(
+      SyncTrigger.values.where((t) => t.fetches),
+      hasLength(SyncTrigger.values.length - 2),
+    );
   });
 }

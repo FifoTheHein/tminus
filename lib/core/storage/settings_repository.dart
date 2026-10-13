@@ -18,6 +18,10 @@ class SettingsRepository {
   static const skipFiltersKey = 'skipFilters';
   static const globalDefaultKey = 'globalDefaultProfileId';
 
+  /// When the quiet mode was last set, from the app or an applied tile tap, in
+  /// epoch milliseconds.
+  static const quietChangedKey = 'quiet.changedAtUtcMs';
+
   Future<String?> getString(String name) => _byName(name).getSingleOrNull();
 
   Stream<String?> watchString(String name) => _byName(name).watchSingleOrNull();
@@ -76,6 +80,25 @@ class SettingsRepository {
     return _db
         .into(_db.quietStates)
         .insert(row, mode: InsertMode.insertOrReplace);
+  }
+
+  /// Sets the quiet mode and records when (Plan 5 decision 3). The app always
+  /// uses this; a tile request older than [changedAtUtc] is dropped.
+  Future<void> setQuietStateAt(
+    QuietState state, {
+    required DateTime changedAtUtc,
+  }) => _db.transaction(() async {
+    await setQuietState(state);
+    await setString(quietChangedKey, '${changedAtUtc.millisecondsSinceEpoch}');
+  });
+
+  /// When the quiet mode was last set with [setQuietStateAt]; null when it
+  /// never was.
+  Future<DateTime?> quietChangedAt() async {
+    final ms = int.tryParse(await getString(quietChangedKey) ?? '');
+    return ms == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
   }
 
   Selectable<String> _byName(String name) => (_db.select(

@@ -7,10 +7,12 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../engine/alarm_engine.dart';
 import '../model/planned_alert.dart';
+import '../model/quiet_state.dart';
 import '../model/source_config.dart';
 import '../model/sync_log_entry.dart';
+import '../model/utc.dart';
 import '../planner/empty_feed_guard.dart';
-import '../planner/meeting_merger.dart';
+import '../planner/meeting_planner.dart';
 import '../planner/plan_builder.dart';
 import '../rules/rules_engine.dart';
 import '../sources/calendar_source.dart';
@@ -45,8 +47,9 @@ typedef _Planned = ({
   int merged,
 });
 
-/// What started a sync (spec §7). The Kotlin side passes the first five by
-/// name to the headless engine.
+/// What started a sync (spec §7). The Kotlin side passes [periodic],
+/// [calendarChange], [preAlarm], [manual], [timeChange] and [quietTile] by
+/// name to the headless engine, never by position.
 enum SyncTrigger {
   periodic,
   calendarChange,
@@ -57,7 +60,17 @@ enum SyncTrigger {
   timeChange,
   foreground,
   pullToRefresh,
-  debug;
+  debug,
+
+  /// A UI edit (Plan 5 decision 2): plan from the cache, fetch nothing.
+  edit,
+
+  /// The quick-settings tile (Plan 5 decision 3): apply its request and plan
+  /// from the cache.
+  quietTile;
+
+  /// False for the runs that only re-plan.
+  bool get fetches => this != edit && this != quietTile;
 
   /// An unknown or missing name reads as [manual].
   static SyncTrigger parse(String? name) =>
@@ -119,6 +132,11 @@ class SyncReport {
 /// `applyPlan` → log the result. Runs in the headless engine (SyncWorker) and
 /// in the UI isolate (app foreground, pull-to-refresh); a lock shared through
 /// Kotlin keeps two runs from overlapping (Plan 4 decision).
+///
+/// A trigger whose [SyncTrigger.fetches] is false (a UI edit, the quick-settings
+/// tile) skips the fetch and plans from the cache. Every run takes a waiting
+/// tile request first and plans through [MeetingPlanner], the one planning
+/// path the Agenda uses too.
 class SyncService {
   SyncService({
     required this.sources,
@@ -204,7 +222,21 @@ class SyncService {
 
   final _random = Random();
 
-  /// When the last run finished, from any isolate.
+  /// Plans exactly as the Agenda does; this service then stores the link
+  /// changes the plan found.
+  late final MeetingPlanner _planner = MeetingPlanner(
+    sources: sources,
+    occurrences: occurrences,
+    links: links,
+    history: history,
+    settings: settings,
+    ruleSets: ruleSets,
+    rulesEngine: rulesEngine,
+  );
+
+  /// When the last run that fetched finished, from any isolate. A run that only
+  /// re-plans (a [SyncTrigger] with [SyncTrigger.fetches] false) does not move
+  /// it, so a foreground fetch is never skipped because of one.
   Future<DateTime?> lastFinished() async {
     final ms = int.tryParse(await settings.getString(lastFinishedKey) ?? '');
     return ms == null
@@ -216,14 +248,18 @@ class SyncService {
     final owner =
         'sync-${clock().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
     if (!await _acquire(owner)) {
-      // Nothing was synced and nothing changed: a skip, not a failure.
-      await syncLog.add(
-        SyncLogEntry(
-          atUtc: clock(),
-          outcome: SyncOutcome.skipped,
-          message: '${trigger.name}: skipped, another sync was still running',
-        ),
-      );
+      // Nothing was synced and nothing changed: a skip, not a failure. A run
+      // that only re-plans leaves no row for it, as it leaves none when it
+      // succeeds.
+      if (trigger.fetches) {
+        await syncLog.add(
+          SyncLogEntry(
+            atUtc: clock(),
+            outcome: SyncOutcome.skipped,
+            message: '${trigger.name}: skipped, another sync was still running',
+          ),
+        );
+      }
       return SyncReport(trigger: trigger, outcome: SyncRunOutcome.busy);
     }
     try {
@@ -253,6 +289,8 @@ class SyncService {
     await initDeviceZone(platform);
     final now = clock();
     final window = FetchWindow.around(now);
+    final location = zone();
+    await _applyQuietRequest(location);
 
     // History first: the planner's acknowledgements and the missed (system)
     // check both read it.
@@ -267,16 +305,17 @@ class SyncService {
       await _withdrawNotices(s.id);
       await _endServerErrors(s.id);
     }
-    final location = zone();
-    final fetched = await Future.wait([
-      for (final c in configs) _fetch(c, window, location),
-    ]);
     final results = <SourceSyncResult>[];
-    for (final (config, state, result) in fetched) {
-      results.add(await _store(config, state, result, now));
+    if (trigger.fetches) {
+      final fetched = await Future.wait([
+        for (final c in configs) _fetch(c, window, location),
+      ]);
+      for (final (config, state, result) in fetched) {
+        results.add(await _store(config, state, result, now));
+      }
     }
 
-    final (:plan, :timeSource, :merged) = await _plan(configs, window, now);
+    final (:plan, :timeSource, :merged) = await _plan(window, now);
     final missed = await _checkMissed(now);
 
     ApplyResult? applied;
@@ -301,10 +340,13 @@ class SyncService {
       ),
     );
 
+    final quiet = await settings.quietState();
     await _quietly(
       () => platform.configure(
         watchCalendars: configs.any((c) => c.kind == SourceKind.device),
         preSyncTimes: preSyncTimes(plan, now),
+        quietUntil: quietEnd(quiet, location, now),
+        quietText: quietTileText(quiet, location, now),
       ),
     );
     await _staleNotices(configs, plan, timeSource, now);
@@ -316,20 +358,28 @@ class SyncService {
 
     final finished = clock();
     final mergedNote = merged > 0 ? ', $merged merged' : '';
-    await syncLog.add(
-      SyncLogEntry(
-        atUtc: finished,
-        outcome: applied == null ? SyncOutcome.otherError : SyncOutcome.success,
-        message: applied == null
-            ? '${trigger.name}: applyPlan failed ($applyError); the engine kept its previous plan$mergedNote'
-            : '${trigger.name}: ${plan.length} alerts planned; armed ${applied.armed}, cancelled ${applied.cancelled}, kept ${applied.kept}$mergedNote',
-        duration: finished.difference(now),
-      ),
-    );
-    await settings.setString(
-      lastFinishedKey,
-      '${finished.millisecondsSinceEpoch}',
-    );
+    // A run that only re-plans writes a row when `applyPlan` failed, so that
+    // edits do not crowd the sync log, and does not move `lastFinished`.
+    if (trigger.fetches || applied == null) {
+      await syncLog.add(
+        SyncLogEntry(
+          atUtc: finished,
+          outcome: applied == null
+              ? SyncOutcome.otherError
+              : SyncOutcome.success,
+          message: applied == null
+              ? '${trigger.name}: applyPlan failed ($applyError); the engine kept its previous plan$mergedNote'
+              : '${trigger.name}: ${plan.length} alerts planned; armed ${applied.armed}, cancelled ${applied.cancelled}, kept ${applied.kept}$mergedNote',
+          duration: finished.difference(now),
+        ),
+      );
+    }
+    if (trigger.fetches) {
+      await settings.setString(
+        lastFinishedKey,
+        '${finished.millisecondsSinceEpoch}',
+      );
+    }
 
     final retry = applied == null || results.any((r) => r.outcome.retries);
     return SyncReport(
@@ -518,47 +568,78 @@ class SyncService {
     ),
   );
 
-  /// Reads the cached copies of the enabled sources, merges the copies of one
-  /// meeting (spec §13), saves the link changes and plans the meetings. Also
-  /// returns the source that decides each planned meeting's time, for the Feed
-  /// stale check, and how many meetings were made from two or more copies.
-  Future<_Planned> _plan(
-    List<SourceConfig> configs,
-    FetchWindow window,
-    DateTime now,
-  ) async {
-    final enabled = {for (final c in configs) c.id};
-    final cached = await occurrences.between(
-      now.subtract(keepAfterEnd),
-      window.endUtc,
-    );
-
-    // `_store` has already written this run's result to each source's sync
-    // state, so a source that failed just now ranks below the healthy ones.
-    final ranks = <String, SourceRank>{};
-    for (final c in configs) {
-      final state = await sources.syncState(c.id);
-      ranks[c.id] = SourceRank(kind: c.kind, failing: state?.lastError != null);
-    }
-    final result = MeetingMerger.merge(
-      copies: [
-        for (final o in cached)
-          if (enabled.contains(o.sourceId)) o,
-      ],
-      links: await links.all(),
-      sources: ranks,
-      enabled: await settings.getString(mergeEnabledKey) != 'false',
-    );
-    await links.apply(upsert: result.upsert, delete: result.delete);
-
-    final rules = await ruleSets.load();
-    final resolved = rulesEngine().resolveAll(result.meetings, rules);
-    final plan = buildPlan(
-      resolved,
+  /// Plans the cached copies of the enabled sources through [MeetingPlanner]
+  /// (merging the copies of one meeting, spec §13) and saves the link changes
+  /// it found. Also returns the source that decides each planned meeting's
+  /// time, for the Feed stale check, and how many meetings were made from two
+  /// or more copies.
+  ///
+  /// The planner reads the enabled sources itself, from the same repository
+  /// and with the same test that [_run] uses for its `configs`. A source
+  /// switched on or off in the app while this run is going is planned as it
+  /// is now, not as it was when the run began. `_store` has already written
+  /// this run's result to each source's sync state, so a source that failed
+  /// just now ranks below the healthy ones.
+  Future<_Planned> _plan(FetchWindow window, DateTime now) async {
+    final p = await _planner.load(
       now: now,
-      acknowledgements: await history.acknowledgements(nowUtc: now),
+      fromUtc: now.subtract(keepAfterEnd),
+      toUtc: window.endUtc,
     );
-    return (plan: plan, timeSource: result.timeSource, merged: result.merged);
+    await links.apply(upsert: p.merge.upsert, delete: p.merge.delete);
+    return (
+      plan: p.alerts,
+      timeSource: p.merge.timeSource,
+      merged: p.merge.merged,
+    );
+  }
+
+  /// A tile tap waits in Kotlin until a run takes it; every run takes it
+  /// first, so its plan already reflects the tap (Plan 5 decision 3).
+  Future<void> _applyQuietRequest(tz.Location location) async {
+    final QuietRequest? request;
+    try {
+      request = await platform.takeQuietRequest();
+    } on MissingPluginException {
+      return;
+    } on PlatformException catch (e) {
+      debugPrint('Taking the quiet request failed: ${e.code}');
+      return;
+    }
+    if (request == null) return;
+    // A change made in the app after the tap wins over the tap.
+    final changed = await settings.quietChangedAt();
+    if (changed != null && changed.isAfter(request.atUtc)) return;
+    await settings.setQuietStateAt(
+      request.mute
+          ? QuietState.muteToday(nowUtc: request.atUtc, zone: location)
+          : const QuietNone(),
+      changedAtUtc: request.atUtc,
+    );
+  }
+
+  /// When the tile stops showing "on": the end of a mute or pause, or local
+  /// midnight after a vacation's last day. Null unless a quiet mode covers
+  /// [now] (a vacation that starts next week does not).
+  static DateTime? quietEnd(QuietState q, tz.Location zone, DateTime now) {
+    if (!q.covers(now, nowUtc: now, zone: zone)) return null;
+    return switch (q) {
+      QuietUntil(:final untilUtc) => untilUtc,
+      Vacation(:final lastDay) => plainUtc(lastDay.addDays(1).startIn(zone)),
+      QuietNone() => null,
+    };
+  }
+
+  /// The tile's subtitle: `Until 07:00`, `Paused until 14:00`, `Vacation`.
+  /// Null unless a quiet mode covers [now].
+  static String? quietTileText(QuietState q, tz.Location zone, DateTime now) {
+    if (!q.covers(now, nowUtc: now, zone: zone)) return null;
+    if (q is MuteToday) {
+      final t = tz.TZDateTime.from(q.untilUtc, zone);
+      String two(int v) => v.toString().padLeft(2, '0');
+      return 'Until ${two(t.hour)}:${two(t.minute)}';
+    }
+    return q.label(zone, nowUtc: now);
   }
 
   Future<({List<ExpectedAlert> pending, int recorded})> _checkMissed(

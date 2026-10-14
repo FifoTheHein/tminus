@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -90,6 +91,52 @@ void main() {
     answer((c) => c.method == 'installId' ? 'id-1' : null);
     expect(await SyncPlatform().installId(), 'id-1');
     expect(calls.single.method, 'installId');
+  });
+
+  test('neverUpdated reads the native answer and defaults to false', () async {
+    final logged = <String>[];
+    final original = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) =>
+        logged.add(message ?? '');
+    addTearDown(() => debugPrint = original);
+
+    answer((c) => c.method == 'neverUpdated' ? true : null);
+    expect(await SyncPlatform().neverUpdated(), isTrue);
+    expect(calls.single.method, 'neverUpdated');
+    expect(calls.single.arguments, isNull);
+
+    answer((c) => c.method == 'neverUpdated' ? false : null);
+    expect(await SyncPlatform().neverUpdated(), isFalse);
+
+    // Anything but a clear yes is a no: a doubt is never read as a restore.
+    for (final reply in <Object?>[
+      null,
+      'true',
+      1,
+      <Object?>[true],
+    ]) {
+      answer((c) => c.method == 'neverUpdated' ? reply : null);
+      expect(
+        await SyncPlatform().neverUpdated(),
+        isFalse,
+        reason: 'reply $reply',
+      );
+    }
+
+    // No native side.
+    messenger.setMockMethodCallHandler(channel, null);
+    expect(await SyncPlatform().neverUpdated(), isFalse);
+
+    // A native error: only its code is logged, never its message.
+    answer(
+      (_) => throw PlatformException(
+        code: 'unavailable',
+        message: 'no answer for https://calendar.example/s3cr3t/feed.ics',
+      ),
+    );
+    expect(await SyncPlatform().neverUpdated(), isFalse);
+    expect(logged.join('\n'), contains('unavailable'));
+    expect(logged.join('\n'), isNot(contains('s3cr3t')));
   });
 
   test('takeQuietRequest reads the action and its time', () async {

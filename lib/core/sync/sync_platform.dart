@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 
 /// Which notification [SyncPlatform.postSourceNotice] posts (brief §10).
@@ -23,8 +24,8 @@ class QuietRequest {
 /// Typed client for the `tminus_sync` channel (Plan 4): the device zone, the
 /// cross-isolate sync lock, WorkManager and pre-alarm scheduling, the source
 /// notifications and the headless engine's finish signal. Plan 5 adds the
-/// installation id, the tile's waiting request and the signal that tells the
-/// UI a background sync finished.
+/// installation id, whether the app was ever updated, the tile's waiting
+/// request and the signal that tells the UI a background sync finished.
 class SyncPlatform {
   SyncPlatform({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(channelName);
@@ -52,6 +53,26 @@ class SyncPlatform {
   /// (Plan 5 decision 4). On every engine, so the headless sync can check it.
   Future<String> installId() async =>
       (await _channel.invokeMethod<String>('installId'))!;
+
+  /// True when the app has never been updated on this phone: Android reports
+  /// the same time for its first install and its last update (Plan 5
+  /// decision 4). A backup made before the install id existed, which has
+  /// sources but no id, is a restore and not an upgrade when it turns up on
+  /// such a phone.
+  ///
+  /// False whenever the native side gives no clear answer: no native side, a
+  /// reply that is not `true`, or an error (only its code is logged). A doubt
+  /// is never read as a restore, because a restore deletes data.
+  Future<bool> neverUpdated() async {
+    try {
+      return await _channel.invokeMethod<Object?>('neverUpdated') == true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (e) {
+      debugPrint('Reading the update state failed: ${e.code}');
+      return false;
+    }
+  }
 
   /// The tile's waiting request, removed from Kotlin as it is read; null when
   /// there is none, or when the answer is not a map with an `action` of `mute`

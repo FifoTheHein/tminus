@@ -26,7 +26,8 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         engineChannel = AlarmEngineChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
-        syncChannel = SyncChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
+        // The UI engine also hears when a headless sync finished (Plan 5 decision 6).
+        syncChannel = SyncChannel.register(flutterEngine.dartExecutor.binaryMessenger, this).also { it.attachUi() }
         uiChannel = UiChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
         SyncScheduler(this).ensurePeriodic() // spec §7: every 15 min with a network
         PreSyncScheduler(this).armNext() // a force stop drops this alarm too

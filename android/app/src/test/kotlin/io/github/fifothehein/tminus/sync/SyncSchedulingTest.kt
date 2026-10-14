@@ -154,6 +154,50 @@ class SyncSchedulingTest {
         )
     }
 
+    private fun resultOf(trigger: String, outcome: String, runAttemptCount: Int = 0) =
+        worker(trigger, runAttemptCount) { _, done -> done(outcome); {} }.startWork().get()
+
+    @Test
+    fun `a busy quietTile run is retried, a busy run of any other trigger is done`() {
+        assertEquals(
+            ListenableWorker.Result.retry(),
+            resultOf(SyncWorker.TRIGGER_QUIET_TILE, SyncWorker.OUTCOME_BUSY),
+        )
+        val others = listOf(
+            SyncWorker.TRIGGER_PERIODIC,
+            SyncWorker.TRIGGER_CALENDAR_CHANGE,
+            SyncWorker.TRIGGER_PRE_ALARM,
+            SyncWorker.TRIGGER_MANUAL,
+            SyncWorker.TRIGGER_TIME_CHANGE,
+        )
+        for (trigger in others) {
+            assertEquals(trigger, ListenableWorker.Result.success(), resultOf(trigger, SyncWorker.OUTCOME_BUSY))
+        }
+        // A finished tile run is done.
+        assertEquals(
+            ListenableWorker.Result.success(),
+            resultOf(SyncWorker.TRIGGER_QUIET_TILE, SyncWorker.OUTCOME_OK),
+        )
+    }
+
+    @Test
+    fun `a quietTile run that is busy every time stops retrying after two attempts`() {
+        // The tap stays in the store for the next sync of any trigger; a run that kept retrying would also
+        // hold every later tap behind it (APPEND_OR_REPLACE).
+        val results = (0..3).map { attempt ->
+            resultOf(SyncWorker.TRIGGER_QUIET_TILE, SyncWorker.OUTCOME_BUSY, runAttemptCount = attempt)
+        }
+        assertEquals(
+            listOf(
+                ListenableWorker.Result.retry(),
+                ListenableWorker.Result.retry(),
+                ListenableWorker.Result.success(),
+                ListenableWorker.Result.success(),
+            ),
+            results,
+        )
+    }
+
     @Test
     fun `a worker without a trigger runs as manual, and stopping it cancels the run`() {
         var cancelled = false
@@ -222,6 +266,15 @@ class SyncSchedulingTest {
             assertTrue(action, SyncBootReceiver::class.java.name in found)
         }
         assertFalse(pm.getReceiverInfo(ComponentName(app, PreSyncReceiver::class.java), 0).exported)
+    }
+
+    @Test
+    fun `a second quietTile request queues behind a running one instead of being dropped`() {
+        val scheduler = SyncScheduler(app)
+        scheduler.runNow(SyncWorker.TRIGGER_QUIET_TILE, expedited = true)
+        scheduler.runNow(SyncWorker.TRIGGER_QUIET_TILE, expedited = true)
+        assertEquals(2, infos(SyncScheduler.nowName(SyncWorker.TRIGGER_QUIET_TILE)).size)
+        assertEquals(listOf("quietTile"), started) // the second waits for the first, which never finishes here
     }
 
     private companion object {

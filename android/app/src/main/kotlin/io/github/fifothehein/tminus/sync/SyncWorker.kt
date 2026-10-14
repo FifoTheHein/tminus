@@ -15,8 +15,8 @@ import io.github.fifothehein.tminus.R
 /**
  * Runs one sync (spec §7 "Sync triggers"): [SyncRunner] boots a headless FlutterEngine that runs
  * Dart `syncMain()` and reports an outcome. Every trigger (periodic, calendar change, pre-alarm,
- * Sync now) goes through here. `startWork` runs on the main thread, where a FlutterEngine must be
- * created.
+ * Sync now, the quick-settings tile) goes through here. `startWork` runs on the main thread, where
+ * a FlutterEngine must be created.
  */
 class SyncWorker(
     context: Context,
@@ -31,7 +31,7 @@ class SyncWorker(
 
     override fun startWork(): ListenableFuture<Result> = CallbackToFutureAdapter.getFuture { completer ->
         val trigger = inputData.getString(KEY_TRIGGER) ?: TRIGGER_MANUAL
-        cancel = runner.run(trigger) { outcome -> completer.set(resultFor(outcome, runAttemptCount)) }
+        cancel = runner.run(trigger) { outcome -> completer.set(resultFor(trigger, outcome, runAttemptCount)) }
         "SyncWorker($trigger)"
     }
 
@@ -55,6 +55,9 @@ class SyncWorker(
         const val TRIGGER_MANUAL = "manual"
         const val TRIGGER_TIME_CHANGE = "timeChange"
 
+        /** The quick-settings tile (Plan 5): Dart applies its waiting request and re-plans from the cache. */
+        const val TRIGGER_QUIET_TILE = "quietTile"
+
         /** What Dart's `syncMain()` reports (SyncRunOutcome names). */
         const val OUTCOME_OK = "ok"
         const val OUTCOME_RETRY = "retry"
@@ -75,10 +78,14 @@ class SyncWorker(
         /**
          * Temporary failures retry with WorkManager's backoff (spec §9), at most [MAX_RETRIES] times;
          * anything else is done. The next trigger (periodic within 15 min, pre-alarm, calendar change)
-         * syncs again anyway.
+         * syncs again anyway. A quick-settings tile run that finds another sync running (`busy`) is
+         * temporary too: the tap is still waiting in the quiet store, and should be applied soon rather
+         * than at the next periodic sync. For any other trigger `busy` means done, as before.
          */
-        fun resultFor(outcome: String, runAttemptCount: Int): Result =
-            if (outcome == OUTCOME_RETRY && runAttemptCount < MAX_RETRIES) Result.retry() else Result.success()
+        fun resultFor(trigger: String, outcome: String, runAttemptCount: Int): Result {
+            val temporary = outcome == OUTCOME_RETRY || (outcome == OUTCOME_BUSY && trigger == TRIGGER_QUIET_TILE)
+            return if (temporary && runAttemptCount < MAX_RETRIES) Result.retry() else Result.success()
+        }
 
         private fun runningNotification(context: Context): android.app.Notification {
             val manager = context.getSystemService(NotificationManager::class.java)

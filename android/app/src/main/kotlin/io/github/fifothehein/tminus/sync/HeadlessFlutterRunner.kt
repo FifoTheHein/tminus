@@ -18,7 +18,8 @@ import io.github.fifothehein.tminus.engine.AlarmEngineChannel
  * Every way a run can end (Dart's report, the timeout, WorkManager stopping the worker, an engine
  * that will not start) goes through one teardown. It detaches both channels before the engine is
  * destroyed, so a sync that is cut short never leaves the sync lock behind (Plan 4 decision), and
- * it always reports an outcome to the worker, so the worker is never left waiting.
+ * it always reports an outcome to the worker, so the worker is never left waiting. It then tells
+ * the UI engine, if one is attached, that a background sync finished ([BackgroundSyncSignal]).
  */
 class HeadlessFlutterRunner(
     private val context: Context,
@@ -37,7 +38,7 @@ class HeadlessFlutterRunner(
             try {
                 action()
             } catch (e: Exception) {
-                Log.e(TAG, "Headless sync ($trigger): $step failed", e)
+                Log.e(TAG, "Headless sync ($trigger): $step failed: ${e.javaClass.simpleName}")
             }
         }
 
@@ -51,6 +52,7 @@ class HeadlessFlutterRunner(
             engine = null
             Log.i(TAG, "Headless sync ($trigger) finished: $outcome")
             done(outcome)
+            BackgroundSyncSignal.finished(trigger, outcome) // the UI engine's drift watchers never see this run's writes
         }
 
         try {
@@ -63,7 +65,7 @@ class HeadlessFlutterRunner(
             e.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint(bundle, ENTRYPOINT), listOf(trigger))
             main.postAtTime({ finish(SyncWorker.OUTCOME_RETRY) }, token, SystemClock.uptimeMillis() + timeoutMs)
         } catch (e: Exception) {
-            Log.e(TAG, "Headless sync ($trigger) could not start", e)
+            Log.e(TAG, "Headless sync ($trigger) could not start: ${e.javaClass.simpleName}")
             finish(SyncWorker.OUTCOME_RETRY)
         }
         return { main.post { finish(SyncWorker.OUTCOME_RETRY) } }

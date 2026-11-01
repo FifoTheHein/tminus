@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plan 5 decision 4: back up the database only. Include-only lists, so every other file stays out
+     by default: the secure-storage prefs (ICS links), feed bodies, PlanStore and its acks, the event
+     queue and the sync prefs. A restore is detected and made safe by Dart's RestoreGuard. -->
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <include domain="root" path="app_flutter/tminus.sqlite" />
+        <include domain="root" path="app_flutter/tminus.sqlite-wal" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="root" path="app_flutter/tminus.sqlite" />
+        <include domain="root" path="app_flutter/tminus.sqlite-wal" />
+    </device-transfer>
+</data-extraction-rules>

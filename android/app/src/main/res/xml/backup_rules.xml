@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and below. Same rule as data_extraction_rules.xml: only the database. -->
+<full-backup-content>
+    <include domain="root" path="app_flutter/tminus.sqlite" />
+    <include domain="root" path="app_flutter/tminus.sqlite-wal" />
+</full-backup-content>

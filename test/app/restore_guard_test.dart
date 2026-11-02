@@ -603,6 +603,142 @@ void main() {
     },
   );
 
+  test('a guard remembers an unsafe restore until a later run finishes it, '
+      'and starts out not holding anything back', () async {
+    await app.setInstallId('device-OLD');
+    await app.setOnboardingDone(true);
+    await sources.save(ics);
+    // The last write of a restore fails, as in a locked or full database.
+    await db.customStatement(
+      'CREATE TRIGGER no_install_id BEFORE INSERT ON settings '
+      "WHEN NEW.name = '${AppSettings.installIdKey}' "
+      "BEGIN SELECT RAISE(ABORT, 'no'); END",
+    );
+    final g = guard();
+    expect(g.unsafe, isFalse); // nothing has run yet
+
+    expect(await g.run(), RestoreOutcome.unsafe);
+    expect(g.unsafe, isTrue);
+    // A run that fails again leaves it set.
+    expect(await g.run(), RestoreOutcome.unsafe);
+    expect(g.unsafe, isTrue);
+
+    // Whatever stopped it has passed: the next run finishes the restore, and
+    // the guard stops holding the syncs back.
+    await db.customStatement('DROP TRIGGER no_install_id');
+    expect(await g.run(), RestoreOutcome.restored);
+    expect(g.unsafe, isFalse);
+    expect((await sources.byId('ics-1'))!.enabled, isFalse);
+
+    // And it stays clear while there is nothing left to do.
+    expect(await g.run(), RestoreOutcome.normal);
+    expect(g.unsafe, isFalse);
+  });
+
+  test(
+    'a check that fails while a restore is unsafe keeps it unsafe',
+    () async {
+      final logged = captureLog();
+      await app.setInstallId('device-OLD');
+      await app.setOnboardingDone(true);
+      await sources.save(ics);
+      // The last write of a restore fails, as in a locked or full database.
+      await db.customStatement(
+        'CREATE TRIGGER no_install_id BEFORE INSERT ON settings '
+        "WHEN NEW.name = '${AppSettings.installIdKey}' "
+        "BEGIN SELECT RAISE(ABORT, 'no'); END",
+      );
+      final g = guard();
+      expect(await g.run(), RestoreOutcome.unsafe);
+      expect(g.unsafe, isTrue);
+
+      // Now the native side cannot say which installation this is, in every way
+      // it can fail. A check that found nothing out has not found the database
+      // safe, so it must not say so: the old phone's feed is still enabled.
+      final failures = <String, Future<Object?>? Function(MethodCall)?>{
+        'a native error': (_) async => throw PlatformException(
+          code: 'unavailable',
+          message: 'no id for https://calendar.example/s3cr3t/feed.ics',
+        ),
+        'no native side': null,
+        'an empty id': (_) async => '',
+        'an answer without an id': (_) async => null,
+      };
+      for (final MapEntry(key: what, value: handler) in failures.entries) {
+        messenger.setMockMethodCallHandler(syncChannel, handler);
+        expect(await g.run(), RestoreOutcome.unsafe, reason: what);
+        expect(g.unsafe, isTrue, reason: what);
+        expect((await sources.byId('ics-1'))!.enabled, isTrue, reason: what);
+      }
+      // Only a code or a type is logged, never a message with a link in it.
+      expect(logged.join('\n'), contains('unavailable'));
+      expect(logged.join('\n'), isNot(contains('s3cr3t')));
+
+      // The native side answers again and what stopped the restore has passed:
+      // the restore is finished, and the guard stops holding the syncs back.
+      messenger.setMockMethodCallHandler(
+        syncChannel,
+        (c) async => switch (c.method) {
+          'installId' => deviceId,
+          'neverUpdated' => neverUpdated,
+          _ => null,
+        },
+      );
+      await db.customStatement('DROP TRIGGER no_install_id');
+      expect(await g.run(), RestoreOutcome.restored);
+      expect(g.unsafe, isFalse);
+      expect((await sources.byId('ics-1'))!.enabled, isFalse);
+      expect(await app.installId(), 'device-A');
+    },
+  );
+
+  test(
+    'an old backup found unsafe stays a restore once onboarding is done',
+    () async {
+      // A backup made before the install id existed, on a phone where the app
+      // was never updated: sources, no id, and onboarding never done.
+      neverUpdated = true;
+      await sources.save(ics);
+      await OccurrenceRepository(db)
+          .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
+      // A write that a restore makes and a first start does not, so a first
+      // start would go through where the restore cannot.
+      await db.customStatement(
+        'CREATE TRIGGER no_restore_pending BEFORE INSERT ON settings '
+        "WHEN NEW.name = '${AppSettings.restorePendingKey}' "
+        "BEGIN SELECT RAISE(ABORT, 'no'); END",
+      );
+      final g = guard();
+      expect(await app.installId(), isNull);
+
+      expect(await g.run(), RestoreOutcome.unsafe);
+      expect(g.unsafe, isTrue);
+
+      // The user sets the app up while the restore waits. That is no longer
+      // what a fresh install whose first start failed looks like, but it is
+      // still the restore it was: no id is stored and the feed is untouched.
+      await app.setOnboardingDone(true);
+      expect(await g.run(), RestoreOutcome.unsafe);
+      expect(g.unsafe, isTrue);
+      expect(await app.installId(), isNull);
+      expect((await sources.byId('ics-1'))!.enabled, isTrue);
+      expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+
+      // What stopped it has passed: the next run does the whole restore.
+      await db.customStatement('DROP TRIGGER no_restore_pending');
+      expect(await g.run(), RestoreOutcome.restored);
+      expect(g.unsafe, isFalse);
+      expect((await sources.byId('ics-1'))!.enabled, isFalse);
+      expect(await app.sourceSetup('ics-1'), SourceSetup.needsLink);
+      expect(await OccurrenceRepository(db).countForSource('ics-1'), 0);
+      expect(await app.installId(), 'device-A');
+      expect(await app.restorePending(), isTrue);
+      // The restore wins over the onboarding done in the meantime: the user
+      // links the feeds again from the start.
+      expect(await app.onboardingDone(), isFalse);
+    },
+  );
+
   test('an empty id from the native side changes nothing', () async {
     deviceId = '';
     await app.setInstallId('device-OLD');

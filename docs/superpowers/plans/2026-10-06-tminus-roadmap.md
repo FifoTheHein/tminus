@@ -12,11 +12,27 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 | 4 | Sources + sync | written later | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
 | 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
 | 5 | UI | written later | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
-| 6 | Play readiness (phase 1.5) | written later | all | Privacy policy, store listing, Play declarations, FGS type decision |
+| 6 | Play readiness (phase 1.5) | written after Plan 5 merges (decisions below) | all | Privacy policy, store listing, Play declarations, FGS type decision |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).
 
 **Execution (decided 2026-10-06):** every plan is built subagent-driven, using the orchestrator pattern (`/orchestrate`). One orchestrating session directs and checks and never writes code; `dev-worker`s build, test authors write tests from the acceptance criteria without reading the implementation, a `review-worker` reviews each wave's diff, and `scout`s run checks, tests and commits. For each plan (or for Plans 2 and 3 together, as parallel waves), run `/orchestrate` in plan mode first to turn it into an orchestration plan, then run that in a fresh session. No plan is executed inline.
+
+## Plan 6 decisions (agreed 2026-11-02, before the plan is written)
+
+Plan 6 is written after Plan 5 has merged, against the code that exists then. Agreed in advance:
+
+1. **Scope ends at Play internal testing.** A signed AAB is uploaded to the internal testing track, and every Play Console declaration is filed. The closed test and the production rollout are a later, separate step.
+2. **`RingingService` moves to the `systemExempted` FGS type** (`FOREGROUND_SERVICE_SYSTEM_EXEMPTED`). Android's FGS docs (updated 2026-10-28) allow it for apps holding `USE_EXACT_ALARM` / `SCHEDULE_EXACT_ALARM`, and unlike `mediaPlayback` it is not barred from starting at `BOOT_COMPLETED` on Android 15+. That may make `EngineActions.RECOVERY_DELAY_MS` unnecessary, but only a device test can show it. Plan 6 checks that Play Console accepts the type. `mediaPlayback` is the fallback.
+3. **The privacy policy is hosted on GitHub Pages** at `fifothehein.github.io/tminus/…`, built from `docs/`. That needs a public repo; if this one stays private, the policy goes in a small public repo with the same Pages URL.
+4. **Checks Plan 6 must make in Play Console or with the current policy pages** (they could not be fetched while planning): is a meeting-alarm app eligible for `USE_EXACT_ALARM`? (If not, use `SCHEDULE_EXACT_ALARM` on every API level, with a grant prompt.) The full-screen-intent declaration. The closed-testing rule for new personal accounts. The current target-API requirement.
+5. **Known Plan 6 items besides the spec's phase 1.5 list:**
+   - an upload keystore through a gitignored `key.properties` (release builds are signed with the debug key today);
+   - an adaptive and monochrome launcher icon (it is Flutter's default today);
+   - a 16 KB page-size check on the native libraries (updates without 16 KB support are blocked from 1 Feb 2027);
+   - R8 keep rules and logging, checked on a release build;
+   - a version scheme;
+   - a full device checklist run on the Play-installed build.
 
 ## 1. Repository layout (from spec §4)
 

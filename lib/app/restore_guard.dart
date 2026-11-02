@@ -12,6 +12,8 @@ import '../core/sync/sync_platform.dart';
 enum RestoreOutcome {
   /// The database was written on this installation, or nothing could be told
   /// (no native side, no readable id, a failed check): the app starts as it is.
+  /// A check that cannot tell while a restore is still [unsafe] reports
+  /// [unsafe] again instead, because it has not found the database safe.
   ///
   /// Also the answer of a guard that found a restore, but whose transaction
   /// found the new id already stored: another guard finished the restore, so
@@ -27,16 +29,18 @@ enum RestoreOutcome {
 
   /// The database came from a backup of another installation, but making it
   /// safe failed and was rolled back. Its sources are still enabled, so nothing
-  /// may plan or fetch from it until a later start finishes the restore.
-  /// Callers skip their sync on this.
+  /// may plan or fetch from it until a later run of the guard finishes the
+  /// restore. Callers skip their sync on this, and [RestoreGuard.unsafe]
+  /// remembers it for the syncs that start later in the same process.
   unsafe,
 }
 
 /// Tells a restored backup from an upgrade (Plan 5 decision 4) and makes a
 /// restored database safe: nothing in it may ring or fetch until the user has
 /// re-linked feeds and re-picked phone calendars. Runs at the start of `main()`
-/// and of every headless sync (decision 4), before anything plans or fetches.
-/// Never throws.
+/// (in `startServices`) and of every headless sync (decision 4), before
+/// anything plans or fetches, and again before a sync the screens ask for while
+/// a restore is [unsafe]. Never throws.
 ///
 /// A database with another installation's id is a restore. So is one with
 /// sources and no id at all (a backup made before the id existed) on a phone
@@ -44,7 +48,9 @@ enum RestoreOutcome {
 /// onboarding was never done (that build had no onboarding flag). With an
 /// update behind it that same database is an upgrade and stays as it is, and
 /// so does one that has been through onboarding: it is this phone's own, whose
-/// first start only failed to store the id.
+/// first start only failed to store the id. A restore that was found and could
+/// not be made safe stays a restore for as long as this guard remembers it
+/// ([unsafe]): onboarding done here since does not turn it into a first start.
 ///
 /// On a restore it clears what described the old phone: the occurrence cache,
 /// `alert_history`, `sync_log` and every `sync.*` setting. It deletes the debug
@@ -57,8 +63,10 @@ enum RestoreOutcome {
 ///
 /// The changes are made in one transaction with the new id last. A restore
 /// that fails leaves the database as it was (only the debug source, which is
-/// deleted first, is gone) and is reported as [RestoreOutcome.unsafe]; the next
-/// start tries it again.
+/// deleted first, is gone) and is reported as [RestoreOutcome.unsafe]. The next
+/// run tries it again: the next start, the next headless sync, or the next sync
+/// or re-plan the open app is asked for, which run the guard first while
+/// [unsafe] is set and do nothing until it reports anything else.
 ///
 /// The app's guard and a headless sync's can find the same restore together.
 /// The transaction therefore reads the id again before it changes anything:
@@ -80,28 +88,55 @@ class RestoreGuard {
   final SourceRepository sources;
   final SourceAdmin admin;
 
+  /// True after a [run] that ended in [RestoreOutcome.unsafe], until a later run
+  /// finds the database safe. A later check that fails, or gets no answer from
+  /// the native side, has not found it safe: it leaves this set and reports
+  /// [RestoreOutcome.unsafe] again. The app has one guard (it is registered
+  /// once), so `startServices` and the syncs the screens ask for share this:
+  /// while it is set, those syncs run the guard again first and plan and fetch
+  /// nothing unless it then reports a database that is safe.
+  bool get unsafe => _unsafe;
+  bool _unsafe = false;
+
+  /// What a check that could not tell reports: a normal start, unless a restore
+  /// found earlier is still unsafe. A failed check does not make that database
+  /// safe, so it must not let the syncs through.
+  RestoreOutcome get _unanswered =>
+      _unsafe ? RestoreOutcome.unsafe : RestoreOutcome.normal;
+
+  /// Checks for a restore and makes the database safe if there is one. Never
+  /// throws.
   Future<RestoreOutcome> run() async {
+    final outcome = await _check();
+    _unsafe = outcome == RestoreOutcome.unsafe;
+    return outcome;
+  }
+
+  Future<RestoreOutcome> _check() async {
     final String id;
     try {
       try {
         id = await platform.installId();
       } on MissingPluginException {
-        return RestoreOutcome.normal; // tests, desktop
+        return _unanswered; // tests, desktop
       }
       // A missing id is no evidence of a restore, and a restore deletes data.
-      if (id.isEmpty) return RestoreOutcome.normal;
+      if (id.isEmpty) return _unanswered;
       final stored = await appSettings.installId();
       if (stored == id) return RestoreOutcome.normal;
-      if (stored == null && !await _isOldBackupOnFreshInstall()) {
+      // A restore found earlier is not a first start however the database looks
+      // now: an old backup (no id) stays one after the user has done onboarding
+      // here, and goes straight to being made safe.
+      if (stored == null && !_unsafe && !await _isOldBackupOnFreshInstall()) {
         await _firstStart(id);
         return RestoreOutcome.firstStart;
       }
     } on PlatformException catch (e) {
       debugPrint('Restore check failed: ${e.code}');
-      return RestoreOutcome.normal;
+      return _unanswered;
     } catch (e) {
       debugPrint('Restore check failed: ${e.runtimeType}');
-      return RestoreOutcome.normal;
+      return _unanswered;
     }
     // A restore has been found. From here a failure is not a normal start: the
     // database still holds the old phone's sources, which would fetch and ring.

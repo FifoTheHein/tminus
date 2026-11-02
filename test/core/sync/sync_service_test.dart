@@ -92,11 +92,14 @@ void main() {
 
   /// A service over the test database and the mocked channels. Unless told
   /// otherwise it plans in Johannesburg and fetches from the shared fake
-  /// sources; a null [zone] leaves `SyncService.zone` at its default.
+  /// sources; a null [zone] leaves `SyncService.zone` at its default. It waits
+  /// [lockWait] of real time for the sync lock, which a test of the wait itself
+  /// widens.
   SyncService newSync({
     RulesEngine Function()? rulesEngine,
     tz.Location Function()? zone,
     SourceBuilder? buildSource,
+    Duration lockWait = const Duration(milliseconds: 30),
   }) {
     final engine = AlarmEngine();
     return SyncService(
@@ -129,7 +132,7 @@ void main() {
               built[config.id] = _FakeSource(config.id, results[config.id]!),
       zone: zone,
       clock: () => now,
-      lockWait: const Duration(milliseconds: 30),
+      lockWait: lockWait,
       lockPoll: const Duration(milliseconds: 5),
     );
   }
@@ -633,6 +636,13 @@ void main() {
   test(
     'when another sync holds the lock the run waits, then reports busy',
     () async {
+      // The wait is real time. The default 30 ms can be used up by the first
+      // attempt alone on a loaded machine, which would leave no second one to
+      // count, so this test waits long enough for many.
+      sync = newSync(
+        zone: () => johannesburg,
+        lockWait: const Duration(milliseconds: 500),
+      );
       lockFree = false;
       final report = await sync.run(SyncTrigger.manual);
       expect(report.outcome, SyncRunOutcome.busy);

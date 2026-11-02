@@ -11,7 +11,7 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 | 3 | Native alarm engine | `2026-10-06-plan-3-alarm-engine.md` | contract §3 only | Kotlin scheduling, ringing, Compose alarm screen, notifications, re-arm, `alarm_engine` channel + Dart client, debug test-alarm buttons |
 | 4 | Sources + sync | written later | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
 | 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
-| 5 | UI | written later | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
+| 5 | UI | `2026-10-11-plan-5-ui.md` | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
 | 6 | Play readiness (phase 1.5) | written later | all | Privacy policy, store listing, Play declarations, FGS type decision |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).
@@ -94,6 +94,8 @@ class IcsFormatException implements Exception { final String message; }
 Plan 4 maps `IcsOccurrence` to `EventOccurrence`: `seriesUid = recurring ? uid : null`, both `IcsWarning`s → `OccurrenceWarning.tzFallback`, `cancelled = false`, `declined = false`.
 
 `ics_core` also exports `String? extractTeamsJoinUrl(String? description, String? location)` (added by Plan 4), so device-calendar events find Teams links exactly as feeds do.
+
+`ics_core` also exports `bool isCancelledTitle(String title)` (Plan 5), so phone events titled `Canceled:` are cancelled like ICS ones.
 
 ## 3. Shared contract: alert model and `PlannedAlert` (Plans 2 and 3)
 
@@ -283,6 +285,25 @@ Every event is also appended to the native queue file, so `drainEvents` returns 
 ### `tminus_sync` channel (Plan 4 implements both sides)
 
 MethodChannel `tminus_sync`: `deviceZone` → IANA id · `acquireLock {owner, leaseMs}` → bool · `releaseLock {owner}` · `configure {watchCalendars, preSyncTimesMs}` · `requestSync {trigger}` · `postSourceNotice {kind: stale|broken, sourceId, title, text}` · `cancelSourceNotice {kind, sourceId}` · `finished {outcome: ok|retry|busy}` (headless engine only). Registered on the app's engine and on every headless sync engine. A notice's Fix action opens `MainActivity` with the extra `io.github.fifothehein.tminus.ROUTE = /sources/<sourceId>`; Plan 5's router should honour it.
+
+Plan 5 adds to `tminus_sync`: `installId` → String (kept in `noBackupFilesDir`, so a restored backup does not carry it; on every engine, because the headless sync checks it too) · `neverUpdated` → bool (`true` when the app's first install time equals its last update time) · `takeQuietRequest` → `{action: mute|end, atMs}` or null (the quick-settings tile's waiting request; the call removes it) · `configure` also takes `quietUntilMs: int?` and `quietText: String?` (what the tile shows) · Kotlin → Dart, on the UI engine only: `syncFinished {trigger, outcome}` when a headless sync ends. `SyncTrigger` gained `edit` and `quietTile` (Dart), and `SyncWorker` gained `TRIGGER_QUIET_TILE`.
+
+### `tminus_ui` channel (Plan 5 implements both sides)
+
+MethodChannel `tminus_ui`, registered on the UI engine only (it needs the activity; a headless sync engine has none). `MainActivity` forwards activity and permission results to it. One request that waits for another screen (a permission dialog, a picker) runs at a time; a second gets `busy`.
+
+| Call | Arguments | Returns |
+|---|---|---|
+| `requestPermission` | `{"kind": "calendar"\|"notifications"}` | `"granted"`\|`"denied"`\|`"permanentlyDenied"` |
+| `pickAlarmTone` | `{"current": String?}` | `{"picked": bool, "uri": String?, "title": String}` |
+| `toneTitle` | `{"uri": String?}` | `String?` |
+| `openUrl` | `{"url": String}` | `bool` (`https` only) |
+| `openAppDetails` | — | `null` |
+| `createDocument` | `{"name": String, "text": String}` | `bool` |
+| `openDocument` | — | `String?` (at most 1 MiB) |
+| `deviceInfo` | — | `{"versionName": String, "versionCode": int, "manufacturer": String, "sdkInt": int}` |
+
+Errors carry a code and never a message: `busy`, `cancelled`, `no_activity`, `io_error`, `too_large`, `bad_args`, and `ui_error` for any other failure.
 
 ### Engine rules both sides rely on
 

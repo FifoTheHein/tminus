@@ -39,7 +39,7 @@ Plan 6 is written after Plan 5 has merged, against the code that exists then. Ag
    - R8 keep rules and logging, checked on a release build;
    - a version scheme;
    - a full device checklist run on the Play-installed build;
-   - Android developer verification (developer.android.com/developer-verification, read 2026-11-08). Play-distributed apps are registered automatically, and the Play Console account needs identity verification. `adb` installs are unaffected. Enforcement covers four countries from 2026-09-30 and goes global on certified devices in 2027. From then on, a release APK sideloaded outside Play and signed with our own upload key installs only once `io.github.fifothehein.tminus` and that key are registered in Play Console. Play builds are covered by Play App Signing.
+   - Android developer verification (developer.android.com/developer-verification, read 2026-11-08). Play-distributed apps are registered automatically, and the Play Console account needs identity verification. `adb` installs are unaffected. Enforcement covers four countries from 2026-09-30 and goes global on certified devices in 2027. From then on, a release APK sideloaded outside Play and signed with our own upload key installs normally only once `io.github.fifothehein.tminus` and that key are registered in Play Console. Until then it needs Android's advanced sideloading flow. Play builds are covered by Play App Signing.
 
 ## 1. Repository layout (from spec §4)
 

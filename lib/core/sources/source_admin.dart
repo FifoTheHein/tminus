@@ -65,7 +65,9 @@ class SourceAdmin {
   late final AppSettings _app = AppSettings(settings);
 
   /// Throws [IcsUrlException] for a link [IcsUrl.check] rejects. Returns the
-  /// source and whether the link is plain `http://` (Plan 5 warns).
+  /// source and whether the link is plain `http://` (Plan 5 warns). The link
+  /// is stored before the row, so a row that cannot be saved takes the link
+  /// out of secure storage again: nothing else would ever delete it.
   Future<({SourceConfig source, bool insecure})> addIcsSource({
     required String name,
     required int color,
@@ -84,7 +86,12 @@ class SourceAdmin {
       secureStorageKey: key,
       defaultProfileId: defaultProfileId,
     );
-    await sources.save(source);
+    try {
+      await sources.save(source);
+    } catch (_) {
+      await _cleanUp('secure link', () => secrets.delete(key));
+      rethrow;
+    }
     return (source: source, insecure: link.insecure);
   }
 

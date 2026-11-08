@@ -46,17 +46,27 @@ abstract final class IcsUrl {
   }
 
   /// `outlook.office365.com/…/calendar.ics`: the host, and the last path
-  /// segment only when it is an `.ics` file name (brief §5). Any other last
-  /// segment shows as `host/…`, because some providers (iCloud) put the secret
-  /// token there. The secret parts never reach the screen.
+  /// segment only when it is a plain `.ics` file name (brief §5): letters and
+  /// hyphens, at most 12 of them, then `.ics`. Any other last segment shows as
+  /// `host/…`, because some providers (iCloud) put the secret token there, and
+  /// some use a token as the file name (`a1b2c3d4e5f6.ics`). The secret parts
+  /// never reach the screen.
   static String mask(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null || uri.host.isEmpty) return '…';
     final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
     if (segments.isEmpty) return uri.host;
     final last = segments.last;
-    if (!last.toLowerCase().endsWith('.ics')) return '${uri.host}/…';
+    if (!_plainIcsName.hasMatch(last)) return '${uri.host}/…';
     if (segments.length == 1) return '${uri.host}/$last';
     return '${uri.host}/…/$last';
   }
+
+  /// `calendar.ics`, `my-cal.ics`: a stem of letters and hyphens, 1 to 12 of
+  /// them. A name with a digit, an underscore or more characters could be a
+  /// token, so it is not one.
+  static final _plainIcsName = RegExp(
+    r'^[A-Za-z-]{1,12}\.ics$',
+    caseSensitive: false,
+  );
 }

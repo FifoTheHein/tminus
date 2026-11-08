@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
@@ -12,6 +16,9 @@ import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/rules/rules_engine.dart';
 import 'package:tminus/core/sources/calendar_source.dart';
+import 'package:tminus/core/sources/feed_body_cache.dart';
+import 'package:tminus/core/sources/ics_feed_source.dart';
+import 'package:tminus/core/sources/source_secrets.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
@@ -42,6 +49,33 @@ class _FakeSource implements CalendarSource {
   Future<SourceResult> fetch(FetchWindow window) async {
     fetches++;
     return _result();
+  }
+}
+
+/// Every source's link, from its id: nothing reaches secure storage.
+class _Links extends SourceSecrets {
+  @override
+  Future<String?> readUrl(String key) async =>
+      'https://${key.substring('ics-url.'.length)}.example/c.ics';
+}
+
+/// The feed bodies in a map, so a test can see which ones are left.
+class _Bodies extends FeedBodyCache {
+  _Bodies() : super(() => throw UnsupportedError('kept in memory'));
+
+  final kept = <String, String>{};
+
+  @override
+  Future<String?> read(String sourceId) async => kept[sourceId];
+
+  @override
+  Future<void> write(String sourceId, String body) async {
+    kept[sourceId] = body;
+  }
+
+  @override
+  Future<void> delete(String sourceId) async {
+    kept.remove(sourceId);
   }
 }
 
@@ -1370,4 +1404,107 @@ void main() {
       hasLength(SyncTrigger.values.length - 2),
     );
   });
+
+  test(
+    'a source removed while its fetch runs leaves no body or notice and does '
+    'not fail the run',
+    () async {
+      // Two feeds fetch over a client that answers when the test says so: one
+      // will answer with a calendar, whose body the fetch stores, the other
+      // with an error that would post a "Feed broken" notice. A third source
+      // answers at once.
+      const team = SourceConfig(
+        id: 'team',
+        name: 'Team rota',
+        color: blue,
+        kind: SourceKind.ics,
+        secureStorageKey: 'ics-url.team',
+      );
+      const other = SourceConfig(
+        id: 'other',
+        name: 'Other',
+        color: blue,
+        kind: SourceKind.ics,
+        secureStorageKey: 'ics-url.other',
+      );
+      await sources.save(team);
+      await sources.save(other);
+      const feed = '''BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:m1
+DTSTART:20261006T080000Z
+DTEND:20261006T083000Z
+SUMMARY:Sprint planning
+END:VEVENT
+END:VCALENDAR
+''';
+      final bodies = _Bodies();
+      final answers = {
+        'work.example': Completer<http.Response>(),
+        'team.example': Completer<http.Response>(),
+      };
+      // Completes once both feeds have been asked for: both fetches are under
+      // way.
+      final bothAsked = Completer<void>();
+      var asked = 0;
+      final client = MockClient((request) {
+        if (++asked == 2) bothAsked.complete();
+        return answers[request.url.host]!.future;
+      });
+      final service = newSync(
+        buildSource: (config, state, location) => config.id == 'other'
+            ? _FakeSource(
+                'other',
+                () => SourceFetched([occ(sourceId: 'other', uid: 'o1')]),
+              )
+            : IcsFeedSource(
+                config: config,
+                previous: state,
+                client: client,
+                secrets: _Links(),
+                bodies: bodies,
+                deviceZone: location.name,
+              ),
+      );
+
+      final run = service.run(SyncTrigger.manual);
+      await bothAsked.future;
+
+      // Both are removed while they fetch, as SourceAdmin.delete does it: the
+      // row (its cached events go with it) and the stored body.
+      for (final id in ['work', 'team']) {
+        await sources.delete(id);
+        await bodies.delete(id);
+      }
+      answers['work.example']!.complete(http.Response(feed, 200));
+      answers['team.example']!.complete(http.Response('', 404));
+      final report = await run;
+
+      // The run went on with the source that is still there...
+      expect(report.outcome, SyncRunOutcome.ok);
+      expect([for (final r in report.sources) r.sourceId], ['other']);
+      expect(await cache.countForSource('other'), 1);
+      // ... and nothing of the removed ones was kept or announced.
+      expect(bodies.kept, isEmpty);
+      expect(syncCallsNamed('postSourceNotice'), isEmpty);
+      expect(await cache.countForSource('work'), 0);
+      for (final id in ['work', 'team']) {
+        expect(
+          await settings.getString(SyncService.brokenNoticeKey(id)),
+          isNull,
+          reason: id,
+        );
+        expect(
+          await settings.getString(SyncService.serverErrorSinceKey(id)),
+          isNull,
+          reason: id,
+        );
+      }
+      expect([
+        for (final e in await log.recent())
+          if (e.sourceId != null && e.sourceId != 'other') e.sourceId,
+      ], isEmpty);
+    },
+  );
 }

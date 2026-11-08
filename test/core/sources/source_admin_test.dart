@@ -41,6 +41,16 @@ class _UndeletableSecrets extends SourceSecrets {
   );
 }
 
+/// A source table that cannot save a row, as after a full disk or a locked
+/// database. The error names a link, to prove it is never logged.
+class _SaveFails extends SourceRepository {
+  _SaveFails(super.db);
+
+  @override
+  Future<void> save(SourceConfig s) async =>
+      throw StateError('The row for $_secretUrl could not be saved');
+}
+
 /// A settings store that cannot write one source's setup marker, as when the
 /// last step of choosing a calendar or of re-linking fails.
 class _MarkerWriteFails extends SettingsRepository {
@@ -145,6 +155,57 @@ void main() {
       );
       expect(await sources.all(), isEmpty);
     });
+
+    SourceAdmin adminOver(SourceRepository rows, SourceSecrets store) =>
+        SourceAdmin(
+          sources: rows,
+          secrets: store,
+          bodies: bodies,
+          platform: SyncPlatform(),
+          settings: settings,
+          occurrences: OccurrenceRepository(db),
+          db: db,
+        );
+
+    test('a row that cannot be saved leaves no secret', () async {
+      await expectLater(
+        adminOver(
+          _SaveFails(db),
+          secrets,
+        ).addIcsSource(name: 'Work', color: blue, url: _secretUrl),
+        throwsA(isA<StateError>()),
+      );
+
+      // The link went to secure storage first, and was taken out again: with
+      // no row nothing would ever delete it.
+      expect(await const FlutterSecureStorage().readAll(), isEmpty);
+      expect(await sources.all(), isEmpty);
+    });
+
+    test(
+      'a link that cannot be deleted does not hide why the row was not saved',
+      () async {
+        final logged = <String>[];
+        final realDebugPrint = debugPrint;
+        debugPrint = (message, {wrapWidth}) => logged.add(message ?? '');
+        addTearDown(() => debugPrint = realDebugPrint);
+
+        await expectLater(
+          adminOver(
+            _SaveFails(db),
+            _UndeletableSecrets(),
+          ).addIcsSource(name: 'Work', color: blue, url: _secretUrl),
+          // The save's own error, not the store's.
+          throwsA(isA<StateError>()),
+        );
+
+        expect(await sources.all(), isEmpty);
+        // The failed clean-up is logged by its type; its message names the
+        // link.
+        expect(logged.join('\n'), contains('PlatformException'));
+        expect(logged.join('\n'), isNot(contains('s3cr3t')));
+      },
+    );
 
     test('two sources never share an id', () async {
       final a = await admin.addIcsSource(

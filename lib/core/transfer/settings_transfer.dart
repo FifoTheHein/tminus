@@ -50,15 +50,21 @@ final _idPattern = RegExp(r'^[A-Za-z0-9-]{1,64}$');
 /// the editor for a new one instead of the one it names.
 const _newRouteId = 'new';
 
+/// The id of the Custom row that the event sheet adds to its list of profiles
+/// (`customProfileId` in the Agenda). A profile with that id would put two rows
+/// with one id in the list.
+const _customRowId = 'custom';
+
 final _builtInIds = {for (final b in BuiltInProfiles.all) b.id};
 
 /// A settings file that [SettingsTransfer.parse] has read and checked.
 ///
 /// Profile and rule ids are unique, are made of letters, digits and hyphens
-/// only (1 to 64 of them), and are not `new`. Every profile that a rule, a
-/// source or the default names is in [profiles] or is a built-in one, and no
-/// source is a debug source. Nothing in it identifies a link, a secure-storage
-/// key, an Android calendar id or a sync state: a file never has them.
+/// only (1 to 64 of them), and are not `new`; a profile id is not `custom`
+/// either. Every profile that a rule, a source or the default names is in
+/// [profiles] or is a built-in one, and no source is a debug source. Nothing in
+/// it identifies a link, a secure-storage key, an Android calendar id or a sync
+/// state: a file never has them.
 class TransferFile {
   TransferFile({
     required List<AlertProfile> profiles,
@@ -394,7 +400,7 @@ class SettingsTransfer {
   static void _check(TransferFile f) {
     final profileIds = <String>{};
     for (final p in f.profiles) {
-      if (!_isUsableId(p.id) || !profileIds.add(p.id)) _refuse();
+      if (!_isUsableProfileId(p.id) || !profileIds.add(p.id)) _refuse();
       for (final a in p.alerts) {
         if (a.offsetMinutes < 0 || a.offsetMinutes > _maxOffsetMinutes) {
           _refuse();
@@ -473,6 +479,11 @@ Never _refuse() => throw const FormatException(_notOursMessage);
 /// Whether a profile or rule id may be stored: it is made of the allowed
 /// characters and is not the route that makes a new one.
 bool _isUsableId(String id) => id != _newRouteId && _idPattern.hasMatch(id);
+
+/// Whether a profile id may be stored: a usable id that is not the id of the
+/// event sheet's Custom row. Rules have no such row, so `custom` stays a usable
+/// rule id.
+bool _isUsableProfileId(String id) => id != _customRowId && _isUsableId(id);
 
 Map<String, Object?> _readObject(Object? raw) =>
     raw is Map<String, Object?> ? raw : _refuse();

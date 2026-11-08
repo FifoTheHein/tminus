@@ -943,6 +943,59 @@ void main() {
       expect(file.rules.map((r) => r.id), ruleIds);
     });
 
+    test('a profile id of exactly "custom" is refused', () async {
+      // The event sheet adds a Custom row, with that id, to its list of
+      // profiles. A profile with the same id would make two rows with one id,
+      // and the list would crash.
+      final inProfile = fullDoc();
+      inProfile['profiles'][1]['id'] = 'custom'; // p-two, which nothing names
+      expectRefused(jsonEncode(inProfile), reason: 'profile id custom');
+
+      // An import checks as well, for a file that did not come from parse, and
+      // changes nothing when it refuses.
+      final before = await dump();
+      await expectLater(
+        transfer.import(
+          TransferFile(
+            profiles: const [
+              AlertProfile(id: 'custom', name: 'Custom', alerts: []),
+            ],
+            rules: const [],
+            skipFilters: const SkipFilters(),
+            globalDefaultProfileId: 'meeting',
+            mergeEnabled: true,
+            sources: const [],
+          ),
+        ),
+        throwsA(
+          isA<FormatException>().having((e) => e.message, 'message', _notOurs),
+        ),
+      );
+      expect(await dump(), before);
+
+      // Only that exact id. Names that merely contain it, or differ in case,
+      // are profiles like any other, and a rule may be called `custom`: the
+      // Custom row is in the list of profiles, not in the list of rules.
+      final file = fileOf(
+        docJson(
+          profiles: [
+            profileJson('customer'),
+            profileJson('custom-1'),
+            profileJson('my-custom'),
+            profileJson('Custom'),
+          ],
+          rules: [ruleJson('custom', 0, 'quick')],
+        ),
+      );
+      expect(file.profiles.map((p) => p.id), [
+        'customer',
+        'custom-1',
+        'my-custom',
+        'Custom',
+      ]);
+      expect(file.rules.single.id, 'custom');
+    });
+
     test('summarize counts profiles, rules and sources by kind', () {
       final file = fileOf(
         docJson(

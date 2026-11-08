@@ -82,4 +82,35 @@ void main() {
     expect(IcsUrl.mask('https://example.com/s3cr3t'), 'example.com/…');
     expect(IcsUrl.mask('https://example.com/feed?file=a.ics'), 'example.com/…');
   });
+
+  test('a token used as the .ics file name is not shown', () {
+    // Some providers name the file after the secret: only a plain name (letters
+    // and hyphens, at most 12) shows.
+    const token = 'a1b2c3d4e5f6';
+    expect(IcsUrl.mask('https://example.com/a/$token.ics'), 'example.com/…');
+    expect(IcsUrl.mask('https://example.com/$token.ics'), 'example.com/…');
+    expect(
+      IcsUrl.mask('https://example.com/a/$token.ics'),
+      isNot(contains(token)),
+    );
+    // Letters only, but too long to be a name.
+    expect(
+      IcsUrl.mask('https://example.com/a/abcdefghijklm.ics'),
+      'example.com/…',
+    );
+    // Digits or an underscore make a name that could be a token.
+    expect(IcsUrl.mask('https://example.com/a/cal2.ics'), 'example.com/…');
+    expect(IcsUrl.mask('https://example.com/a/my_cal.ics'), 'example.com/…');
+    expect(IcsUrl.mask('https://example.com/a/.ics'), 'example.com/…');
+    // Plain names stay, at the limit and with a hyphen.
+    expect(
+      IcsUrl.mask('https://example.com/a/abcdefghijkl.ics'),
+      'example.com/…/abcdefghijkl.ics',
+    );
+    expect(
+      IcsUrl.mask('https://example.com/a/my-calendar.ics'),
+      'example.com/…/my-calendar.ics',
+    );
+    expect(IcsUrl.mask('https://example.com/cal.ics'), 'example.com/cal.ics');
+  });
 }

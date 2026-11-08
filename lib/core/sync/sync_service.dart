@@ -16,6 +16,7 @@ import '../planner/meeting_planner.dart';
 import '../planner/plan_builder.dart';
 import '../rules/rules_engine.dart';
 import '../sources/calendar_source.dart';
+import '../sources/ics_feed_source.dart';
 import '../storage/alert_history_repository.dart';
 import '../storage/meeting_link_repository.dart';
 import '../storage/occurrence_repository.dart';
@@ -310,8 +311,10 @@ class SyncService {
       final fetched = await Future.wait([
         for (final c in configs) _fetch(c, window, location),
       ]);
-      for (final (config, state, result) in fetched) {
-        results.add(await _store(config, state, result, now));
+      for (final (config, state, result, source) in fetched) {
+        // A source that was removed while the fetches ran has no result.
+        final stored = await _store(config, state, result, source, now);
+        if (stored != null) results.add(stored);
       }
     }
 
@@ -393,15 +396,16 @@ class SyncService {
     );
   }
 
-  Future<(SourceConfig, SourceSyncState?, SourceResult)> _fetch(
-    SourceConfig config,
-    FetchWindow window,
-    tz.Location zone,
-  ) async {
+  /// The source is kept with its result: a source that was removed while it
+  /// fetched may have left its feed body behind ([_store]).
+  Future<(SourceConfig, SourceSyncState?, SourceResult, CalendarSource?)>
+  _fetch(SourceConfig config, FetchWindow window, tz.Location zone) async {
     final state = await sources.syncState(config.id);
+    CalendarSource? source;
     SourceResult result;
     try {
-      result = await buildSource(config, state, zone).fetch(window);
+      source = buildSource(config, state, zone);
+      result = await source.fetch(window);
     } catch (e) {
       debugPrint('Source ${config.id} failed: ${e.runtimeType}');
       result = const SourceFailed(
@@ -409,17 +413,28 @@ class SyncService {
         'Something went wrong while reading this calendar.',
       );
     }
-    return (config, state, result);
+    return (config, state, result, source);
   }
 
   /// Applies one source's result to the cache, its sync state, the log and
-  /// its Feed broken notification (spec §9).
-  Future<SourceSyncResult> _store(
+  /// its Feed broken notification (spec §9). Returns null for a source that
+  /// was removed while its fetch ran: nothing of it is stored.
+  Future<SourceSyncResult?> _store(
     SourceConfig config,
     SourceSyncState? state,
     SourceResult result,
+    CalendarSource? source,
     DateTime now,
   ) async {
+    // The removal deleted the source's rows, markers, notices and feed body
+    // while the fetch was under way. Storing the result would fail on the
+    // missing row (failing the whole run), post a notice nobody can fix and
+    // write markers that nothing would clear; and the fetch may have written
+    // the feed body after the removal deleted it.
+    if (await sources.byId(config.id) == null) {
+      await _dropFeedBody(source);
+      return null;
+    }
     // Not the last sync-log row: an amber failure in between would hide that
     // a notice is up (decision 26).
     final noticeKey = brokenNoticeKey(config.id);
@@ -701,6 +716,18 @@ class SyncService {
           ),
         );
       }
+    }
+  }
+
+  /// Takes the feed body of a source that was removed during its fetch out
+  /// again. Only the ICS source that wrote it knows the cache that holds it.
+  /// A body that cannot be deleted is logged by type and never fails the run.
+  Future<void> _dropFeedBody(CalendarSource? source) async {
+    if (source is! IcsFeedSource) return;
+    try {
+      await source.bodies.delete(source.id);
+    } catch (e) {
+      debugPrint('Dropping a removed feed body failed: ${e.runtimeType}');
     }
   }
 

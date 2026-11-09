@@ -34,15 +34,22 @@ class SyncScheduler(
     /**
      * One sync as soon as possible, without a network condition: device calendars still refresh and
      * the stale-feed check still runs offline. Pre-alarm and Sync now are expedited. A request whose
-     * trigger is already queued or running is dropped, except calendar changes, which queue one more
-     * run after the current one so a change made during a sync is not missed.
+     * trigger is already queued or running is dropped, except calendar changes and quick-settings
+     * tile taps, which queue one more run after the current one so a change made during a sync is
+     * not missed.
      */
     fun runNow(trigger: String, expedited: Boolean) {
         val builder = OneTimeWorkRequest.Builder(SyncWorker::class.java)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .setInputData(SyncWorker.input(trigger))
         if (expedited) builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        val policy = if (trigger == SyncWorker.TRIGGER_CALENDAR_CHANGE) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP
+        // A tile tap during a quietTile run must be applied by a run that starts after it: the running
+        // one may already have taken the earlier request.
+        val policy = if (trigger == SyncWorker.TRIGGER_CALENDAR_CHANGE || trigger == SyncWorker.TRIGGER_QUIET_TILE) {
+            ExistingWorkPolicy.APPEND_OR_REPLACE
+        } else {
+            ExistingWorkPolicy.KEEP
+        }
         workManager.enqueueUniqueWork(nowName(trigger), policy, builder.build())
     }
 

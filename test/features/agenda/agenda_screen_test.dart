@@ -316,7 +316,7 @@ void main() {
     await h.dispose(t);
   });
 
-  testWidgets('an empty day says No meetings — enjoy', (t) async {
+  testWidgets('an empty day says No meetings. Enjoy', (t) async {
     tallScreen(t);
     // Nothing today; the only meeting is the standup tomorrow.
     final tomorrowsStandup = occ(
@@ -334,7 +334,7 @@ void main() {
     final empty = find.byKey(const Key('emptyDay'));
     expect(empty, findsOneWidget);
     expect(
-      find.descendant(of: empty, matching: find.text('No meetings — enjoy')),
+      find.descendant(of: empty, matching: find.text('No meetings. Enjoy')),
       findsOneWidget,
     );
     expect(
@@ -465,7 +465,7 @@ void main() {
     expect(
       find.descendant(
         of: banner,
-        matching: find.text('Alarms may not ring — fix in Health'),
+        matching: find.text('Alarms may not ring. Fix in Health'),
       ),
       findsOneWidget,
     );

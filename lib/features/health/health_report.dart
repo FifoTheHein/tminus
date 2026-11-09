@@ -102,7 +102,7 @@ HealthReport buildHealthReport(
     headline: switch (overall) {
       HealthLevel.problem => 'Alarms may not ring',
       HealthLevel.warning => 'Alarms may be late',
-      HealthLevel.ok => 'All good — alarms will ring',
+      HealthLevel.ok => 'All good. Alarms will ring',
     },
     summary: _summary(problems, warnings),
     upcoming: List.unmodifiable(engine?.upcoming ?? const <UpcomingAlert>[]),
@@ -125,7 +125,7 @@ List<HealthItem> _engineItems(EngineHealth e) => [
     allowed: e.notificationsEnabled,
     otherwise: HealthLevel.problem,
     okDetail: 'Allowed',
-    detail: 'Off — no alerts can be shown',
+    detail: 'Off: no alerts can be shown',
     fix: PermissionKind.notifications,
   ),
   _check(
@@ -134,7 +134,7 @@ List<HealthItem> _engineItems(EngineHealth e) => [
     allowed: e.canUseFullScreenIntent,
     otherwise: HealthLevel.problem,
     okDetail: 'Allowed',
-    detail: 'Off — alarms appear only as a notification',
+    detail: 'Off: alarms appear only as a notification',
     fix: PermissionKind.fullScreenIntent,
   ),
   _check(
@@ -143,7 +143,7 @@ List<HealthItem> _engineItems(EngineHealth e) => [
     allowed: e.canScheduleExactAlarms,
     otherwise: HealthLevel.warning,
     okDetail: 'Allowed',
-    detail: 'Off — alarms may ring a few minutes late',
+    detail: 'Off: alarms may ring a few minutes late',
     fix: PermissionKind.exactAlarm,
   ),
   _check(
@@ -152,7 +152,7 @@ List<HealthItem> _engineItems(EngineHealth e) => [
     allowed: e.ignoringBatteryOptimizations,
     otherwise: HealthLevel.warning,
     okDetail: 'Not optimised',
-    detail: 'Optimised — Android may delay alarms',
+    detail: 'Optimised: Android may delay alarms',
     fix: PermissionKind.batteryOptimization,
   ),
   // A muted alarm volume is reported before a switched-off channel. Each is

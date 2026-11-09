@@ -31,7 +31,7 @@ void main() {
       const expected = {
         SyncOutcome.success: 'Synced',
         SyncOutcome.notModified: 'Synced (no changes)',
-        SyncOutcome.emptyKept: 'Came back empty — kept the previous events',
+        SyncOutcome.emptyKept: 'Came back empty (kept the previous events)',
         SyncOutcome.networkError: 'No connection',
         SyncOutcome.serverError: 'The calendar server had a problem',
         SyncOutcome.httpError: 'The link stopped working',
@@ -40,7 +40,7 @@ void main() {
         SyncOutcome.calendarAccessDenied: 'Calendar access is off',
         SyncOutcome.calendarMissing: 'The calendar was removed',
         SyncOutcome.linkMissing: 'The link is missing',
-        SyncOutcome.skipped: 'Skipped — another sync was running',
+        SyncOutcome.skipped: 'Skipped: another sync was running',
       };
 
       // A new outcome fails here until this table, like the screen, names it.
@@ -86,8 +86,8 @@ void main() {
         AlertEventType.dismissed: 'Dismissed',
         AlertEventType.dismissedAll: 'Dismissed all',
         AlertEventType.joined: 'Joined',
-        AlertEventType.missed: 'Missed — nobody answered',
-        AlertEventType.missedSystem: "Missed — the phone didn't ring it",
+        AlertEventType.missed: 'Missed: nobody answered',
+        AlertEventType.missedSystem: "Missed: the phone didn't ring it",
       };
 
       expect(expected.keys.toSet(), AlertEventType.values.toSet());

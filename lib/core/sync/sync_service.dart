@@ -565,7 +565,7 @@ class SyncService {
 
   /// The Feed stale title (brief §10).
   static String staleTitle(Duration age) =>
-      "Calendar hasn't synced for ${age.inHours} h — alarms may be outdated";
+      "Calendar hasn't synced for ${age.inHours} h. Alarms may be outdated";
 
   Future<void> _log(
     String sourceId,

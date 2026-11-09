@@ -302,7 +302,7 @@ void main() {
     expect(find.text("Meetings you can't miss"), findsOneWidget);
     expect(
       find.text(
-        "T-Minus turns your calendar into alarms you can't miss — and can "
+        "T-Minus turns your calendar into alarms you can't miss, and can "
         'always stop.',
       ),
       findsOneWidget,

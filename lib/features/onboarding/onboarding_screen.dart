@@ -190,7 +190,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const _Heading("Meetings you can't miss", large: true),
           const SizedBox(height: TMinusSpacing.md),
           const _Muted(
-            "T-Minus turns your calendar into alarms you can't miss — and can "
+            "T-Minus turns your calendar into alarms you can't miss, and can "
             'always stop.',
           ),
         ],

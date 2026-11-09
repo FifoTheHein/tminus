@@ -1,4 +1,4 @@
-# T-Minus: Meeting Alarm — Design Brief
+# T-Minus: Meeting Alarm, Design Brief
 
 The brief for designing the app's screens. Engine and architecture details are in `docs/superpowers/specs/2026-10-06-tminus-design.md`.
 
@@ -15,6 +15,7 @@ Busy professionals who live in back-to-back Teams meetings, including people wit
 - **Precise and calm.** It works like mission control's countdown: confident, never frantic, except during the few seconds it really needs your attention.
 - **Trustworthy.** It always shows *what* will ring, *when* and *why*.
 - **Focused.** No weather, no gamification, no clutter.
+- **Plain punctuation.** App text never uses em dashes: use a colon, a comma, a full stop or parentheses instead. `test/no_em_dash_test.dart` enforces this.
 
 ## Visual direction
 
@@ -70,12 +71,12 @@ Bottom navigation with 4 tabs: **Agenda · Alerts · Sources · Health**. Settin
 **Other**
 - Pull to refresh.
 - **Banner** while quiet mode is active, e.g. "Muted until tomorrow 07:00 · End".
-- **Banner** when Health has a red item, e.g. "Alarms may not ring — fix in Health".
+- **Banner** when Health has a red item, e.g. "Alarms may not ring. Fix in Health".
 
 **States to design**
 - Normal day
 - A busy day with back-to-back meetings
-- An empty day ("No meetings — enjoy")
+- An empty day ("No meetings. Enjoy")
 - First sync loading
 - A source error
 - Quiet mode active
@@ -119,12 +120,12 @@ Bottom navigation with 4 tabs: **Agenda · Alerts · Sources · Health**. Settin
   - "Synced 4 min ago" or the error state
   - default profile
 - ICS URLs are always shown masked: `outlook.office365.com/…/calendar.ics`.
-- Source detail: rename, colour, default profile, "Sync now", remove, and the last error with an explanation (e.g. "Link no longer works — it may have been reset in Outlook").
+- Source detail: rename, colour, default profile, "Sync now", remove, and the last error with an explanation (e.g. "Link no longer works (HTTP 404). It may have been reset in Outlook.").
 - An "Add source" FAB that uses the same flow as onboarding.
 
 ### 6. Health tab
 
-- **Overall status card:** "All good — alarms will ring" (green), or a summary of problems.
+- **Overall status card:** "All good. Alarms will ring" (green), or a summary of problems.
 - **Checklist rows**, each with a status icon and a **Fix** button:
   - Notifications
   - Full-screen alarms
@@ -171,7 +172,7 @@ This screen will be built natively, so keep it simple and self-contained.
 | **Heads-up** | "In 10 min · Sprint planning · 10:00–10:30", with actions Join · Snooze · Dismiss all |
 | **Ringing** (alongside the full-screen screen) | Actions Stop · Snooze · Join · Dismiss all |
 | **Missed** | "Missed: Sprint planning (10:00)", with action Open |
-| **Feed stale** | "Calendar hasn't synced for 1 h — alarms may be outdated", with action Sync now |
+| **Feed stale** | "Calendar hasn't synced for 1 h. Alarms may be outdated", with action Sync now |
 | **Feed broken** | "Outlook feed link stopped working", with action Fix |
 
 ## Sample data for mockups
@@ -181,7 +182,7 @@ This screen will be built natively, so keep it simple and self-contained.
 | 08:45–09:00 | Daily standup | Teams | Quick |
 | 10:00–11:00 | Sprint planning | Teams, organiser "Thandi M." | Meeting |
 | 11:00–11:30 | 1:1 with Pieter | Teams, back-to-back | Meeting |
-| 12:30–13:30 | Lunch | — | Silent by rule |
+| 12:30–13:30 | Lunch | (none) | Silent by rule |
 | 14:00–15:00 | Client demo | Boardroom 2 | Important |
 | 16:00–16:30 | Optional: Tech talk | Tentative | Silent |
 | All day | Public holiday | Tomorrow | Skipped |

@@ -192,7 +192,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
               key: const Key('healthBanner'),
               tone: StatusTone.error,
               icon: Icons.error_outline,
-              title: 'Alarms may not ring — fix in Health',
+              title: 'Alarms may not ring. Fix in Health',
               actionLabel: 'Fix',
               onAction: () => context.go('/health'),
             ),

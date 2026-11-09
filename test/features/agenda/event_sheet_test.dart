@@ -529,7 +529,7 @@ void main() {
       },
     )).h;
     const reason =
-        "Using Meeting because no rule matched — it's your default profile.";
+        "Using Meeting because no rule matched. It's your default profile.";
     expect(_whySentence(t), reason);
     expect(find.byKey(const Key('whyStale')), findsNothing);
     // Only the profile's name is bold.
@@ -547,7 +547,7 @@ void main() {
     await t.pumpAndSettle();
 
     expect(find.byKey(const Key('whyStale')), findsOneWidget);
-    expect(find.text('Updated — close to see the new reason.'), findsOneWidget);
+    expect(find.text('Updated. Close to see the new reason.'), findsOneWidget);
     // The sentence is still the one from when the sheet opened.
     expect(_whySentence(t), reason);
     await h.dispose(t);
@@ -566,7 +566,7 @@ void main() {
 
     expect(
       _whySentence(t),
-      "Using Important — it's the default profile for Acme feed.",
+      "Using Important. It's the default profile for Acme feed.",
     );
     expect(_checked('important'), findsOneWidget);
     await h.dispose(t);

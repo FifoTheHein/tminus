@@ -140,6 +140,13 @@ class AppDatabase extends _$AppDatabase {
     return rows.any((r) => r.read<String>('name') == column);
   }
 
+  /// Folds the write-ahead log into the main file without waiting for readers
+  /// (Plan 5 decision 4: a backup copies the main file, so it should be
+  /// nearly complete). A no-op on `:memory:`.
+  Future<void> checkpoint() async {
+    await customSelect('PRAGMA wal_checkpoint(PASSIVE)').get();
+  }
+
   /// Inserts any missing built-in profile. Never overwrites an edited one.
   Future<void> seedBuiltInProfiles() async {
     await batch((b) {

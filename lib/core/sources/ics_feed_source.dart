@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show IOException;
+import 'dart:io' show IOException, SocketException, TlsException;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:ics_core/ics_core.dart';
 
@@ -12,9 +13,24 @@ import 'feed_body_cache.dart';
 import 'occurrence_mapping.dart';
 import 'source_secrets.dart';
 
-/// A published ICS feed (spec §5): conditional GET with a 20 s timeout, the
+const _couldNotReach = 'Could not reach the calendar server.';
+
+/// A fetch that failed because the connection was closed, reset or refused.
+/// It is a [SourceFailed] like any other network failure, with the same fixed
+/// text, and is told apart only so that a caller who is waiting for the answer
+/// can try once more: such a connection is often gone for a moment only. A
+/// timeout is not one (the server did not answer, and a second try would
+/// double the wait), and neither is an HTTP status, a feed that is not a
+/// calendar or a link that is not valid.
+class ConnectionLost extends SourceFailed {
+  const ConnectionLost() : super(SyncOutcome.networkError, _couldNotReach);
+}
+
+/// A published ICS feed (spec §5): conditional GET with a 60 s timeout, the
 /// link read from secure storage, and every failure mapped to the spec §9
-/// table. Messages never contain the link.
+/// table. Messages never contain the link, and a failure is logged by its type,
+/// its OS error number or our own label for a known dart:io text, and by how
+/// long the fetch ran, never by its text.
 class IcsFeedSource implements CalendarSource {
   IcsFeedSource({
     required this.config,
@@ -23,7 +39,8 @@ class IcsFeedSource implements CalendarSource {
     required this.secrets,
     required this.bodies,
     required this.deviceZone,
-    this.timeout = const Duration(seconds: 20),
+    this.timeout = const Duration(seconds: 60),
+    this.newStopwatch = Stopwatch.new,
   });
 
   final SourceConfig config;
@@ -34,6 +51,10 @@ class IcsFeedSource implements CalendarSource {
   /// IANA name of the device zone, for floating and all-day times.
   final String deviceZone;
   final Duration timeout;
+
+  /// Makes the stopwatch that times a fetch for the log; a test hands in a
+  /// fake.
+  final Stopwatch Function() newStopwatch;
   final http.Client client;
   final SourceSecrets secrets;
   final FeedBodyCache bodies;
@@ -66,26 +87,25 @@ class IcsFeedSource implements CalendarSource {
         : null;
 
     final http.Response response;
+    final watch = newStopwatch()..start();
     try {
       response = await _get(uri, cached == null ? null : (etag, lastModified));
-    } on TimeoutException {
+    } on TimeoutException catch (e) {
+      _logFailure(e, watch.elapsed);
       return SourceFailed(
         SyncOutcome.networkError,
         'The calendar server did not answer within ${timeout.inSeconds} s.',
       );
-    } on http.ClientException {
-      return const SourceFailed(
-        SyncOutcome.networkError,
-        'Could not reach the calendar server.',
-      );
-    } on IOException {
-      return const SourceFailed(
-        SyncOutcome.networkError,
-        'Could not reach the calendar server.',
-      );
-    } on ArgumentError {
+    } on http.ClientException catch (e) {
+      _logFailure(e, watch.elapsed);
+      return _networkFailure(e);
+    } on IOException catch (e) {
+      _logFailure(e, watch.elapsed);
+      return _networkFailure(e);
+    } on ArgumentError catch (e) {
       // dart:io refuses a link with no host or a scheme other than http(s),
       // and its message quotes the link.
+      _logFailure(e, watch.elapsed);
       return const SourceFailed(
         SyncOutcome.linkMissing,
         'The saved calendar link is not valid. Add the link again.',
@@ -194,4 +214,85 @@ class IcsFeedSource implements CalendarSource {
     >= 400 && < 500 => 'The calendar server refused the link (HTTP $status).',
     _ => 'Unexpected answer from the calendar server (HTTP $status).',
   };
+
+  /// The labels of the dart:io texts for a connection that closed on a request
+  /// that was under way. A failure with one of them is a [ConnectionLost].
+  static const _closedWhileReceiving = 'closed while receiving';
+  static const _closedBeforeHeaders = 'closed before headers';
+
+  /// The texts with which dart:io raises the HttpException that the http
+  /// package passes on, unchanged, as the message of a plain ClientException,
+  /// each with the label the log gets for it. A message is only compared with
+  /// these, by how it starts, and is never printed. None of them holds a link.
+  ///
+  /// Taken from the Dart SDK's `lib/_http`: `http_parser.dart` for a response
+  /// that is cut short, `http_impl.dart` for the client, its connection, the
+  /// writing of a body and the following of redirects.
+  static const _knownMessages = <(String, String)>[
+    ('Connection closed while receiving data', _closedWhileReceiving),
+    ('Connection closed before full header was received', _closedBeforeHeaders),
+    ('Connection closed before response was received', _closedBeforeHeaders),
+    ('Connection closed before data was received', _closedBeforeHeaders),
+    ('Content size exceeds specified contentLength', 'length mismatch'),
+    ('Content size below specified contentLength', 'length mismatch'),
+    ('Redirect limit exceeded', 'too many redirects'),
+    ('Redirect loop detected', 'redirect loop'),
+  ];
+
+  /// Our label for the known text that [message] starts with, or `other`.
+  static String _labelFor(String message) {
+    for (final (text, label) in _knownMessages) {
+      if (message.startsWith(text)) return label;
+    }
+    return 'other';
+  }
+
+  /// Whether [error] is a connection that was closed, reset or refused: a
+  /// SocketException (so is the http package's wrapper of one), or a
+  /// ClientException that carries one of the two closed texts above. Not a
+  /// timeout, a TLS failure, a redirect failure or a body that does not fit
+  /// its length: another try would fail the same way, or only double the wait.
+  static bool _isConnectionLoss(Object error) {
+    if (error is SocketException) return true;
+    if (error is! http.ClientException) return false;
+    final label = _labelFor(error.message);
+    return label == _closedWhileReceiving || label == _closedBeforeHeaders;
+  }
+
+  /// The failure for a server that could not be reached: a [ConnectionLost]
+  /// when [error] is one, otherwise a plain network error. The text is the
+  /// same either way and never says why.
+  static SourceFailed _networkFailure(Object error) => _isConnectionLoss(error)
+      ? const ConnectionLost()
+      : const SourceFailed(SyncOutcome.networkError, _couldNotReach);
+
+  /// Logs that a fetch failed, what failed and how long it had run, never why:
+  /// the type of the failure and, when it carries one, the number of its
+  /// operating system error, as in `HandshakeException, os error 1`. A
+  /// failure's message, its uri, its host and its address can each give the
+  /// link away, so none of them is printed. The one thing read from a message
+  /// is which known dart:io text a ClientException starts with, and the log
+  /// gets our own label for it, as in `ClientException: closed while
+  /// receiving`, or `other` for any text that is not on the list.
+  static void _logFailure(Object error, Duration elapsed) {
+    final os = switch (error) {
+      SocketException(:final osError) => osError,
+      TlsException(:final osError) => osError,
+      _ => null,
+    };
+    final String detail;
+    if (os != null) {
+      detail = ', os error ${os.errorCode}';
+    } else if (error is http.ClientException && error is! SocketException) {
+      // The http package's wrapper of a socket failure is a SocketException as
+      // well, and is logged like one, without a label.
+      detail = ': ${_labelFor(error.message)}';
+    } else {
+      detail = '';
+    }
+    debugPrint(
+      'Fetching a calendar failed (${error.runtimeType}$detail, '
+      'after ${elapsed.inSeconds} s)',
+    );
+  }
 }

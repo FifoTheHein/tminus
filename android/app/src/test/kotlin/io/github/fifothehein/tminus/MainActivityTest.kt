@@ -1,14 +1,19 @@
 package io.github.fifothehein.tminus
 
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 import io.github.fifothehein.tminus.engine.AlarmActivity
 import io.github.fifothehein.tminus.engine.NOW
 import io.github.fifothehein.tminus.engine.RingingSession
 import io.github.fifothehein.tminus.engine.alert
+import io.github.fifothehein.tminus.sync.SyncNotifications
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,5 +59,46 @@ class MainActivityTest {
         RingingSession.clear()
         RingingSession.add(listOf(alert("b", NOW)))
         assertNull("a paused activity opens nothing", shadowOf(activity).nextStartedActivity)
+    }
+
+    // MainActivity is exported, so what an intent carries is chosen by any app. These build the activity
+    // with a hostile intent and read the settings FlutterActivity would start the engine with. The
+    // activity is not created: only the getters that start-up reads are called.
+    private fun launchedWith(intent: Intent): MainActivity =
+        Robolectric.buildActivity(MainActivity::class.java, intent).get()
+
+    /** `getBackgroundMode` is protected: it is called through FlutterActivity, so the override answers. */
+    private fun backgroundModeOf(activity: MainActivity): Any? =
+        FlutterActivity::class.java.getDeclaredMethod("getBackgroundMode").apply { isAccessible = true }.invoke(activity)
+
+    @Test
+    fun `launch extras cannot change the entry point or crash start-up`() {
+        val hostile = Intent()
+            .putExtra("dart_entrypoint", "syncMain")
+            .putExtra("dart_entrypoint_args", "not a list")
+            .putExtra("cached_engine_id", "x")
+            .putExtra("cached_engine_group_id", "g")
+            .putExtra("background_mode", "nope")
+            .putExtra("destroy_engine_with_activity", false)
+        val activity = launchedWith(hostile)
+
+        assertEquals("main", activity.getDartEntrypointFunctionName())
+        assertNull(activity.getDartEntrypointArgs())
+        assertNull(activity.getCachedEngineId())
+        assertNull(activity.getCachedEngineGroupId())
+        assertEquals(FlutterActivityLaunchConfigs.BackgroundMode.opaque, backgroundModeOf(activity))
+        assertTrue(activity.shouldDestroyEngineWithHost())
+    }
+
+    @Test
+    fun `only the source route reaches Flutter`() {
+        val flutterOwn = Intent(Intent.ACTION_VIEW, Uri.parse("https://x/settings"))
+            .putExtra("route", "/settings/developer")
+        val foreign = launchedWith(flutterOwn)
+        assertEquals("/", foreign.getInitialRoute())
+        assertFalse(foreign.shouldHandleDeeplinking())
+
+        val fix = launchedWith(Intent().putExtra(SyncNotifications.EXTRA_ROUTE, "/sources/ics-1"))
+        assertEquals("/sources/ics-1", fix.getInitialRoute())
     }
 }

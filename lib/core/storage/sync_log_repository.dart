@@ -23,14 +23,11 @@ class SyncLogRepository {
 
   /// Newest first.
   Future<List<SyncLogEntry>> recent({int limit = 50}) =>
-      (_db.select(_db.syncLog)
-            ..orderBy([
-              (l) => OrderingTerm.desc(l.atUtcMs),
-              (l) => OrderingTerm.desc(l.id),
-            ])
-            ..limit(limit))
-          .map(_fromRow)
-          .get();
+      _recent(limit).map(_fromRow).get();
+
+  /// Newest first; emits again whenever the log changes (Health's sync log).
+  Stream<List<SyncLogEntry>> watchRecent({int limit = 50}) =>
+      _recent(limit).map(_fromRow).watch();
 
   Future<SyncLogEntry?> latestForSource(String sourceId) =>
       (_db.select(_db.syncLog)
@@ -50,6 +47,14 @@ class SyncLogRepository {
                 l.atUtcMs.isSmallerThanValue(cutoffUtc.millisecondsSinceEpoch),
           ))
           .go();
+
+  SimpleSelectStatement<$SyncLogTable, SyncLogRow> _recent(int limit) =>
+      _db.select(_db.syncLog)
+        ..orderBy([
+          (l) => OrderingTerm.desc(l.atUtcMs),
+          (l) => OrderingTerm.desc(l.id),
+        ])
+        ..limit(limit);
 
   static SyncLogEntry _fromRow(SyncLogRow r) => SyncLogEntry(
     sourceId: r.sourceId,

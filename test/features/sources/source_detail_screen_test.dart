@@ -880,7 +880,7 @@ void main() {
   testWidgets('Sync now reports this source\'s failure message', (t) async {
     tallScreen(t);
     const message =
-        'The calendar server did not answer within 20 s. Try again later.';
+        'The calendar server did not answer within 60 s. Try again later.';
     final h = await pumpApp(
       t,
       location: '/sources/ics-1',

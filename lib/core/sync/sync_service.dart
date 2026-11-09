@@ -154,7 +154,7 @@ class SyncService {
     required this.buildSource,
     tz.Location Function()? zone,
     UtcClock? clock,
-    this.lockWait = const Duration(seconds: 60),
+    this.lockWait = const Duration(seconds: 120),
     this.lockPoll = const Duration(milliseconds: 500),
   }) : zone = zone ?? (() => tz.local),
        clock = clock ?? systemUtcNow;
@@ -182,7 +182,7 @@ class SyncService {
   final Duration lockWait;
   final Duration lockPoll;
 
-  /// Longer than any run can take (per-source fetches are capped at 20 s and
+  /// Longer than any run can take (per-source fetches are capped at 60 s and
   /// run in parallel); a lock left by a killed engine runs out by itself.
   static const lockLease = Duration(minutes: 5);
   static const lastFinishedKey = 'sync.lastFinishedUtcMs';

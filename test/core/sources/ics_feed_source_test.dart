@@ -74,6 +74,32 @@ const _leak = 'LEAK https://secret.example/x.ics';
 const _hostAddress = '203.0.113.7';
 const _leaks = ['LEAK', 'secret', 's3cr3t', 'office365', 'https', _hostAddress];
 
+/// How every failed fetch starts its line in the log.
+const _failed = 'Fetching a calendar failed';
+
+/// What the http package throws when dart:io reports a failure with [text]: a
+/// plain ClientException that keeps the text, here followed by a link.
+Object Function(Uri url) _clientFailure(String text) =>
+    (url) => http.ClientException('$text $_leak', url);
+
+/// A stopwatch that reads [_elapsed] once it has been started, however long it
+/// really ran, and zero before.
+class _FakeStopwatch extends Stopwatch {
+  _FakeStopwatch(this._elapsed);
+
+  final Duration _elapsed;
+  bool _started = false;
+
+  @override
+  void start() {
+    _started = true;
+    super.start();
+  }
+
+  @override
+  Duration get elapsed => _started ? _elapsed : Duration.zero;
+}
+
 /// Runs [body] with everything the app logs collected into the list it is
 /// given. The log hook goes back before the test body ends, not in a
 /// tear-down: the framework checks that it is back before tear-downs run.
@@ -115,6 +141,7 @@ void main() {
     SourceSyncState? previous,
     Duration timeout = const Duration(seconds: 60),
     SourceSecrets? secrets,
+    Stopwatch Function() newStopwatch = Stopwatch.new,
   }) => IcsFeedSource(
     config: config,
     previous: previous,
@@ -126,6 +153,7 @@ void main() {
     bodies: bodies,
     deviceZone: 'Africa/Johannesburg',
     timeout: timeout,
+    newStopwatch: newStopwatch,
   );
 
   SourceFailed failure(SourceResult r) {
@@ -141,17 +169,22 @@ void main() {
   );
 
   /// Fetches while the client throws what [thrown] builds from the request's
-  /// url, and checks that [line] is all that was logged and that nothing of
-  /// the exception's message, uri, host or address is in it. Returns the
-  /// failure the fetch reported.
+  /// url and a stopwatch reads [elapsed] when the fetch ends, and checks that
+  /// [line] is all that was logged and that nothing of the exception's
+  /// message, uri, host or address is in it. Returns the failure the fetch
+  /// reported.
   Future<SourceFailed> fetchLogging(
     Object Function(Uri url) thrown,
-    String line,
-  ) async {
+    String line, {
+    Duration elapsed = const Duration(seconds: 23),
+  }) async {
     late SourceFailed failed;
     await _logging((logged) async {
       failed = failure(
-        await source((r) async => throw thrown(r.url)).fetch(window),
+        await source(
+          (r) async => throw thrown(r.url),
+          newStopwatch: () => _FakeStopwatch(elapsed),
+        ).fetch(window),
       );
       expect(logged, [line]);
       for (final leak in _leaks) {
@@ -294,19 +327,74 @@ void main() {
     test('a timeout is logged as a TimeoutException', () async {
       final f = await fetchLogging(
         (_) => TimeoutException(_leak, const Duration(seconds: 60)),
-        'Fetching a calendar failed (TimeoutException)',
+        '$_failed (TimeoutException, after 23 s)',
       );
       expect(f.outcome, SyncOutcome.networkError);
       expect(f.message, contains('did not answer'));
     });
 
-    test('a client exception is logged as a ClientException', () async {
-      final f = await fetchLogging(
-        (url) => http.ClientException(_leak, url),
-        'Fetching a calendar failed (ClientException)',
-      );
-      expect(f.outcome, SyncOutcome.networkError);
-      expect(f.message, 'Could not reach the calendar server.');
+    group('a client exception is labelled by the dart:io text it carries', () {
+      test('a connection closed while the body came is labelled', () async {
+        final f = await fetchLogging(
+          _clientFailure('Connection closed while receiving data'),
+          '$_failed (ClientException: closed while receiving, after 23 s)',
+        );
+        expect(f.outcome, SyncOutcome.networkError);
+        expect(f.message, 'Could not reach the calendar server.');
+      });
+
+      test('a connection closed before the headers came is labelled', () async {
+        const line =
+            '$_failed (ClientException: closed before headers, '
+            'after 23 s)';
+        await fetchLogging(
+          _clientFailure('Connection closed before full header was received'),
+          line,
+        );
+        await fetchLogging(
+          _clientFailure('Connection closed before response was received'),
+          line,
+        );
+        await fetchLogging(
+          _clientFailure('Connection closed before data was received'),
+          line,
+        );
+      });
+
+      test('a body that does not fit its length is labelled', () async {
+        const line = '$_failed (ClientException: length mismatch, after 23 s)';
+        await fetchLogging(
+          _clientFailure('Content size exceeds specified contentLength'),
+          line,
+        );
+        await fetchLogging(
+          _clientFailure('Content size below specified contentLength'),
+          line,
+        );
+      });
+
+      test('a redirect limit that was exceeded is labelled', () async {
+        await fetchLogging(
+          _clientFailure('Redirect limit exceeded'),
+          '$_failed (ClientException: too many redirects, after 23 s)',
+        );
+      });
+
+      test('a redirect loop is labelled', () async {
+        await fetchLogging(
+          _clientFailure('Redirect loop detected'),
+          '$_failed (ClientException: redirect loop, after 23 s)',
+        );
+      });
+
+      test('a text that is not known is labelled other', () async {
+        final f = await fetchLogging(
+          (url) => http.ClientException(_leak, url),
+          '$_failed (ClientException: other, after 23 s)',
+        );
+        expect(f.outcome, SyncOutcome.networkError);
+        expect(f.message, 'Could not reach the calendar server.');
+      });
     });
 
     test('a socket failure is logged with its OS error number', () async {
@@ -317,7 +405,7 @@ void main() {
           address: InternetAddress(_hostAddress),
           port: 443,
         ),
-        'Fetching a calendar failed (SocketException, os error 7)',
+        '$_failed (SocketException, os error 7, after 23 s)',
       );
       expect(f.outcome, SyncOutcome.networkError);
       expect(f.message, 'Could not reach the calendar server.');
@@ -326,7 +414,7 @@ void main() {
     test('a TLS failure is logged with its OS error number', () async {
       final f = await fetchLogging(
         (_) => const HandshakeException(_leak, OSError(_leak, 1)),
-        'Fetching a calendar failed (HandshakeException, os error 1)',
+        '$_failed (HandshakeException, os error 1, after 23 s)',
       );
       expect(f.outcome, SyncOutcome.networkError);
       expect(f.message, 'Could not reach the calendar server.');
@@ -342,35 +430,68 @@ void main() {
           address: InternetAddress(_hostAddress),
           port: 443,
         ),
-        'Fetching a calendar failed (_ClientSocketException, os error 7)',
+        '$_failed (_ClientSocketException, os error 7, after 23 s)',
       );
       expect(f.outcome, SyncOutcome.networkError);
     });
 
+    test(
+      'a wrapped socket failure without an OS error gets no label',
+      () async {
+        await fetchLogging(
+          (url) => _ClientSocketException(
+            'Connection closed while receiving data $_leak',
+            url,
+            address: InternetAddress(_hostAddress),
+            port: 443,
+          ),
+          '$_failed (_ClientSocketException, after 23 s)',
+        );
+      },
+    );
+
     test('a failure without an OS error is logged by its type alone', () async {
       await fetchLogging(
         (url) => HttpException(_leak, uri: url),
-        'Fetching a calendar failed (HttpException)',
+        '$_failed (HttpException, after 23 s)',
       );
       await fetchLogging(
         (_) => SocketException(_leak, address: InternetAddress(_hostAddress)),
-        'Fetching a calendar failed (SocketException)',
+        '$_failed (SocketException, after 23 s)',
       );
       await fetchLogging(
         (_) => const HandshakeException(_leak),
-        'Fetching a calendar failed (HandshakeException)',
+        '$_failed (HandshakeException, after 23 s)',
       );
     });
 
     test('a link that dart:io refuses is logged as an ArgumentError', () async {
       final f = await fetchLogging(
         (_) => ArgumentError.value(_secretUrl, 'uri', _leak),
-        'Fetching a calendar failed (ArgumentError)',
+        '$_failed (ArgumentError, after 23 s)',
       );
       expect(f.outcome, SyncOutcome.linkMissing);
       expect(
         f.message,
         'The saved calendar link is not valid. Add the link again.',
+      );
+    });
+
+    test('the time a failed fetch took is logged in whole seconds', () async {
+      await fetchLogging(
+        (_) => TimeoutException(_leak, const Duration(seconds: 60)),
+        '$_failed (TimeoutException, after 59 s)',
+        elapsed: const Duration(milliseconds: 59900),
+      );
+      await fetchLogging(
+        (_) => TimeoutException(_leak, const Duration(seconds: 60)),
+        '$_failed (TimeoutException, after 0 s)',
+        elapsed: const Duration(milliseconds: 400),
+      );
+      await fetchLogging(
+        (_) => TimeoutException(_leak, const Duration(seconds: 60)),
+        '$_failed (TimeoutException, after 125 s)',
+        elapsed: const Duration(seconds: 125),
       );
     });
   });

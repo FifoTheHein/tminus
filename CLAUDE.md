@@ -59,7 +59,7 @@ Generated `*.g.dart` files are committed, so schema changes show up in review.
 ## Rules that are easy to break
 
 - `lib/core/model/alert.dart` and `lib/core/model/planned_alert.dart` are the Dart↔Kotlin contract from roadmap §3, byte for byte. **Never edit them and never `dart format` them**, because formatting rewraps their lines. `test/core/model/planned_alert_contract_test.dart` checks them. So run `dart format` on the files you changed, never on `lib/` as a whole.
-- **Never log error messages, URLs or event content.** Log `e.runtimeType`, or a `PlatformException`'s code, only. Feed links carry secret tokens (iCloud puts them in the path), and error messages can quote a link or a row's values. `IcsUrl.mask` is the only way to show a link.
+- **Never log error messages, URLs or event content.** Log `e.runtimeType`, or a `PlatformException`'s code, only. Feed links carry secret tokens (iCloud puts them in the path), and error messages can quote a link or a row's values. The one exception is `IcsFeedSource._logFailure`: it compares a `ClientException`'s message with a fixed list of known dart:io texts and logs only its own label for the match, never the message. `IcsUrl.mask` is the only way to show a link.
 - ICS links live in `flutter_secure_storage` (`SourceSecrets`), never in the drift database.
 - Load `package:timezone`'s `latest_all` data, not `latest`. CLDR maps some Windows zones to old link names such as `Asia/Calcutta`.
 - Colour tokens are duplicated in `android/app/src/main/res/values/tminus_colors.xml` for the native alarm screen. `test/native_tokens_test.dart` fails if they drift apart from `lib/app/theme/`.

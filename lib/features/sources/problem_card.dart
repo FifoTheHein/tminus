@@ -7,7 +7,7 @@ import '../../core/sync/outcome_severity.dart';
 import '../../core/sync/source_status.dart';
 import '../../core/sync/sync_service.dart';
 import '../common/status_tone.dart';
-import 'link_field.dart' show outlookLinkPath;
+import 'link_help.dart';
 
 /// What a sync that found another one running says (decision 21).
 const syncBusyText = 'Another sync is running. Try again in a minute.';
@@ -215,42 +215,45 @@ class ProblemCard extends StatelessWidget {
   }
 }
 
-/// **How to find it**: brief §1's path to the ICS link in Outlook.
-Future<void> showFindLinkSheet(BuildContext context) {
+/// **How to find it**: the same Outlook | Google | Other steps and drawings
+/// as the add panel, starting on [initial] (the source's link host, when it
+/// is known).
+Future<void> showFindLinkSheet(
+  BuildContext context, {
+  LinkProvider initial = LinkProvider.outlook,
+}) {
+  var provider = initial;
   return showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
     showDragHandle: true,
+    isScrollControlled: true,
     builder: (context) {
       final textTheme = Theme.of(context).textTheme;
       return SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(
             TMinusSpacing.lg,
             0,
             TMinusSpacing.lg,
             TMinusSpacing.xl,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'How to find your calendar link',
-                style: textTheme.titleLarge,
-              ),
-              const SizedBox(height: TMinusSpacing.md),
-              Text(
-                outlookLinkPath,
-                key: const Key('findLinkPath'),
-                style: textTheme.bodyLarge,
-              ),
-              const SizedBox(height: TMinusSpacing.sm),
-              Text(
-                'Copy the link that ends in .ics.',
-                style: textTheme.bodyMedium,
-              ),
-            ],
+          child: StatefulBuilder(
+            builder: (context, setState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'How to find your calendar link',
+                  style: textTheme.titleLarge,
+                ),
+                const SizedBox(height: TMinusSpacing.md),
+                LinkHelp(
+                  provider: provider,
+                  onChanged: (p) => setState(() => provider = p),
+                ),
+              ],
+            ),
           ),
         ),
       );

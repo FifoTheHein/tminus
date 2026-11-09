@@ -8,10 +8,6 @@ import '../../core/sources/ics_link_probe.dart';
 import '../common/notice_banner.dart';
 import '../common/status_tone.dart';
 
-/// Brief §1: where Outlook keeps the link.
-const outlookLinkPath =
-    'Outlook → Settings → Calendar → Shared calendars → Publish → ICS';
-
 /// The probe's good news: `Found 23 events this week`.
 String foundText(int events) =>
     'Found $events ${events == 1 ? 'event' : 'events'} this week';
@@ -27,10 +23,14 @@ class LinkField extends StatelessWidget {
     required this.controller,
     this.errorText,
     this.onSubmitted,
+    this.hintText = 'https://…/calendar.ics',
   });
 
   final TextEditingController controller;
   final String? errorText;
+
+  /// The shape of a link from where the user is getting theirs.
+  final String hintText;
 
   /// Called with the text when the user submits it from the keyboard. Not
   /// after a paste: that must not send a request (a one-time link would be
@@ -72,7 +72,7 @@ class LinkField extends StatelessWidget {
         borderRadius: BorderRadius.circular(TMinusRadii.sm),
       ),
       labelText: 'ICS link',
-      hintText: 'https://outlook.office365.com/…/calendar.ics',
+      hintText: hintText,
       errorText: errorText,
       suffixIcon: IconButton(
         tooltip: 'Paste',
@@ -276,7 +276,7 @@ class InsecureLinkWarning extends StatelessWidget {
       title: 'This link is not encrypted (http)',
       text:
           'Anyone on your network can read your calendar. Use the https link '
-          'if Outlook offers one.',
+          'if your calendar offers one.',
     ),
   );
 }

@@ -31,6 +31,7 @@ import '../common/color_palette_picker.dart';
 import '../common/guarded.dart';
 import '../common/source_tone.dart';
 import 'calendar_picker.dart';
+import 'link_help.dart';
 import 'problem_card.dart';
 import 'relink_dialog.dart';
 
@@ -815,7 +816,13 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
           ProblemAction(
             key: const Key('howToFindIt'),
             label: 'How to find it',
-            onPressed: () => unawaited(showFindLinkSheet(context)),
+            onPressed: () => unawaited(
+              showFindLinkSheet(
+                context,
+                initial:
+                    providerForLink(c.maskedLink ?? '') ?? LinkProvider.outlook,
+              ),
+            ),
           ),
         ]);
       case SourceKind.device:

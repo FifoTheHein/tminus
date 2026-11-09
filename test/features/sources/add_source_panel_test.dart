@@ -109,7 +109,7 @@ void main() {
     expect(
       find.text(
         'Anyone on your network can read your calendar. Use the https link if '
-        'Outlook offers one.',
+        'your calendar offers one.',
       ),
       findsOneWidget,
     );
@@ -217,8 +217,11 @@ void main() {
     final h = await pumpApp(t, location: '/sources/add');
 
     expect(find.text('Add a calendar'), findsOneWidget);
-    expect(find.text('Paste an Outlook ICS link'), findsOneWidget);
-    expect(find.text('Works with Outlook and Teams'), findsOneWidget);
+    expect(find.text('Paste a calendar link'), findsOneWidget);
+    expect(
+      find.text('Outlook, Google Calendar or any ICS link'),
+      findsOneWidget,
+    );
     expect(find.text('Use a calendar on this phone'), findsOneWidget);
     expect(find.text('Google, Samsung, Exchange accounts'), findsOneWidget);
     // The link card is open, with Outlook's path to the link.
@@ -236,7 +239,7 @@ void main() {
     expect(_linkField(), findsNothing);
     expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
     expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
-    await t.tap(find.text('Paste an Outlook ICS link'));
+    await t.tap(find.text('Paste a calendar link'));
     await t.pumpAndSettle();
     expect(_linkField(), findsOneWidget);
     await h.dispose(t);

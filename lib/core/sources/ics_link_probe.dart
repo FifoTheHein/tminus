@@ -40,7 +40,8 @@ class ProbeFailed extends ProbeResult {
 }
 
 /// Onboarding's and Add source's "Found 23 events this week": one real fetch
-/// through [IcsFeedSource], with the link held in memory. Nothing is stored or
+/// through [IcsFeedSource], with the link held in memory, and one more when
+/// the connection was lost on the first (see [check]). Nothing is stored or
 /// posted, and a failure is logged by its type, never by its text.
 class IcsLinkProbe {
   IcsLinkProbe({
@@ -58,6 +59,13 @@ class IcsLinkProbe {
   final Duration timeout;
 
   /// Never throws: whatever goes wrong comes back as a [ProbeFailed].
+  ///
+  /// A connection that was closed, reset or refused ([ConnectionLost]) is tried
+  /// once more at once, without the user pressing Check again: a large feed is
+  /// cut short now and then, and the next try gets through. The answer to the
+  /// second try is the one that is returned, whatever it is. Nothing else is
+  /// tried twice: a timeout would double the wait, and an HTTP status, a feed
+  /// that is not a calendar or a link that is not valid would fail again.
   Future<ProbeResult> check(String input) async {
     try {
       return await _check(input);
@@ -89,8 +97,11 @@ class IcsLinkProbe {
       deviceZone: deviceZone(),
       timeout: timeout,
     );
+    final window = FetchWindow.around(now);
     final week = now.add(FetchWindow.lookAhead);
-    return switch (await source.fetch(FetchWindow.around(now))) {
+    var result = await source.fetch(window);
+    if (result is ConnectionLost) result = await source.fetch(window);
+    return switch (result) {
       SourceFetched(:final occurrences) => ProbeFound(
         url: link.url,
         insecure: link.insecure,

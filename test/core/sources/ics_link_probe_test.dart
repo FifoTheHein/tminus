@@ -1,3 +1,8 @@
+import 'dart:async';
+import 'dart:io'
+    show HandshakeException, InternetAddress, OSError, SocketException;
+import 'dart:math' show min;
+
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -62,6 +67,26 @@ Future<void> _logging(Future<void> Function(List<String> logged) body) async {
   }
 }
 
+/// What the http package throws when the socket under a request fails: a
+/// ClientException that is also a SocketException, so a caller can catch
+/// either. The package keeps the class private.
+class _ClientSocketException extends http.ClientException
+    implements SocketException {
+  _ClientSocketException(super.message, Uri super.uri, {this.osError});
+
+  @override
+  final OSError? osError;
+
+  @override
+  InternetAddress? get address => null;
+
+  @override
+  int? get port => null;
+}
+
+/// How a client answers one request.
+typedef _Answer = Future<http.Response> Function(http.Request request);
+
 void main() {
   setUp(initZones);
   final now = DateTime.utc(2026, 10, 6, 6);
@@ -76,6 +101,39 @@ void main() {
     deviceZone: () => 'Africa/Johannesburg',
     clock: () => now,
   );
+
+  /// A client that answers its nth request with the nth of [answers] (the last
+  /// answer again to any request after that), and the requests it was asked, so
+  /// that a request too many shows in the list.
+  (http.Client, List<http.Request>) scripted(List<_Answer> answers) {
+    final asked = <http.Request>[];
+    final client = MockClient((request) {
+      asked.add(request);
+      return answers[min(asked.length, answers.length) - 1](request);
+    });
+    return (client, asked);
+  }
+
+  /// The feed answers, with one event in the next 7 days.
+  Future<http.Response> feed(http.Request request) async =>
+      http.Response(_feed, 200);
+
+  _Answer status(int code) =>
+      (request) async => http.Response('', code);
+
+  /// The client throws what [thrown] builds from the request's url.
+  _Answer throwing(Object Function(Uri url) thrown) =>
+      (request) async => throw thrown(request.url);
+
+  /// What the http package throws when dart:io reports a failure with [text]: a
+  /// plain ClientException that keeps the text, here followed by a link.
+  Object Function(Uri url) clientFailure(String text) =>
+      (url) => http.ClientException('$text LEAK $secret', url);
+
+  /// The line the log gets for a failed attempt that [what] names. The fetch is
+  /// timed by a real stopwatch here, so the seconds can vary.
+  Matcher failedAttempt(String what) =>
+      matches('^Fetching a calendar failed \\($what, after \\d+ s\\)\$');
 
   test('a working link counts the events of the next 7 days', () async {
     final r = await probe(MockClient((_) async => http.Response(_feed, 200)))
@@ -169,7 +227,12 @@ void main() {
         (r as ProbeFailed).message,
         'Could not reach the calendar server.',
       );
-      expect(logged, ['Fetching a calendar failed (ClientException)']);
+      // The fetch is timed by a real stopwatch here, so the seconds can vary.
+      expect(logged, [
+        matches(
+          r'^Fetching a calendar failed \(ClientException: other, after \d+ s\)$',
+        ),
+      ]);
       for (final leak in leaks) {
         expect(logged.join('\n'), isNot(contains(leak)), reason: leak);
       }
@@ -191,4 +254,193 @@ void main() {
       expect((r as ProbeFound).eventsThisWeek, 2);
     },
   );
+
+  group('a connection that was lost is tried once more', () {
+    test(
+      'a feed cut short is fetched again and the second answer is shown',
+      () async {
+        await _logging((logged) async {
+          final (client, asked) = scripted([
+            throwing(clientFailure('Connection closed while receiving data')),
+            feed,
+          ]);
+
+          final r = await probe(client).check(secret);
+
+          expect(r, isA<ProbeFound>());
+          r as ProbeFound;
+          expect((r.eventsThisWeek, r.insecure, r.url), (1, false, secret));
+          expect(asked, hasLength(2));
+          expect(asked.map((q) => q.url.toString()), [secret, secret]);
+          // The first attempt logged its failure, and the retry adds nothing.
+          expect(logged, [
+            failedAttempt('ClientException: closed while receiving'),
+          ]);
+          for (final leak in leaks) {
+            expect(logged.join('\n'), isNot(contains(leak)), reason: leak);
+          }
+        });
+      },
+    );
+
+    test(
+      'a connection closed before the headers, or a socket failure, is tried '
+      'again too',
+      () async {
+        for (final (name, lost) in <(String, _Answer)>[
+          (
+            'closed before the headers',
+            throwing(
+              clientFailure(
+                'Connection closed before full header was received',
+              ),
+            ),
+          ),
+          (
+            'reset by the peer',
+            throwing(
+              (_) => SocketException(
+                'LEAK $secret',
+                osError: const OSError('LEAK', 104),
+              ),
+            ),
+          ),
+          (
+            'reset, as the http package passes it on',
+            throwing(
+              (url) => _ClientSocketException(
+                'LEAK $secret',
+                url,
+                osError: const OSError('LEAK', 104),
+              ),
+            ),
+          ),
+        ]) {
+          final (client, asked) = scripted([lost, feed]);
+
+          final r = await probe(client).check(secret);
+
+          expect(r, isA<ProbeFound>(), reason: name);
+          expect(asked, hasLength(2), reason: name);
+        }
+      },
+    );
+
+    test(
+      'a connection lost twice in a row shows the failure after two requests',
+      () async {
+        await _logging((logged) async {
+          final (client, asked) = scripted([
+            throwing(clientFailure('Connection closed while receiving data')),
+            throwing(
+              clientFailure(
+                'Connection closed before full header was received',
+              ),
+            ),
+          ]);
+
+          final r = await probe(client).check(secret);
+
+          expect(
+            (r as ProbeFailed).message,
+            'Could not reach the calendar server.',
+          );
+          expect(asked, hasLength(2));
+          // Each attempt logged its own failure, in order.
+          expect(logged, [
+            failedAttempt('ClientException: closed while receiving'),
+            failedAttempt('ClientException: closed before headers'),
+          ]);
+          for (final leak in leaks) {
+            expect(logged.join('\n'), isNot(contains(leak)), reason: leak);
+          }
+        });
+      },
+    );
+
+    test(
+      'the second answer is shown even when it is a failure of another kind',
+      () async {
+        final (client, asked) = scripted([
+          throwing(clientFailure('Connection closed while receiving data')),
+          status(404),
+        ]);
+
+        final r = await probe(client).check(secret);
+
+        expect((r as ProbeFailed).message, contains('HTTP 404'));
+        expect(asked, hasLength(2));
+      },
+    );
+  });
+
+  group('a failure that another try would not mend is not tried again', () {
+    test('a timeout would only double the wait', () async {
+      final never = Completer<http.Response>();
+      final (client, asked) = scripted([(request) => never.future]);
+
+      final r = await IcsLinkProbe(
+        client: client,
+        deviceZone: () => 'Africa/Johannesburg',
+        clock: () => now,
+        timeout: const Duration(milliseconds: 20),
+      ).check(secret);
+
+      expect((r as ProbeFailed).message, contains('did not answer'));
+      expect(asked, hasLength(1));
+    });
+
+    test('an HTTP 404 or 500 is answered once', () async {
+      for (final code in [404, 500]) {
+        final (client, asked) = scripted([status(code)]);
+
+        final r = await probe(client).check(secret);
+
+        expect((r as ProbeFailed).message, contains('HTTP $code'));
+        expect(asked, hasLength(1), reason: '$code');
+      }
+    });
+
+    test('a feed that is not a calendar is fetched once', () async {
+      final (client, asked) = scripted([
+        (request) async => http.Response('not a calendar', 200),
+      ]);
+
+      final r = await probe(client).check(secret);
+
+      expect(
+        (r as ProbeFailed).message,
+        startsWith('The feed is not a calendar'),
+      );
+      expect(asked, hasLength(1));
+    });
+
+    test('a failure that is not a lost connection is tried once', () async {
+      for (final (name, failure) in <(String, _Answer)>[
+        ('a text that is not known', throwing(clientFailure('Something else'))),
+        (
+          'a body that does not fit its length',
+          throwing(clientFailure('Content size below specified contentLength')),
+        ),
+        ('a redirect loop', throwing(clientFailure('Redirect loop detected'))),
+        (
+          'a TLS failure',
+          throwing(
+            (_) => HandshakeException('LEAK $secret', const OSError('LEAK', 1)),
+          ),
+        ),
+        (
+          'a link that dart:io refuses',
+          throwing((_) => ArgumentError.value(secret, 'uri', 'LEAK')),
+        ),
+      ]) {
+        final (client, asked) = scripted([failure]);
+
+        final r = await probe(client).check(secret);
+
+        expect(r, isA<ProbeFailed>(), reason: name);
+        expect(asked, hasLength(1), reason: name);
+      }
+    });
+  });
 }

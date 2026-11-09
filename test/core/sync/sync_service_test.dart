@@ -628,7 +628,7 @@ void main() {
     expect(stale['kind'], 'stale');
     expect(
       stale['title'],
-      "Calendar hasn't synced for 1 h — alarms may be outdated",
+      "Calendar hasn't synced for 1 h. Alarms may be outdated",
     );
     expect(stale['text'], 'Work Outlook');
 
@@ -985,7 +985,7 @@ void main() {
     expect(stale['sourceId'], 'work');
     expect(
       stale['title'],
-      "Calendar hasn't synced for 1 h — alarms may be outdated",
+      "Calendar hasn't synced for 1 h. Alarms may be outdated",
     );
     expect(stale['text'], 'Work Outlook');
   });

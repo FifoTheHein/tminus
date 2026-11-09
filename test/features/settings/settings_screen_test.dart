@@ -587,7 +587,7 @@ void main() {
       'Dark',
       'Light',
       'Export settings',
-      'Profiles, rules and sources — without their links',
+      'Profiles, rules and sources (without their links)',
       'Import settings',
       "You'll paste links again after import",
       'Your calendar never leaves your phone.',

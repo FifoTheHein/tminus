@@ -410,7 +410,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       enabled: !_controller.busy,
       leading: const Icon(Icons.file_upload_outlined),
       title: const Text('Export settings'),
-      subtitle: const Text('Profiles, rules and sources — without their links'),
+      subtitle: const Text('Profiles, rules and sources (without their links)'),
       onTap: _export,
     );
   }

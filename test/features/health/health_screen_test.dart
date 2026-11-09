@@ -37,7 +37,7 @@ const _generalTip = 'Settings → Apps → T-Minus → Battery → Unrestricted.
 const _forceStopNote =
     'If you force-stop T-Minus, Android cancels its alarms until you open it '
     'again.';
-const _missedSystemText = "Missed — the phone didn't ring it";
+const _missedSystemText = "Missed: the phone didn't ring it";
 
 /// A history row. Tuesday 6 October 2026, 09:50 in Johannesburg, by default.
 AlertHistoryEntry _historyEntry(
@@ -133,7 +133,7 @@ void main() {
     expect(
       find.descendant(
         of: card,
-        matching: find.text('All good — alarms will ring'),
+        matching: find.text('All good. Alarms will ring'),
       ),
       findsOneWidget,
     );
@@ -339,7 +339,7 @@ void main() {
 
     final skipped = find.byKey(const Key('syncLog-row-0'));
     final synced = find.byKey(const Key('syncLog-row-1'));
-    const text = 'Skipped — another sync was running';
+    const text = 'Skipped: another sync was running';
     expect(
       find.descendant(of: skipped, matching: find.text(text)),
       findsOneWidget,
@@ -642,7 +642,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('history-miss')), findsNWidgets(2));
-    expect(find.text('Missed — nobody answered'), findsOneWidget);
+    expect(find.text('Missed: nobody answered'), findsOneWidget);
     expect(find.text(_missedSystemText), findsOneWidget);
     await h.dispose(t);
   });

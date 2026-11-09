@@ -92,7 +92,7 @@ void main() {
     );
     expect(off.title, 'Notifications');
     expect(off.level, HealthLevel.problem);
-    expect(off.detail, 'Off — no alerts can be shown');
+    expect(off.detail, 'Off: no alerts can be shown');
     expect(off.fix, HealthFix.permission);
     expect(off.permission, PermissionKind.notifications);
 
@@ -111,7 +111,7 @@ void main() {
     );
     expect(off.title, 'Full-screen alarms');
     expect(off.level, HealthLevel.problem);
-    expect(off.detail, 'Off — alarms appear only as a notification');
+    expect(off.detail, 'Off: alarms appear only as a notification');
     expect(off.fix, HealthFix.permission);
     expect(off.permission, PermissionKind.fullScreenIntent);
 
@@ -129,7 +129,7 @@ void main() {
     );
     expect(off.title, 'Exact alarms');
     expect(off.level, HealthLevel.warning);
-    expect(off.detail, 'Off — alarms may ring a few minutes late');
+    expect(off.detail, 'Off: alarms may ring a few minutes late');
     expect(off.fix, HealthFix.permission);
     expect(off.permission, PermissionKind.exactAlarm);
 
@@ -147,7 +147,7 @@ void main() {
     );
     expect(optimised.title, 'Battery optimisation');
     expect(optimised.level, HealthLevel.warning);
-    expect(optimised.detail, 'Optimised — Android may delay alarms');
+    expect(optimised.detail, 'Optimised: Android may delay alarms');
     expect(optimised.fix, HealthFix.permission);
     expect(optimised.permission, PermissionKind.batteryOptimization);
 
@@ -278,7 +278,7 @@ void main() {
   test('the overall level is the worst item', () {
     final good = buildHealthReport(engineHealth(), [synced(work)]);
     expect(good.overall, HealthLevel.ok);
-    expect(good.headline, 'All good — alarms will ring');
+    expect(good.headline, 'All good. Alarms will ring');
     expect(good.hasProblem, isFalse);
 
     final amber = buildHealthReport(

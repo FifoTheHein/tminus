@@ -386,7 +386,7 @@ class _EventSheetState extends State<EventSheet> {
                   Padding(
                     padding: const EdgeInsets.only(top: TMinusSpacing.xs),
                     child: Text(
-                      'Updated — close to see the new reason.',
+                      'Updated. Close to see the new reason.',
                       key: const Key('whyStale'),
                       style: textTheme.bodySmall?.copyWith(
                         color: colors.tertiaryText,

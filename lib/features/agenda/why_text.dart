@@ -26,10 +26,10 @@ String whyText(ResolvedOccurrence r, {required String? sourceName}) {
     ResolutionStep.skipFilter => _skipFilter(r.explanation) ?? generic,
     ResolutionStep.keywordRule => _rule(r, name) ?? generic,
     ResolutionStep.sourceDefault =>
-      "Using **$name** — it's the default profile for "
+      "Using **$name**. It's the default profile for "
           '${_plain(sourceName ?? 'this calendar')}.',
     ResolutionStep.globalDefault =>
-      "Using **$name** because no rule matched — it's your default profile.",
+      "Using **$name** because no rule matched. It's your default profile.",
   };
 }
 

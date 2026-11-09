@@ -440,7 +440,7 @@ class EmptyDayCard extends StatelessWidget {
               Icon(Icons.wb_sunny_outlined, size: 36, color: scheme.outline),
               const SizedBox(height: TMinusSpacing.md),
               Text(
-                'No meetings — enjoy',
+                'No meetings. Enjoy',
                 textAlign: TextAlign.center,
                 style: textTheme.titleLarge?.copyWith(color: scheme.onSurface),
               ),

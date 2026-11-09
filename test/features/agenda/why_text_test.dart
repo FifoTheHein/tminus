@@ -197,26 +197,26 @@ void main() {
 
       expect(
         why(occ(sourceId: 'work'), rules, sourceName: 'Work Outlook'),
-        "Using **Quick** — it's the default profile for Work Outlook.",
+        "Using **Quick**. It's the default profile for Work Outlook.",
       );
       // Nothing to name: it still reads as a sentence.
       expect(
         why(occ(sourceId: 'work'), rules, sourceName: null),
-        "Using **Quick** — it's the default profile for this calendar.",
+        "Using **Quick**. It's the default profile for this calendar.",
       );
     });
 
     test('the global default profile', () {
       expect(
         why(occ(), RuleSet()),
-        "Using **Meeting** because no rule matched — it's your default profile.",
+        "Using **Meeting** because no rule matched. It's your default profile.",
       );
       expect(
         why(
           occ(),
           RuleSet(globalDefaultProfileId: BuiltInProfiles.importantId),
         ),
-        "Using **Important** because no rule matched — it's your default "
+        "Using **Important** because no rule matched. It's your default "
         'profile.',
       );
     });

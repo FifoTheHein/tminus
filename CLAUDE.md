@@ -65,6 +65,7 @@ Generated `*.g.dart` files are committed, so schema changes show up in review.
 - Colour tokens are duplicated in `android/app/src/main/res/values/tminus_colors.xml` for the native alarm screen. `test/native_tokens_test.dart` fails if they drift apart from `lib/app/theme/`.
 - Real calendar feeds stay out of git. Commit only scrubbed fixtures (see `scrub_feed.dart`); raw feeds belong in the git-ignored `packages/ics_core/test/fixtures/private/`.
 - URL input fields need autocorrect and suggestions turned off. The Android keyboard otherwise rewrites `http://` to `https://`.
+- App text never uses em dashes (U+2014): use a colon, a comma, a full stop or parentheses instead. This covers Dart strings, Kotlin strings and Android resources. `test/no_em_dash_test.dart` fails if one comes back.
 
 ## Architecture
 

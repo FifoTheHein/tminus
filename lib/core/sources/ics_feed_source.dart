@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show IOException;
+import 'dart:io' show IOException, SocketException, TlsException;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:ics_core/ics_core.dart';
 
@@ -12,9 +13,10 @@ import 'feed_body_cache.dart';
 import 'occurrence_mapping.dart';
 import 'source_secrets.dart';
 
-/// A published ICS feed (spec §5): conditional GET with a 20 s timeout, the
+/// A published ICS feed (spec §5): conditional GET with a 60 s timeout, the
 /// link read from secure storage, and every failure mapped to the spec §9
-/// table. Messages never contain the link.
+/// table. Messages never contain the link, and a failure is logged by its type
+/// and OS error number, never by its text.
 class IcsFeedSource implements CalendarSource {
   IcsFeedSource({
     required this.config,
@@ -23,7 +25,7 @@ class IcsFeedSource implements CalendarSource {
     required this.secrets,
     required this.bodies,
     required this.deviceZone,
-    this.timeout = const Duration(seconds: 20),
+    this.timeout = const Duration(seconds: 60),
   });
 
   final SourceConfig config;
@@ -68,24 +70,28 @@ class IcsFeedSource implements CalendarSource {
     final http.Response response;
     try {
       response = await _get(uri, cached == null ? null : (etag, lastModified));
-    } on TimeoutException {
+    } on TimeoutException catch (e) {
+      _logFailure(e);
       return SourceFailed(
         SyncOutcome.networkError,
         'The calendar server did not answer within ${timeout.inSeconds} s.',
       );
-    } on http.ClientException {
+    } on http.ClientException catch (e) {
+      _logFailure(e);
       return const SourceFailed(
         SyncOutcome.networkError,
         'Could not reach the calendar server.',
       );
-    } on IOException {
+    } on IOException catch (e) {
+      _logFailure(e);
       return const SourceFailed(
         SyncOutcome.networkError,
         'Could not reach the calendar server.',
       );
-    } on ArgumentError {
+    } on ArgumentError catch (e) {
       // dart:io refuses a link with no host or a scheme other than http(s),
       // and its message quotes the link.
+      _logFailure(e);
       return const SourceFailed(
         SyncOutcome.linkMissing,
         'The saved calendar link is not valid. Add the link again.',
@@ -194,4 +200,19 @@ class IcsFeedSource implements CalendarSource {
     >= 400 && < 500 => 'The calendar server refused the link (HTTP $status).',
     _ => 'Unexpected answer from the calendar server (HTTP $status).',
   };
+
+  /// Logs that a fetch failed and what failed, never why: the type of the
+  /// failure and, when it carries one, the number of its operating system
+  /// error, as in `HandshakeException, os error 1`. A failure's message, its
+  /// uri, its host and its address can each give the link away, so none of
+  /// them is read.
+  static void _logFailure(Object error) {
+    final os = switch (error) {
+      SocketException(:final osError) => osError,
+      TlsException(:final osError) => osError,
+      _ => null,
+    };
+    final code = os == null ? '' : ', os error ${os.errorCode}';
+    debugPrint('Fetching a calendar failed (${error.runtimeType}$code)');
+  }
 }

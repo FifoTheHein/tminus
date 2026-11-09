@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +45,49 @@ class _UnreadableSecrets extends SourceSecrets {
   );
 }
 
+/// What the http package throws when the socket under a request fails: a
+/// ClientException that is also a SocketException, so a caller can catch
+/// either. The package keeps the class private.
+class _ClientSocketException extends http.ClientException
+    implements SocketException {
+  _ClientSocketException(
+    super.message,
+    Uri super.uri, {
+    this.osError,
+    this.address,
+    this.port,
+  });
+
+  @override
+  final OSError? osError;
+
+  @override
+  final InternetAddress? address;
+
+  @override
+  final int? port;
+}
+
+/// What the failures below carry in their message, uri, host or address. None
+/// of it may reach the log.
+const _leak = 'LEAK https://secret.example/x.ics';
+const _hostAddress = '203.0.113.7';
+const _leaks = ['LEAK', 'secret', 's3cr3t', 'office365', 'https', _hostAddress];
+
+/// Runs [body] with everything the app logs collected into the list it is
+/// given. The log hook goes back before the test body ends, not in a
+/// tear-down: the framework checks that it is back before tear-downs run.
+Future<void> _logging(Future<void> Function(List<String> logged) body) async {
+  final logged = <String>[];
+  final original = debugPrint;
+  debugPrint = (String? message, {int? wrapWidth}) => logged.add(message ?? '');
+  try {
+    await body(logged);
+  } finally {
+    debugPrint = original;
+  }
+}
+
 void main() {
   const config = SourceConfig(
     id: 'work',
@@ -69,7 +113,7 @@ void main() {
   IcsFeedSource source(
     Future<http.Response> Function(http.Request) handler, {
     SourceSyncState? previous,
-    Duration timeout = const Duration(seconds: 20),
+    Duration timeout = const Duration(seconds: 60),
     SourceSecrets? secrets,
   }) => IcsFeedSource(
     config: config,
@@ -95,6 +139,27 @@ void main() {
   Future<SourceFailed> failWith(int status) async => failure(
     await source((_) async => http.Response('', status)).fetch(window),
   );
+
+  /// Fetches while the client throws what [thrown] builds from the request's
+  /// url, and checks that [line] is all that was logged and that nothing of
+  /// the exception's message, uri, host or address is in it. Returns the
+  /// failure the fetch reported.
+  Future<SourceFailed> fetchLogging(
+    Object Function(Uri url) thrown,
+    String line,
+  ) async {
+    late SourceFailed failed;
+    await _logging((logged) async {
+      failed = failure(
+        await source((r) async => throw thrown(r.url)).fetch(window),
+      );
+      expect(logged, [line]);
+      for (final leak in _leaks) {
+        expect(logged.join('\n'), isNot(contains(leak)), reason: leak);
+      }
+    });
+    return failed;
+  }
 
   test('a 200 is expanded, its validators kept and its body stored', () async {
     final r = await source(
@@ -211,6 +276,103 @@ void main() {
     );
     expect(f.outcome, SyncOutcome.networkError);
     expect(f.message, contains('did not answer'));
+  });
+
+  test('the fetch timeout is 60 s unless a caller sets another', () {
+    final defaulted = IcsFeedSource(
+      config: config,
+      previous: null,
+      client: MockClient((_) async => http.Response(_feed, 200)),
+      secrets: SourceSecrets(),
+      bodies: bodies,
+      deviceZone: 'Africa/Johannesburg',
+    );
+    expect(defaulted.timeout, const Duration(seconds: 60));
+  });
+
+  group('a failed fetch is logged by what failed, never by its text', () {
+    test('a timeout is logged as a TimeoutException', () async {
+      final f = await fetchLogging(
+        (_) => TimeoutException(_leak, const Duration(seconds: 60)),
+        'Fetching a calendar failed (TimeoutException)',
+      );
+      expect(f.outcome, SyncOutcome.networkError);
+      expect(f.message, contains('did not answer'));
+    });
+
+    test('a client exception is logged as a ClientException', () async {
+      final f = await fetchLogging(
+        (url) => http.ClientException(_leak, url),
+        'Fetching a calendar failed (ClientException)',
+      );
+      expect(f.outcome, SyncOutcome.networkError);
+      expect(f.message, 'Could not reach the calendar server.');
+    });
+
+    test('a socket failure is logged with its OS error number', () async {
+      final f = await fetchLogging(
+        (_) => SocketException(
+          _leak,
+          osError: const OSError(_leak, 7),
+          address: InternetAddress(_hostAddress),
+          port: 443,
+        ),
+        'Fetching a calendar failed (SocketException, os error 7)',
+      );
+      expect(f.outcome, SyncOutcome.networkError);
+      expect(f.message, 'Could not reach the calendar server.');
+    });
+
+    test('a TLS failure is logged with its OS error number', () async {
+      final f = await fetchLogging(
+        (_) => const HandshakeException(_leak, OSError(_leak, 1)),
+        'Fetching a calendar failed (HandshakeException, os error 1)',
+      );
+      expect(f.outcome, SyncOutcome.networkError);
+      expect(f.message, 'Could not reach the calendar server.');
+    });
+
+    test('a socket failure wrapped by the http package keeps its OS error '
+        'number', () async {
+      final f = await fetchLogging(
+        (url) => _ClientSocketException(
+          _leak,
+          url,
+          osError: const OSError(_leak, 7),
+          address: InternetAddress(_hostAddress),
+          port: 443,
+        ),
+        'Fetching a calendar failed (_ClientSocketException, os error 7)',
+      );
+      expect(f.outcome, SyncOutcome.networkError);
+    });
+
+    test('a failure without an OS error is logged by its type alone', () async {
+      await fetchLogging(
+        (url) => HttpException(_leak, uri: url),
+        'Fetching a calendar failed (HttpException)',
+      );
+      await fetchLogging(
+        (_) => SocketException(_leak, address: InternetAddress(_hostAddress)),
+        'Fetching a calendar failed (SocketException)',
+      );
+      await fetchLogging(
+        (_) => const HandshakeException(_leak),
+        'Fetching a calendar failed (HandshakeException)',
+      );
+    });
+
+    test('a link that dart:io refuses is logged as an ArgumentError', () async {
+      final f = await fetchLogging(
+        (_) => ArgumentError.value(_secretUrl, 'uri', _leak),
+        'Fetching a calendar failed (ArgumentError)',
+      );
+      expect(f.outcome, SyncOutcome.linkMissing);
+      expect(
+        f.message,
+        'The saved calendar link is not valid. Add the link again.',
+      );
+    });
   });
 
   test(

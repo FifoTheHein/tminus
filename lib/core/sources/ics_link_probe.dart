@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 import '../model/source_config.dart';
@@ -39,14 +40,14 @@ class ProbeFailed extends ProbeResult {
 }
 
 /// Onboarding's and Add source's "Found 23 events this week": one real fetch
-/// through [IcsFeedSource], with the link held in memory. Nothing is stored,
-/// posted or logged.
+/// through [IcsFeedSource], with the link held in memory. Nothing is stored or
+/// posted, and a failure is logged by its type, never by its text.
 class IcsLinkProbe {
   IcsLinkProbe({
     required this.client,
     required this.deviceZone,
     UtcClock? clock,
-    this.timeout = const Duration(seconds: 20),
+    this.timeout = const Duration(seconds: 60),
   }) : clock = clock ?? systemUtcNow;
 
   final http.Client client;
@@ -60,9 +61,10 @@ class IcsLinkProbe {
   Future<ProbeResult> check(String input) async {
     try {
       return await _check(input);
-    } catch (_) {
+    } catch (e) {
       // A thrown error can quote the link, and nothing above the screen would
-      // catch it. It is dropped unread: fixed text, nothing logged.
+      // catch it. Only its type is logged, and the result is fixed text.
+      debugPrint('Checking a link failed (${e.runtimeType})');
       return const ProbeFailed('Could not check the link.');
     }
   }

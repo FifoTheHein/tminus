@@ -17,6 +17,7 @@ import '../common/color_palette_picker.dart';
 import '../common/guarded.dart';
 import 'calendar_picker.dart';
 import 'link_field.dart';
+import 'link_help.dart';
 import 'problem_card.dart' show syncBusyText;
 
 /// The first colour of [calendarPalette] that none of [used] has, so each new
@@ -35,7 +36,8 @@ int firstUnusedPaletteColour(Iterable<int> used) {
 }
 
 /// The two ways to add a calendar (mockup 5b), as two selectable cards: paste
-/// an Outlook ICS link, or use a calendar on this phone. It adds the source,
+/// a calendar's ICS link (with steps for Outlook, Google or any other), or use
+/// a calendar on this phone. It adds the source,
 /// syncs it once, and then calls [onAdded] with it. It is part of a screen,
 /// not a screen: Add source and onboarding put it on theirs.
 ///
@@ -63,11 +65,16 @@ class AddSourcePanel extends StatefulWidget {
 enum _Choice { ics, phone }
 
 class _AddSourcePanelState extends State<AddSourcePanel> {
-  static const _defaultName = 'Work Outlook';
-
   late final LinkChecker _link;
-  final _name = TextEditingController(text: _defaultName);
+
+  /// Whose steps are shown. A link from a host we know switches it.
+  LinkProvider _provider = LinkProvider.outlook;
+  late final _name = TextEditingController(text: _provider.defaultName);
   _Choice _choice = _Choice.ics;
+
+  /// The link text last looked at, so a selection or focus change (which
+  /// also notifies the controller) does not undo the user's own choice.
+  String _seenLink = '';
 
   /// A link is being added (and then synced): the button says so and is off.
   bool _busy = false;
@@ -83,11 +90,13 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
   void initState() {
     super.initState();
     _link = LinkChecker(probe: getIt<IcsLinkProbe>());
+    _link.text.addListener(_onLinkText);
     unawaited(_refreshTaken());
   }
 
   @override
   void dispose() {
+    _link.text.removeListener(_onLinkText);
     _link.dispose();
     _name.dispose();
     super.dispose();
@@ -101,6 +110,27 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
     } catch (e) {
       debugPrint('Listing the phone calendars in use failed (${_tag(e)})');
     }
+  }
+
+  /// A pasted or typed link whose host is Outlook's or Google's shows their
+  /// steps. Only the host is looked at.
+  void _onLinkText() {
+    final text = _link.text.text;
+    if (text == _seenLink) return;
+    _seenLink = text;
+    final provider = providerForLink(text);
+    if (provider != null) _setProvider(provider);
+  }
+
+  /// Shows [provider]'s steps. The name follows unless the user typed one.
+  void _setProvider(LinkProvider provider) {
+    if (provider == _provider) return;
+    final typed = _name.text.trim();
+    if (typed.isEmpty ||
+        LinkProvider.values.any((p) => p.defaultName == typed)) {
+      _name.text = provider.defaultName;
+    }
+    setState(() => _provider = provider);
   }
 
   void _selectPhone() {
@@ -134,7 +164,7 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
     final found = _link.found;
     if (found == null || _busy) return;
     final typed = _name.text.trim();
-    final name = typed.isEmpty ? _defaultName : typed;
+    final name = typed.isEmpty ? _provider.defaultName : typed;
     setState(() {
       _busy = true;
       _saving = true;
@@ -164,7 +194,7 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
     // The link is no longer needed: the field is emptied, so it does not stay
     // on a screen that onboarding keeps showing.
     _link.clear();
-    _name.text = _defaultName;
+    _name.text = _provider.defaultName;
     setState(() {
       _busy = false;
       _addedNote = _note(source.name);
@@ -212,8 +242,8 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
         _ChoiceCard(
           key: const Key('choice-ics'),
           icon: Icons.link,
-          title: 'Paste an Outlook ICS link',
-          subtitle: 'Works with Outlook and Teams',
+          title: 'Paste a calendar link',
+          subtitle: 'Outlook, Google Calendar or any ICS link',
           selected: _choice == _Choice.ics,
           onSelect: () => setState(() => _choice = _Choice.ics),
           child: _icsBody(context),
@@ -241,34 +271,14 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
   }
 
   Widget _icsBody(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Stands in for a picture of Outlook's publish screen.
-        Container(
-          height: 120,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(TMinusRadii.md),
-          ),
-          child: Text(
-            'outlook publish screen',
-            style: context.tminusType.time.copyWith(
-              color: context.tminusColors.tertiaryText,
-            ),
-          ),
-        ),
-        const SizedBox(height: TMinusSpacing.xs),
-        Text(
-          outlookLinkPath,
-          style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-        ),
+        LinkHelp(provider: _provider, onChanged: _setProvider),
         const SizedBox(height: TMinusSpacing.sm),
         LinkField(
           controller: _link.text,
+          hintText: _provider.hint,
           onSubmitted: (_) => unawaited(_link.check()),
         ),
         const SizedBox(height: TMinusSpacing.xs),

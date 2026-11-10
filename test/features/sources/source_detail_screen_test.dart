@@ -509,7 +509,28 @@ void main() {
       t.widget<Text>(find.byKey(const Key('findLinkPath'))).data,
       'Outlook → Settings → Calendar → Shared calendars → Publish → ICS',
     );
-    expect(find.text('Copy the link that ends in .ics.'), findsOneWidget);
+    expect(find.byKey(const Key('illustration-outlook')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('How to find it starts on Google for a Google link', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      location: '/sources/ics-1',
+      seed: (h) async {
+        h.secrets['ics-url.ics-1'] =
+            'https://calendar.google.com/calendar/ical/'
+            'en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics';
+        await _seedFailing(icsSource(), outcome: SyncOutcome.httpError);
+      },
+    );
+
+    await t.tap(find.byKey(const Key('howToFindIt')));
+    await t.pumpAndSettle();
+
+    expect(find.byKey(const Key('illustration-google')), findsOneWidget);
+    expect(find.byKey(const Key('illustration-outlook')), findsNothing);
     await h.dispose(t);
   });
 

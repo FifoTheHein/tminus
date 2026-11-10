@@ -2,7 +2,7 @@
 
 An Android app (Flutter UI and a native Kotlin alarm engine) that turns your Outlook/Teams calendar into alarms you can't miss and can always stop. It reads calendars from published ICS feeds or from calendars already on the phone. Google Calendar is planned for Phase 2.
 
-Status: **in development**. The ICS parser, domain rules and planner, native alarm engine, sources and sync, and merging of meetings found in more than one source are built (Plans 1–4b). The app screens (Plan 5) are next, then Play readiness (Plan 6). The app has no user-facing UI yet: only debug tools.
+Status: **in development**. The ICS parser, domain rules and planner, native alarm engine, sources and sync, merging of meetings found in more than one source, and the app screens are built (Plans 1–5). Play readiness (Plan 6) is next: its decisions so far are in the roadmap, and the plan itself is still to be written.
 
 - Implementation roadmap: [docs/superpowers/plans/2026-10-06-tminus-roadmap.md](docs/superpowers/plans/2026-10-06-tminus-roadmap.md)
 

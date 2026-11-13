@@ -562,6 +562,35 @@ void main() {
     );
   });
 
+  test('only a meeting that has not started shows its switch', () async {
+    // At 09:27: the standup has ended, the 09:00 meeting is under way with
+    // both its alerts rung, and the 10:00 sprint planning is still ahead.
+    final standup = feedOcc(
+      'standup',
+      local(6, 8, 45),
+      length: const Duration(minutes: 15),
+    );
+    final underway = feedOcc(
+      'underway',
+      local(6, 9),
+      length: const Duration(hours: 1),
+    );
+    final later = feedOcc('later', local(6, 10));
+    final atNow = feedOcc('atNow', now);
+    await seed(feed, [standup, underway, later, atNow]);
+
+    final items = {
+      for (final i in (await loader.load()).days.single.items) i.meeting.uid: i,
+    };
+    expect(items['standup']!.showsToggle(now), isFalse);
+    expect(items['underway']!.showsToggle(now), isFalse);
+    expect(items['atNow']!.showsToggle(now), isFalse);
+    expect(items['later']!.showsToggle(now), isTrue);
+    final justBefore = local(6, 10).subtract(const Duration(seconds: 1));
+    expect(items['later']!.showsToggle(justBefore), isTrue);
+    expect(items['later']!.showsToggle(local(6, 10)), isFalse);
+  });
+
   test(
     'a quiet mode turns an item off and the snapshot carries the mode',
     () async {

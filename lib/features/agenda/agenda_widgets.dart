@@ -599,18 +599,19 @@ class AgendaCard extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-            top: 6,
-            right: 14,
-            child: Semantics(
-              label: 'Alerts for ${meeting.title}',
-              child: Switch(
-                key: Key('agenda-toggle-${meeting.key}'),
-                value: on,
-                onChanged: onToggle,
+          if (item.showsToggle(now))
+            Positioned(
+              top: 6,
+              right: 14,
+              child: Semantics(
+                label: 'Alerts for ${meeting.title}',
+                child: Switch(
+                  key: Key('agenda-toggle-${meeting.key}'),
+                  value: on,
+                  onChanged: onToggle,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

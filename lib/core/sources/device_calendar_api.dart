@@ -3,6 +3,14 @@ import 'package:flutter/services.dart';
 import '../engine/alarm_engine.dart';
 
 /// One calendar on the phone (`queryDeviceCalendars`).
+///
+/// [accountType], [ownerAccount], [accessLevel], [syncEvents] and [primary]
+/// are raw facts from the calendar provider. `groupCalendars` reads them to
+/// sort the phone picker into groups; nothing else needs them. Each is
+/// optional, and a key that is absent or null reads as null ([syncEvents]:
+/// true), so a provider that leaves a column empty, or a test fake that omits
+/// it, still parses. [ownerAccount] is an email address: like [accountName] it
+/// stays in memory for the picker, and is never logged, stored or shown.
 class DeviceCalendar {
   const DeviceCalendar({
     required this.id,
@@ -10,6 +18,11 @@ class DeviceCalendar {
     this.accountName,
     required this.color,
     required this.visible,
+    this.accountType,
+    this.ownerAccount,
+    this.accessLevel,
+    this.syncEvents = true,
+    this.primary,
   });
 
   factory DeviceCalendar.fromJson(Map<String, Object?> j) => DeviceCalendar(
@@ -18,6 +31,11 @@ class DeviceCalendar {
     accountName: j['accountName'] as String?,
     color: j['color'] as int,
     visible: j['visible'] as bool,
+    accountType: j['accountType'] as String?,
+    ownerAccount: j['ownerAccount'] as String?,
+    accessLevel: j['accessLevel'] as int?,
+    syncEvents: j['syncEvents'] as bool? ?? true,
+    primary: j['primary'] as bool?,
   );
 
   final String id;
@@ -27,6 +45,26 @@ class DeviceCalendar {
   /// Opaque ARGB; pre-fills the colour when the user adds the source.
   final int color;
   final bool visible;
+
+  /// The kind of account, for example `com.google`. With [accountName] it
+  /// identifies the account.
+  final String? accountType;
+
+  /// Who owns the calendar: an email address for a person's calendar, or a
+  /// calendar address for a group or subscribed one.
+  final String? ownerAccount;
+
+  /// How much the user may do with the calendar: 700 owner, 600 editor, 200
+  /// free/busy only, 0 none.
+  final int? accessLevel;
+
+  /// Whether the calendar's events are on this phone. False means it has none
+  /// here until sync is turned on in the account's own app.
+  final bool syncEvents;
+
+  /// Whether this is its account's main calendar; null when the provider does
+  /// not say.
+  final bool? primary;
 }
 
 /// One row of `CalendarContract.Instances` (`queryInstances`).

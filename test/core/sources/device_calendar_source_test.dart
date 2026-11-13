@@ -225,4 +225,96 @@ void main() {
       ('3', 'Work', 'me@example.com', 0xFF6AA0F5, true),
     );
   });
+
+  test('calendars() reads the grouping fields', () async {
+    answer(
+      (_) => [
+        {
+          'id': '3',
+          'name': 'Team',
+          'accountName': 'me@example.com',
+          'color': 0xFF6AA0F5,
+          'visible': true,
+          'accountType': 'com.google',
+          'ownerAccount': 'team@group.calendar.google.com',
+          'accessLevel': 600,
+          'syncEvents': false,
+          'primary': true,
+        },
+        // Different in every grouping field, so a field that is ignored or
+        // read from the wrong key cannot pass on a default.
+        {
+          'id': '4',
+          'name': 'Family',
+          'accountName': 'me@example.com',
+          'color': 0xFF33AA66,
+          'visible': false,
+          'accountType': 'LOCAL',
+          'ownerAccount': 'sam@example.com',
+          'accessLevel': 700,
+          'syncEvents': true,
+          'primary': false,
+        },
+      ],
+    );
+    final [team, family] = await DeviceCalendarApi().calendars();
+    expect(calls.single.method, 'queryDeviceCalendars');
+    expect(
+      (
+        team.accountType,
+        team.ownerAccount,
+        team.accessLevel,
+        team.syncEvents,
+        team.primary,
+      ),
+      ('com.google', 'team@group.calendar.google.com', 600, false, true),
+    );
+    expect(
+      (
+        family.accountType,
+        family.ownerAccount,
+        family.accessLevel,
+        family.syncEvents,
+        family.primary,
+      ),
+      ('LOCAL', 'sam@example.com', 700, true, false),
+    );
+  });
+
+  test('calendars() defaults absent grouping fields', () async {
+    answer(
+      (_) => [
+        // As an older reader sends it: none of the five keys is there.
+        {
+          'id': '3',
+          'name': 'Work',
+          'accountName': 'me@example.com',
+          'color': 0xFF6AA0F5,
+          'visible': true,
+        },
+        // As a provider that leaves the columns empty sends it.
+        {
+          'id': '4',
+          'name': 'Family',
+          'accountName': 'me@example.com',
+          'color': 0xFF33AA66,
+          'visible': true,
+          'accountType': null,
+          'ownerAccount': null,
+          'accessLevel': null,
+          'syncEvents': null,
+          'primary': null,
+        },
+      ],
+    );
+    final calendars = await DeviceCalendarApi().calendars();
+    expect(calendars.map((c) => c.id), ['3', '4']);
+    for (final c in calendars) {
+      expect(
+        (c.accountType, c.ownerAccount, c.accessLevel, c.syncEvents, c.primary),
+        (null, null, null, true, null),
+        reason: 'calendar ${c.id}',
+      );
+    }
+  });
 }

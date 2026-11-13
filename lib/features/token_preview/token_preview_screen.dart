@@ -19,11 +19,14 @@ class TokenPreviewScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Design tokens')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(
+        // An explicit padding replaces the list's own safe-area padding, and
+        // this route sits outside the shell's navigation bar, so the system
+        // navigation bar's inset is added here.
+        padding: EdgeInsets.fromLTRB(
           TMinusSpacing.lg,
           TMinusSpacing.xs,
           TMinusSpacing.lg,
-          TMinusSpacing.xxl,
+          TMinusSpacing.xxl + MediaQuery.paddingOf(context).bottom,
         ),
         children: [
           const _ThemeModeSelector(),

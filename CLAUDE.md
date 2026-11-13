@@ -25,6 +25,7 @@ flutter test test/core/sync/sync_service_test.dart
 flutter test test/core/rules/rules_engine_test.dart --plain-name "some test name"
 flutter build apk --debug
 dart run build_runner build                       # drift codegen; --delete-conflicting-outputs no longer exists in build_runner 2.16
+python tool/gen_launcher_icon.py                  # redraws the legacy launcher PNGs and docs/play/icon-512.png (needs Pillow; rerun after editing the icon vectors)
 ```
 
 `ics_core` (pure Dart, run inside `packages/ics_core`):

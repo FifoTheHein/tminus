@@ -21,6 +21,7 @@ import '../../core/transfer/settings_transfer.dart';
 import '../common/guarded.dart';
 import '../common/profile_radio_list.dart';
 import '../common/section_card.dart';
+import '../common/tminus_mark.dart';
 
 // Fixed texts. A failure is only ever described by one of these: the error's
 // own text can quote a profile name, a rule pattern or a file path.
@@ -316,11 +317,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(
+        // An explicit padding replaces the scroll view's own safe-area
+        // padding, and the app draws edge to edge, so the navigation bar's
+        // inset is added here or the last card ends up underneath it.
+        padding: EdgeInsets.fromLTRB(
           TMinusSpacing.md,
           0,
           TMinusSpacing.md,
-          TMinusSpacing.xxl,
+          TMinusSpacing.xxl + MediaQuery.paddingOf(context).bottom,
         ),
         child: ListenableBuilder(
           listenable: _controller,
@@ -675,7 +679,7 @@ class _AboutCard extends StatelessWidget {
           padding: const EdgeInsets.all(TMinusSpacing.md),
           child: Row(
             children: [
-              const _Logo(),
+              const TMinusMark(size: 32),
               const SizedBox(width: TMinusSpacing.sm),
               Expanded(
                 child: Column(
@@ -705,34 +709,6 @@ class _AboutCard extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// The T− mark: a ring round the name's first letter and a minus.
-class _Logo extends StatelessWidget {
-  const _Logo();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return ExcludeSemantics(
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: scheme.primary, width: 2),
-        ),
-        child: Text(
-          'T−',
-          style: context.tminusType.time.copyWith(
-            color: scheme.onSurface,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
     );
   }
 }

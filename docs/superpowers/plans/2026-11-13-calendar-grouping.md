@@ -232,31 +232,55 @@ ACCEPTANCE: (runner) `flutter analyze` -> No issues found!
 
 ## 8. Run log (bookmark)
 
-Reviewer: -
+Reviewer: ab1186ed1c674e825 · Test runner: ade476834df91999b
 
 | Step | State | Evidence | Commit |
 |-|-|-|-|
-| Setup | todo | | |
-| J1 | todo | | |
-| J2 | todo | | |
-| T1 | todo | | |
-| T2 | todo | | |
-| W1 close | todo | | |
-| J3 | todo | | |
-| T3 | todo | | |
-| W2 close | todo | | |
-| Finish | todo | | |
+| Setup | done | gradle files copied, pub get ok, no other build running | 563ec61 (plan) |
+| J1 | done | compile BUILD SUCCESSFUL (check scout), diff matches brief, main checkout clean | |
+| T1 | done | 4 new tests + ARGB map fix; runner: calendar.* 14/14 pass (Gradle BUILD SUCCESSFUL) | 9eb594c (J1+T1); J2+T2 444d066 |
+| J2 | done | analyze clean (check scout), code read against spec §4, main checkout clean | |
+| T2 | done | 2 + 38 tests, analyze clean; runner: test/core/sources + calendar_groups_test 137/137 pass | |
+| W1 close | done | analyze clean; Dart 137/137; Kotlin calendar.* 14/14; review: no BLOCK/WARN, 2 NOTEs; 9/9 negative controls FAIL as expected (C1-C9), restores proven by sha256 + `git diff --quiet HEAD` | 9eb594c, 444d066 |
+| J3 | done | analyze clean (check scout), diff read, no em dash, no new logging | |
+| T3 | done | 10 tests + phoneCalendar + 2 forced assertion edits; fix pins pickOne enabled state (re-reviewed); runner: full `flutter test` +1156 all pass, picker 10/10 after fix | (wave 2 commit) |
+| W2 close | done | analyze clean; full suite +1156; test/features/sources +175 after fix; review: no BLOCK/WARN, 3 NOTEs (one fixed); 15/15 negative controls FAIL as expected (W2-C1..C15), restores proven by sha256 | (wave 2 commit) |
+| Finish | done | Built differently written; push, PR and phone install wait for the user | |
 
 | Session | Started | Ended | Note |
 |-|-|-|-|
-| plan + run | 2026-11-13T20:38:32+0200 | | lightweight, one session |
+| plan + run | 2026-11-13T20:38:32+0200 | 2026-11-13T21:46:15+0200 | lightweight, one session |
 
 | Job | Agent id | Dispatched | Reported | Checked | Committed |
 |-|-|-|-|-|-|
+| Setup | a4170b92a00b1fb5b | 2026-11-13T20:40:31+0200 | done | done | 563ec61 |
+| J1 | a7917e74252b2044d | 2026-11-13T20:42:08+0200 | 2026-11-13T20:51:00+0200 | 2026-11-13T20:52:12+0200 | |
+| T1 | a0ef3606d692cc475 | 2026-11-13T20:52:12+0200 | | | |
+| J2 | aa0b8a1e88bc3b673 | 2026-11-13T20:42:08+0200 | 2026-11-13T20:54:10+0200 | 2026-11-13T20:56:29+0200 | |
+| T2 | a0e18cbe4567d2e50 | 2026-11-13T20:56:29+0200 | | | |
+| J3 | af116aec10d0f93b3 | 2026-11-13T20:56:29+0200 | 2026-11-13T21:10:30+0200 | 2026-11-13T21:12:47+0200 | |
+| T3 | a968c239ef544008b | 2026-11-13T21:12:47+0200 | | | |
 
 Decisions taken (overturnable):
-- (none yet)
+- W1/J2 - Two accounts of one kind whose names differ only in case stay in arrival order (stable tie-break by arrival index). Tests must not assert an order between them beyond that.
+- W1/J2 - A blank (whitespace-only) owner or account counts as absent; null equals null is not primary; a Google calendar with a person owner and no account name is Shared (the literal rule).
+- W1/J2 - Google owner suffix checks run on the trimmed, lower-cased owner; account types and `local.samsungbirthday` match exactly.
+- W1 - Plan gap: the existing `calendars are listed with an opaque ARGB colour` test compares whole maps, so it must list the five new keys. T1 (owner of the test file) updates its expected map; "add tests only" is relaxed for that one assertion.
+- W1 - J3 dispatched once J2 passed Check, before the wave 1 close: it owns no wave 1 file and needs only J2's interface. If the wave 1 review changes that interface, J3 gets a fix brief.
+- W2/J3 - Heading semantics use `container: true`; rows are `MergeSemantics(Semantics(enabled: !disabled, ...))` like ListTile, so tappable pickOne rows now report an enabled state; the trailing label is capped at 120 dp; the not-synced dot is dimmed through its colour alpha (0.38), not an `Opacity` widget; the footnote string is a private const.
+- W2 - Review NOTE accepted and fixed: `pickOne ignores a not-synced calendar` now pins the enabled state of a synced row (true) and a not-synced row (not true). The reviewer's optional tightening of the blocked-row check from `isNot(isTrue)` to `isFalse` is not taken in this run (would interrupt the hash-proven controls); a candidate follow-up.
+- W2 - Review NOTE accepted, no change: the `_chosen` not-synced guard is defence in depth with no test of its own (the UI makes it unreachable).
+- W2 - T3 may update existing assertions in add_source_panel_test.dart, source_detail_screen_test.dart and onboarding_test.dart that break only because of spec'd changes (account line moved into the heading, new subtitle). Each such edit is listed in its report.
+- W1/J2 - `CalendarGroup.accountName` passes the provider value through: null and '' are both "no account name" for the heading, and (type, null) and (type, '') are two groups.
 
 ## Built differently from this plan
 
-(filled in after the run)
+The code on `claude/spec-calendar-grouping-e06b35` is authoritative. Each item is in "Decisions taken" above.
+
+- **`CalendarGroup.showAccountLineFor(c)`** is a per-row method (plan §3), not the `showAccountLine` field spec §5 names, because Holidays shows the line for Google rows but not for Samsung's LOCAL birthday calendar.
+- **Grouping edge cases** (J2): accounts tied by a case-insensitive name keep arrival order; a blank owner or account counts as absent; Google owner suffixes match in any case; null and empty account names stay distinct groups, both shown as the kind word alone.
+- **Semantics** (J3): headings are `Semantics(container: true, header: true)` over an excluded `Text.rich`; rows are `MergeSemantics(Semantics(enabled: !disabled))`, like ListTile, so pickOne rows (no checkbox) report enabled or not.
+- **Layout** (J3): the trailing label is capped at 120 dp; the not-synced dot is dimmed through its colour alpha (0.38), not an `Opacity` widget; the footnote also shows in pickOne (after the last group).
+- **Tests**: the existing `calendars are listed with an opaque ARGB colour` expectation lists the five new keys; `add_source_panel_test.dart` checks `OTHER · me@gmail.com` (the account moved into the heading) and the new subtitle.
+- **Not covered by a test**: the `_chosen` not-synced guard (the UI makes it unreachable). The pickOne blocked-row check is `isNot(isTrue)`, not `isFalse`.
+- **Not run**: the manual check on the S24 (spec §8, "On the phone"). It needs a debug build installed, which waits for the user.

@@ -246,6 +246,8 @@ Reviewer: ab1186ed1c674e825 · Test runner: ade476834df91999b
 | T3 | done | 10 tests + phoneCalendar + 2 forced assertion edits; fix pins pickOne enabled state (re-reviewed); runner: full `flutter test` +1156 all pass, picker 10/10 after fix | (wave 2 commit) |
 | W2 close | done | analyze clean; full suite +1156; test/features/sources +175 after fix; review: no BLOCK/WARN, 3 NOTEs (one fixed); 15/15 negative controls FAIL as expected (W2-C1..C15), restores proven by sha256 | (wave 2 commit) |
 | Finish | done | Built differently written; push, PR and phone install wait for the user | |
+| Merge main | done | origin/main (PRs 18, 19: launcher icon, in-app logo) merged so the phone build has the new icon; no overlap with this branch's files | 975eefe |
+| W3 (S24 fixes) | done | J4 own-account owners not shared + synced rows first; J5 account part of headings at normal letter spacing; T4 7 tests + 1 replaced; T5 1 test. Analyze clean; full suite +1179; review no BLOCK/WARN; 8/8 controls FAIL (W3-C1..C4, C6a/b, C7, C8); W3-C5 (blank-name skip) cannot bite by design | (wave 3 commits) |
 
 | Session | Started | Ended | Note |
 |-|-|-|-|
@@ -283,4 +285,5 @@ The code on `claude/spec-calendar-grouping-e06b35` is authoritative. Each item i
 - **Layout** (J3): the trailing label is capped at 120 dp; the not-synced dot is dimmed through its colour alpha (0.38), not an `Opacity` widget; the footnote also shows in pickOne (after the last group).
 - **Tests**: the existing `calendars are listed with an opaque ARGB colour` expectation lists the five new keys; `add_source_panel_test.dart` checks `OTHER · me@gmail.com` (the account moved into the heading) and the new subtitle.
 - **Not covered by a test**: the `_chosen` not-synced guard (the UI makes it unreachable). The pickOne blocked-row check is `isNot(isTrue)`, not `isFalse`.
-- **Not run**: the manual check on the S24 (spec §8, "On the phone"). It needs a debug build installed, which waits for the user.
+- **After the S24 check (wave 3, user-approved):** the user's own calendars seen through another of their accounts showed as **Shared with you**, so an owner that is any account name on the phone is never shared (LOCAL rows and blank names are not accounts); not-synced rows now come after the synced rows of each group (the plan had them in their sort position); the account part of a heading has letter spacing 0, so addresses read normally (the overline's Plex Mono face is kept).
+- **The S24 check** ran once on the wave 2 build and found the three issues above; the wave 3 build is checked on the phone after this commit.

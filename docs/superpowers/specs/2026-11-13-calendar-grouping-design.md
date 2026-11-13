@@ -96,6 +96,7 @@ Each calendar lands in exactly one group. Checked in this order, first match win
    - A person's calendar is shared whatever its access level: colleagues who delegate often give 700.
    - `@import.calendar.google.com` calendars are calendars the user subscribed to by link; they stay in the account group.
    - Null `OWNER_ACCOUNT` is never shared.
+   - An owner that is the account name of any account on the phone (compared trimmed and case-insensitively; `LOCAL` rows and null or blank account names are not accounts) is never shared: it is the user's own calendar seen through another of their accounts. Found on the S24, where calendars owned by one of the user's Google accounts showed up as shared in the other two.
    - A primary calendar (`IS_PRIMARY == 1`) is never shared, even if its owner differs (for example a Workspace alias). This guards the anti-goal.
    - `CALENDAR_ACCESS_LEVEL` is passed through as is; 0 (`CAL_ACCESS_NONE`) and null count as below 700.
 3. **On this phone only**: every other `LOCAL` calendar.
@@ -114,7 +115,7 @@ Groups, top to bottom:
 5. **Holidays and birthdays**
 6. **On this phone only**
 
-Inside a group: the primary calendar first (`IS_PRIMARY == 1`; if the column is null, `OWNER_ACCOUNT == ACCOUNT_NAME` stands in), then by display name (case-insensitive), then by id so the order is stable.
+Inside a group: synced calendars before not-synced ones (so the rows that can be chosen come first), then the primary calendar first (`IS_PRIMARY == 1`; if the column is null, `OWNER_ACCOUNT == ACCOUNT_NAME` stands in), then by display name (case-insensitive), then by id so the order is stable.
 
 Rows in **Shared with you** and **Holidays and birthdays** come from several accounts, so they keep the grey account line under the name (as every row has today). Rows in an account group drop it: the heading says it. **On this phone only** rows drop it too (`My calendar` and `local.samsungbirthday` mean nothing to the user).
 
@@ -127,7 +128,7 @@ A group with no calendars is left out.
 - **Hidden** (`VISIBLE == 0`) but synced: shown like any other row. It has events; hiding is a calendar-app display choice.
 - **Already added** (decision 18) is unchanged: checked, disabled, **Already added** label. If the calendar is also not synced, already added wins for the checkbox (checked, disabled) and the label reads **Already added, not synced**, so the user sees why that source is quiet.
 - `pickOne` blocks not-synced rows too: re-pointing a restored source at a calendar with no events would leave it silent. The user turns sync on and chooses again.
-- Already-added and not-synced rows stay in their group in their normal sort position; nothing moves to the bottom.
+- Already-added rows stay in their normal sort position. Not-synced rows stay in their group but come after its synced rows (§4.3).
 
 ## 5. Channel and contract changes
 
@@ -207,7 +208,7 @@ Follows `docs/design-brief.md` (calm, dark first, calendar colour is the accent,
 └──────────────────────────────────────────────────────┘
 ```
 
-- **Heading:** `context.tminusType.overline` in `scheme.onSurfaceVariant`, as the Agenda's `NEXT ALARM IN`. Kind word upper case; `· <account name>` in the same style but not upper-cased (`Text.rich`), one line, ellipsis at the end if long. Top padding `TMinusSpacing.md` (none above the first heading), bottom `TMinusSpacing.xxs`. Heading is not tappable.
+- **Heading:** `context.tminusType.overline` in `scheme.onSurfaceVariant`, as the Agenda's `NEXT ALARM IN`. Kind word upper case; `· <account name>` in the same style but not upper-cased and with normal letter spacing (the overline's wide tracking made addresses hard to read on the S24) (`Text.rich`), one line, ellipsis at the end if long. Top padding `TMinusSpacing.md` (none above the first heading), bottom `TMinusSpacing.xxs`. Heading is not tappable.
 - **Rows:** today's `_CalendarRow`, unchanged except: the account line shows only when the group says so; a not-synced row uses `scheme.onSurfaceVariant` for the name, the calendar dot at reduced opacity (0.38), a disabled checkbox showing unticked (checked if already added, §4.4), `onTap: null`, and the trailing label **Not synced** in `bodySmall` / `tertiaryText` like **Already added**.
 - **Footnote:** `bodySmall` in `tertiaryText`, `TMinusSpacing.sm` above it.
 - The choice card subtitle "Google, Samsung, Exchange accounts" becomes "Google, Samsung, Outlook and other accounts".
@@ -277,7 +278,7 @@ On the S24: the Samsung **My calendar** sits under **SAMSUNG ACCOUNT**, the phon
 
 - Order puts **Outlook / Exchange / Other** accounts right after Samsung, before **Shared with you** (they are the user's own accounts).
 - A separate **Holidays and birthdays** group, Google and Samsung birthdays only.
-- Not-synced rows stay where they sort; there is a single footnote rather than a per-row hint.
+- Not-synced rows come after the synced rows of their group (changed after the S24 check); there is a single footnote rather than a per-row hint.
 - Choice card subtitle changes to "Google, Samsung, Outlook and other accounts".
 - No collapse, no search: grouping is enough for about 50 calendars, and collapsing risks hiding the one the user wants.
 - A primary calendar is never **Shared with you**, whatever its owner.

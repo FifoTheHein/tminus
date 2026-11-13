@@ -13,6 +13,7 @@ const _local = 'LOCAL';
 const _unknownType = 'com.example.sync';
 
 const _alex = 'alex@example.com';
+const _work = 'alex@work.example.com';
 const _person = 'sam@example.com';
 const _groupOwner = 'team@group.calendar.google.com';
 const _importOwner = 'abc@import.calendar.google.com';
@@ -54,6 +55,10 @@ CalendarGroup groupOf(DeviceCalendar c) {
 }
 
 CalendarGroupKind kindOf(DeviceCalendar c) => groupOf(c).kind;
+
+/// The kind of the one group in [groups] that holds the calendar with [id].
+CalendarGroupKind kindIn(List<CalendarGroup> groups, String id) =>
+    groups.singleWhere((g) => g.calendars.any((c) => c.id == id)).kind;
 
 /// The groups as one line each: kind, account name, then the ids of the rows.
 List<String> outline(List<CalendarGroup> groups) => [
@@ -178,6 +183,98 @@ void main() {
           CalendarGroupKind.google,
           reason: 'account "$account", owner "$owner"',
         );
+      }
+    });
+
+    test("an owner that is one of the phone's accounts is not shared", () {
+      // The calendar is the user's own, seen through another of their accounts.
+      final groups = groupCalendars([
+        cal('main', name: 'Alex', owner: _alex),
+        cal('work', name: 'Work', account: _work, owner: _work),
+        cal('seen', name: 'Seen', account: _work, owner: _alex, access: 700),
+      ]);
+      expect(outline(groups), [
+        'google alex@example.com: main',
+        'google alex@work.example.com: work seen',
+      ]);
+
+      // Both names are compared in lower case and trimmed, whichever of the
+      // two carries the difference. Account name first, then owner.
+      const pairs = [
+        (_alex, 'ALEX@EXAMPLE.COM'),
+        (_alex, ' alex@example.com '),
+        ('Alex@Example.com', _alex),
+        (' alex@example.com ', _alex),
+      ];
+      for (final (account, owner) in pairs) {
+        final pairGroups = groupCalendars([
+          cal('main', account: account),
+          cal('seen', account: _work, owner: owner, access: 700),
+        ]);
+        expect(
+          kindIn(pairGroups, 'seen'),
+          CalendarGroupKind.google,
+          reason: 'account "$account", owner "$owner"',
+        );
+      }
+    });
+
+    test("an account of any type but local counts as one of the phone's", () {
+      // Samsung, Outlook, Exchange and unknown accounts count, and so does one
+      // with no account type at all. Only the phone's own LOCAL rows do not.
+      for (final type in const [
+        _google,
+        _samsung,
+        _outlook,
+        _exchange,
+        _unknownType,
+        null,
+      ]) {
+        final groups = groupCalendars([
+          cal('main', type: type),
+          cal('seen', account: _work, owner: _alex, access: 700),
+        ]);
+        expect(
+          kindIn(groups, 'seen'),
+          CalendarGroupKind.google,
+          reason: '$type',
+        );
+      }
+    });
+
+    test('an owner known only as a phone-only account name is still shared', () {
+      // A calendar that lives only on the phone can be filed under a name that
+      // looks like an address. That is no account, so the owner is not one of
+      // the user's own.
+      final groups = groupCalendars([
+        cal('mine', owner: _alex),
+        cal('local', name: 'Notes', type: _local, account: _person),
+        cal('theirs', name: 'Sam', owner: _person, access: 700),
+      ]);
+      expect(outline(groups), [
+        'google alex@example.com: mine',
+        'shared -: theirs',
+        'phoneOnly -: local',
+      ]);
+    });
+
+    test('a blank account name does not make an owner local', () {
+      // A name with nothing in it is no account, so no owner matches it. The
+      // person's calendar stays shared, in any account and beside any blank.
+      for (final blank in const [null, '', '   ']) {
+        final groups = groupCalendars([
+          cal('mine', owner: _alex),
+          cal('blank', account: blank),
+          cal('theirs', owner: _person, access: 700),
+          cal('under-blank', account: blank, owner: _person, access: 700),
+        ]);
+        for (final id in const ['theirs', 'under-blank']) {
+          expect(
+            kindIn(groups, id),
+            CalendarGroupKind.shared,
+            reason: '$id, blank "$blank"',
+          );
+        }
       }
     });
 
@@ -470,15 +567,72 @@ void main() {
       expect(rows.map((c) => c.id), ['b', 'c', 'a', 'd']);
     });
 
-    // Beyond the spec's list: sync and visibility are not grouping facts, so a
-    // row that is not synced or hidden sorts like any other.
-    test('a calendar that is not synced or hidden keeps its place', () {
+    test('not-synced calendars come after synced ones in their group', () {
+      // Each half is in primary, name, id order. A not-synced primary still
+      // follows a synced calendar that is not primary, and a not-synced name
+      // that sorts early does not move its row up.
       final rows = groupCalendars([
-        cal('1', name: 'Charlie', sync: false),
-        cal('2', name: 'alpha', visible: false),
-        cal('3', name: 'Bravo', sync: false, visible: false),
+        cal('n3', name: 'Charlie', sync: false),
+        cal('s3', name: 'Zebra'),
+        cal('n2', name: 'Bravo', sync: false),
+        cal('sp', name: 'Xray', primary: true),
+        cal('s2', name: 'Alpha'),
+        cal('np', name: 'Yak', sync: false, primary: true),
+        cal('s1', name: 'alpha'),
+        cal('n1', name: 'bravo', sync: false),
       ]).single.calendars;
-      expect(rows.map((c) => c.id), ['2', '3', '1']);
+      // In each half the two spellings of one name (alpha, bravo) are ordered
+      // by id, the lower case one first, as plain string order of the names
+      // would not have it.
+      final ids = rows.map((c) => c.id).toList();
+      expect(ids.take(4), ['sp', 's1', 's2', 's3']);
+      expect(ids.skip(4), ['np', 'n1', 'n2', 'n3']);
+    });
+
+    test('not-synced calendars come last in shared with you too', () {
+      final groups = groupCalendars([
+        cal('mine', owner: _alex),
+        cal('off', name: 'Alpha', owner: _person, sync: false),
+        cal('zed', name: 'Zed', owner: 'pat@example.com'),
+        cal('bea', name: 'Bea', account: _work, owner: _person),
+      ]);
+      expect(outline(groups), [
+        'google alex@example.com: mine',
+        'shared -: bea zed off',
+      ]);
+    });
+
+    test('not-synced calendars come last in holidays and phone only too', () {
+      final groups = groupCalendars([
+        cal('h-off', name: 'Alpha', owner: _holidayOwner, sync: false),
+        cal('h-on', name: 'Zed', owner: _contactsOwner),
+        cal(
+          'p-off',
+          name: 'Alpha',
+          type: _local,
+          account: 'My calendar',
+          sync: false,
+        ),
+        cal('p-on', name: 'Zed', type: _local, account: 'My calendar'),
+      ]);
+      expect(outline(groups), [
+        'holidays -: h-on h-off',
+        'phoneOnly -: p-on p-off',
+      ]);
+    });
+
+    // Beyond the spec's list: hiding is a choice made in the calendar app and
+    // says nothing about events, so a hidden row that is synced sorts like any
+    // other.
+    test('a hidden calendar that is synced keeps its place', () {
+      final rows = groupCalendars([
+        cal('1', name: 'Charlie'),
+        cal('2', name: 'alpha', visible: false),
+        cal('3', name: 'Bravo'),
+        cal('4', name: 'delta', visible: false),
+      ]).single.calendars;
+      // Not first and not last: the hidden rows sit where their names put them.
+      expect(rows.map((c) => c.id), ['2', '3', '1', '4']);
     });
 
     // Beyond the spec's list: the rules leave no ties, so the input order

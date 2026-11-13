@@ -50,7 +50,8 @@ class CalendarGroup {
   /// and [CalendarGroupKind.phoneOnly].
   final String? accountName;
 
-  /// The primary calendar first, then by name, then by id (spec §4.3).
+  /// Synced calendars before not synced ones, then the primary calendar first,
+  /// then by name, then by id (spec §4.3).
   final List<DeviceCalendar> calendars;
 
   /// Whether [c]'s row shows its account name under its own name (spec §4.3).
@@ -71,22 +72,24 @@ class CalendarGroup {
 ///
 /// Each calendar lands in exactly one group, and the first rule that matches
 /// decides which (spec §4.2): holidays and birthdays, then shared with you
-/// (Google only), then on this phone only (every other LOCAL calendar), then
-/// its account group (spec §4.1). An account is the pair of account type and
+/// (Google only, and never a calendar owned by one of the accounts on the
+/// phone), then on this phone only (every other LOCAL calendar), then its
+/// account group (spec §4.1). An account is the pair of account type and
 /// account name, matched exactly.
 ///
 /// The groups come in [CalendarGroupKind] order, the accounts of one kind by
-/// name; the rows by primary first, then name, then id (spec §4.3). Accounts
-/// whose names differ only in case tie, and stay in the order their calendars
-/// arrived in. A group with no calendars is left out, so an empty list gives
-/// an empty list.
+/// name. The rows come synced before not synced, then primary first, then by
+/// name, then by id (spec §4.3). Accounts whose names differ only in case tie,
+/// and stay in the order their calendars arrived in. A group with no
+/// calendars is left out, so an empty list gives an empty list.
 ///
 /// It reads [DeviceCalendar.ownerAccount] to decide, and neither keeps nor
 /// shows it.
 List<CalendarGroup> groupCalendars(List<DeviceCalendar> calendars) {
+  final accountNames = _accountNamesOf(calendars);
   final bySlot = <_Slot, List<DeviceCalendar>>{};
   for (final c in calendars) {
-    bySlot.putIfAbsent(_slotOf(c), () => []).add(c);
+    bySlot.putIfAbsent(_slotOf(c, accountNames), () => []).add(c);
   }
   // `sort` is not stable, so a tie is settled by the order the group arrived in.
   final slots = bySlot.keys.toList();
@@ -146,9 +149,9 @@ typedef _Slot = ({
   String? accountName,
 });
 
-_Slot _slotOf(DeviceCalendar c) {
+_Slot _slotOf(DeviceCalendar c, Set<String> accountNames) {
   if (_isHoliday(c)) return _special(CalendarGroupKind.holidays);
-  if (_isShared(c)) return _special(CalendarGroupKind.shared);
+  if (_isShared(c, accountNames)) return _special(CalendarGroupKind.shared);
   // Every LOCAL calendar the holiday rule did not take.
   if (c.accountType == _localType) return _special(CalendarGroupKind.phoneOnly);
   return (
@@ -173,17 +176,36 @@ bool _isHoliday(DeviceCalendar c) {
 }
 
 /// Spec §4.2 rule 2: a Google calendar that belongs to someone else. With no
-/// owner address nothing says so, and a primary calendar is never shared.
-bool _isShared(DeviceCalendar c) {
+/// owner address nothing says so. An owner that is the name of one of the
+/// accounts on the phone ([accountNames], from [_accountNamesOf]) does not
+/// either: it is the user's own calendar, seen through another of their
+/// accounts, and it stays in the account group it is seen through. A primary
+/// calendar is never shared.
+bool _isShared(DeviceCalendar c, Set<String> accountNames) {
   if (c.accountType != _googleType) return false;
   final owner = _clean(c.ownerAccount);
   if (owner == null || owner == _clean(c.accountName)) return false;
+  if (accountNames.contains(owner)) return false;
   if (_isPrimary(c)) return false;
   final person = owner.contains('@') && !owner.endsWith(_googleOwnerSuffix);
   final othersGroup =
       owner.endsWith(_groupOwnerSuffix) &&
       (c.accessLevel ?? 0) < _ownerAccessLevel;
   return person || othersGroup;
+}
+
+/// The name of every account on the phone, trimmed and lower-cased to compare
+/// with an owner address (spec §4.2). A LOCAL calendar's account name is a
+/// label the phone keeps for itself, not an account, so it is left out, as is
+/// a blank or missing name.
+Set<String> _accountNamesOf(List<DeviceCalendar> calendars) {
+  final names = <String>{};
+  for (final c in calendars) {
+    if (c.accountType == _localType) continue;
+    final name = _clean(c.accountName);
+    if (name != null) names.add(name);
+  }
+  return names;
 }
 
 /// Whether this is its account's main calendar (spec §4.3). When the provider
@@ -213,8 +235,10 @@ int _compareSlots(_Slot a, _Slot b) {
   return aName.toLowerCase().compareTo(bName.toLowerCase());
 }
 
-/// Rows by primary first, then name, then id (spec §4.3).
+/// Rows with the synced before the not synced, then primary first, then by
+/// name, then by id (spec §4.3).
 int _compareRows(DeviceCalendar a, DeviceCalendar b) {
+  if (a.syncEvents != b.syncEvents) return a.syncEvents ? -1 : 1;
   final aPrimary = _isPrimary(a);
   if (aPrimary != _isPrimary(b)) return aPrimary ? -1 : 1;
   final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());

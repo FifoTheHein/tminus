@@ -53,6 +53,12 @@ class AgendaItem {
     };
   }
 
+  /// Whether the card shows its on/off switch. Every alert fires at or before
+  /// the start, so once a meeting has started everything it has (or would
+  /// have if switched on) has rung: the switch could change nothing, so the
+  /// card hides it.
+  bool showsToggle(DateTime now) => meeting.startUtc.isAfter(now);
+
   /// "Teams" when there is a join link, else the location (brief §2).
   bool get hasTeams => meeting.joinUrl != null;
 }

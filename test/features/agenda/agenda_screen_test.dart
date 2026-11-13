@@ -291,6 +291,20 @@ void main() {
     await h.dispose(t);
   });
 
+  testWidgets('a meeting that has started has no switch; a later one does', (
+    t,
+  ) async {
+    tallScreen(t);
+    final h = await pumpApp(t, now: now, seed: (h) => seedFeed(sampleDay));
+
+    // The standup started (and ended) before 09:27; everything it had has
+    // rung, so there is nothing left to switch.
+    expect(cardOf(standup), findsOneWidget);
+    expect(toggleOf(standup), findsNothing);
+    expect(toggleOf(sprint), findsOneWidget);
+    await h.dispose(t);
+  });
+
   testWidgets('the past standup is dimmed and the now line sits after it', (
     t,
   ) async {

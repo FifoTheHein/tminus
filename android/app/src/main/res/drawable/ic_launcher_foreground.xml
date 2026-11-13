@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher icon foreground: a 270 degree arc, from 12 o'clock clockwise to
+  9 o'clock, on a faint full-circle track, with the T- mark in the middle. The
+  colours are the design tokens in values/tminus_colors.xml.
+
+  tool/gen_launcher_icon.py draws the legacy PNGs and docs/play/icon-512.png
+  from this same geometry and refuses to run if the two disagree.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Track -->
+    <path
+        android:pathData="M54,28 A26,26 0 1,1 54,80 A26,26 0 1,1 54,28"
+        android:strokeColor="@color/tminus_dark_surface"
+        android:strokeAlpha="0.35"
+        android:strokeWidth="9" />
+    <!-- Arc -->
+    <path
+        android:pathData="M54,28 A26,26 0 1,1 28,54"
+        android:strokeColor="@color/tminus_dark_primary"
+        android:strokeLineCap="round"
+        android:strokeWidth="9" />
+    <!-- T- mark: the bar, the stem and the minus -->
+    <path
+        android:fillColor="@color/tminus_dark_onPrimaryContainer"
+        android:pathData="M38.325,44.65h18.7v4.4h-18.7z M45.475,44.65h4.4v18.7h-4.4z M59.775,52.35h9.9v4.4h-9.9z" />
+</vector>

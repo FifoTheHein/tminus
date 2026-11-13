@@ -94,11 +94,67 @@ class DeviceCalendarReaderTest {
         Instances.RDATE to null,
     )
 
+    /** A calendar row with the basics plus only the columns named, so the rest stay null as a provider leaves them. */
+    private fun calendarRow(vararg columns: Pair<String, Any?>) = mapOf<String, Any?>(
+        Calendars._ID to 5L,
+        Calendars.CALENDAR_DISPLAY_NAME to "Team",
+        Calendars.ACCOUNT_NAME to "me@example.com",
+        Calendars.CALENDAR_COLOR to 0xFF33AA66.toInt(),
+        Calendars.VISIBLE to 1,
+    ) + columns
+
+    /** Only the five grouping keys of a calendar map, so these tests do not repeat the older columns. */
+    private fun Map<String, Any?>.groupingFields() =
+        filterKeys { it in setOf("accountType", "ownerAccount", "accessLevel", "syncEvents", "primary") }
+
     @Test
     fun `calendars are listed with an opaque ARGB colour`() {
         assertEquals(
-            listOf(mapOf("id" to "3", "name" to "Work", "accountName" to "me@example.com", "color" to 0xFF6AA0F5L, "visible" to true)),
+            listOf(
+                mapOf(
+                    "id" to "3", "name" to "Work", "accountName" to "me@example.com", "color" to 0xFF6AA0F5L, "visible" to true,
+                    "accountType" to null, "ownerAccount" to null, "accessLevel" to null, "syncEvents" to true, "primary" to null,
+                ),
+            ),
             reader.calendars(),
+        )
+    }
+
+    @Test
+    fun `calendars carry account type, owner, access, sync and primary`() {
+        provider.calendars += calendarRow(
+            Calendars.ACCOUNT_TYPE to "com.google",
+            Calendars.OWNER_ACCOUNT to "team@group.calendar.google.com",
+            Calendars.CALENDAR_ACCESS_LEVEL to 200,
+            Calendars.SYNC_EVENTS to 1,
+            Calendars.IS_PRIMARY to 0,
+        )
+        assertEquals(
+            mapOf(
+                "accountType" to "com.google",
+                "ownerAccount" to "team@group.calendar.google.com",
+                "accessLevel" to 200,
+                "syncEvents" to true,
+                "primary" to false,
+            ),
+            reader.calendars().single { it["id"] == "5" }.groupingFields(),
+        )
+    }
+
+    @Test
+    fun `missing calendar columns fall back to defaults`() {
+        assertEquals(
+            mapOf("accountType" to null, "ownerAccount" to null, "accessLevel" to null, "syncEvents" to true, "primary" to null),
+            reader.calendars().single().groupingFields(),
+        )
+    }
+
+    @Test
+    fun `sync off and primary are read as booleans`() {
+        provider.calendars += calendarRow(Calendars.SYNC_EVENTS to 0, Calendars.IS_PRIMARY to 1)
+        assertEquals(
+            mapOf("accountType" to null, "ownerAccount" to null, "accessLevel" to null, "syncEvents" to false, "primary" to true),
+            reader.calendars().single { it["id"] == "5" }.groupingFields(),
         )
     }
 

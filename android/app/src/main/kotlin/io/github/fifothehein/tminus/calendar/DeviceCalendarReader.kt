@@ -25,7 +25,14 @@ class DeviceCalendarReader(
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
     },
 ) {
-    /** Every calendar on the phone, by display name: `{id, name, accountName, color, visible}`. */
+    /**
+     * Every calendar on the phone, by display name, as ten keys: `{id, name, accountName, color,
+     * visible, accountType, ownerAccount, accessLevel, syncEvents, primary}`.
+     *
+     * The last five are what the picker groups calendars by. A column the provider leaves empty gives
+     * null (`accountType`, `ownerAccount`, `accessLevel`, `primary`), except `syncEvents`, which then
+     * counts as true. `ownerAccount` is an email address: like `accountName`, it is never logged.
+     */
     fun calendars(): List<Map<String, Any?>> {
         requirePermission()
         val rows = mutableListOf<Map<String, Any?>>()
@@ -37,6 +44,11 @@ class DeviceCalendarReader(
                     "accountName" to c.getString(2),
                     "color" to opaque(c.getInt(3)),
                     "visible" to (c.getInt(4) != 0),
+                    "accountType" to c.stringOrNull(5),
+                    "ownerAccount" to c.stringOrNull(6),
+                    "accessLevel" to c.intOrNull(7),
+                    "syncEvents" to (c.intOrNull(8)?.let { it != 0 } ?: true),
+                    "primary" to c.intOrNull(9)?.let { it != 0 },
                 )
             }
         }
@@ -92,6 +104,12 @@ class DeviceCalendarReader(
     /** Calendar colours are ARGB ints; some providers leave alpha at 0. */
     private fun opaque(color: Int): Long = (color.toLong() and 0xFFFFFFL) or 0xFF000000L
 
+    /** The column's text, or null when the provider left it empty. */
+    private fun Cursor.stringOrNull(column: Int): String? = if (isNull(column)) null else getString(column)
+
+    /** The column's int, or null when the provider left it empty: `getInt` would answer 0 there. */
+    private fun Cursor.intOrNull(column: Int): Int? = if (isNull(column)) null else getInt(column)
+
     companion object {
         const val PERMISSION_DENIED = "permission_denied"
         const val CALENDAR_MISSING = "calendar_missing"
@@ -102,6 +120,11 @@ class DeviceCalendarReader(
             Calendars.ACCOUNT_NAME,
             Calendars.CALENDAR_COLOR,
             Calendars.VISIBLE,
+            Calendars.ACCOUNT_TYPE,
+            Calendars.OWNER_ACCOUNT,
+            Calendars.CALENDAR_ACCESS_LEVEL,
+            Calendars.SYNC_EVENTS,
+            Calendars.IS_PRIMARY,
         )
 
         val INSTANCE_COLUMNS = arrayOf(

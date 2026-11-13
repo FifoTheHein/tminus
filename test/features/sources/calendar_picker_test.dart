@@ -272,6 +272,43 @@ void main() {
     await h.dispose(t);
   });
 
+  testWidgets('the account in a heading has normal letter spacing', (t) async {
+    final h = await _boot(t, [
+      _googleCalendar('family', 'Family', primary: true),
+    ]);
+    await _show(t, _many());
+
+    // The heading is one piece of text in two parts. The overline spaces its
+    // letters wide, which suits the kind word and makes an address hard to
+    // read. So the account part sets its own spacing, and the kind word sets
+    // none and keeps the heading's.
+    final heading = t.widget<Text>(find.text('GOOGLE · $_alex'));
+    final parts = <TextSpan>[];
+    heading.textSpan!.visitChildren((part) {
+      if (part is TextSpan) parts.add(part);
+      return true;
+    });
+    final kind = parts.singleWhere((p) => p.text!.contains('GOOGLE'));
+    final account = parts.singleWhere((p) => p.text!.contains(_alex));
+
+    expect(
+      heading.style?.letterSpacing,
+      greaterThan(0),
+      reason: 'the heading is spaced wide',
+    );
+    expect(
+      kind.style?.letterSpacing,
+      isNull,
+      reason: 'the kind word takes the heading spacing',
+    );
+    expect(
+      account.style?.letterSpacing,
+      0,
+      reason: 'the account has normal spacing',
+    );
+    await h.dispose(t);
+  });
+
   testWidgets('the two My calendars sit under different headings', (t) async {
     // The incident. The Samsung account has the same address as a Google
     // account, and a calendar that lives only on the phone has the Samsung

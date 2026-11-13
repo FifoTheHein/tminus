@@ -341,8 +341,14 @@ class _GroupHeading extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(text: words.toUpperCase()),
-                // The account is a name or an address, so it keeps its case.
-                if (account != null) TextSpan(text: ' · $account'),
+                // The account is a name or an address, so it keeps its case
+                // and takes normal letter spacing: the overline's wide
+                // tracking pulls an address apart until it is hard to read.
+                if (account != null)
+                  TextSpan(
+                    text: ' · $account',
+                    style: const TextStyle(letterSpacing: 0),
+                  ),
               ],
             ),
             style: context.tminusType.overline.copyWith(

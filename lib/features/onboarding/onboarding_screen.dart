@@ -11,6 +11,7 @@ import '../common/guarded.dart';
 import '../common/notice_banner.dart';
 import '../common/section_card.dart';
 import '../common/status_tone.dart';
+import '../common/tminus_mark.dart';
 import '../sources/add_source_panel.dart';
 import 'onboarding_controller.dart';
 import 'permission_row.dart';
@@ -171,25 +172,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // ---- Welcome (5a) ----
 
   Widget _welcome(BuildContext context) {
-    return _Page(
-      key: const Key('step-welcome'),
+    return const _Page(
+      key: Key('step-welcome'),
       alignment: Alignment.centerLeft,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _Ring(
-            size: 96,
-            value: 0.92,
-            child: Text(
-              'T−',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ),
-          const SizedBox(height: TMinusSpacing.xl),
-          const _Heading("Meetings you can't miss", large: true),
-          const SizedBox(height: TMinusSpacing.md),
-          const _Muted(
+          TMinusMark(size: 96),
+          SizedBox(height: TMinusSpacing.xl),
+          _Heading("Meetings you can't miss", large: true),
+          SizedBox(height: TMinusSpacing.md),
+          _Muted(
             "T-Minus turns your calendar into alarms you can't miss, and can "
             'always stop.',
           ),
@@ -631,7 +625,7 @@ class _Page extends StatelessWidget {
 }
 
 /// A circle of [value] (1 is all the way round), with [child] in the middle:
-/// the T− mark, the test alarm's countdown and the tick of the last step.
+/// the test alarm's countdown and the tick of the last step.
 class _Ring extends StatelessWidget {
   const _Ring({
     super.key,

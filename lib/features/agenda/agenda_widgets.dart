@@ -12,6 +12,7 @@ import '../../core/sync/source_status.dart';
 import '../../core/text/time_text.dart';
 import '../common/alert_chips.dart';
 import '../common/status_tone.dart';
+import '../common/tminus_mark.dart';
 import 'agenda_model.dart';
 
 /// How far a meeting that is over fades (design system: event card, "past").
@@ -39,7 +40,7 @@ String quietBannerText(QuietState q, DateTime now, tz.Location zone) {
   };
 }
 
-/// The "T−" mark in the app bar: a ring with the two characters in it.
+/// The T-Minus mark in the app bar.
 class AgendaLogo extends StatelessWidget {
   const AgendaLogo({super.key});
 
@@ -47,28 +48,7 @@ class AgendaLogo extends StatelessWidget {
   static const size = 22.0;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return ExcludeSemantics(
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: scheme.primary, width: 1.5),
-        ),
-        child: Text(
-          'T−',
-          style: context.tminusType.chipNumeral.copyWith(
-            color: scheme.onSurface,
-            fontSize: 8,
-            height: 1,
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const TMinusMark(size: size);
 }
 
 /// "NEXT ALARM IN 23 min · Sprint planning · heads-up 09:50", and the sync

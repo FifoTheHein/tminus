@@ -22,6 +22,7 @@ import 'package:tminus/core/sync/sync_service.dart';
 import 'package:tminus/core/transfer/settings_transfer.dart';
 import 'package:tminus/features/settings/developer_tools_screen.dart';
 import 'package:tminus/features/settings/settings_screen.dart';
+import 'package:tminus/features/token_preview/sync_debug_panel.dart';
 import 'package:tminus/features/token_preview/token_preview_screen.dart';
 
 import '../../core/fixtures.dart' show blue;
@@ -568,6 +569,59 @@ void main() {
     expect(find.byType(TokenPreviewScreen), findsOneWidget);
     expect(find.text('Design tokens'), findsOneWidget);
     await h.dispose(t);
+  });
+
+  group('at the end of the list, on a phone with a navigation bar', () {
+    // A phone-sized screen (360 x 780 dp) with a 48 dp three-button navigation
+    // bar, which the edge-to-edge app draws behind. Settings and Developer
+    // tools sit outside the shell, so nothing else keeps them clear of it.
+    const navBar = 48.0;
+    const screenHeight = 780.0;
+
+    void phoneWithNavBar(WidgetTester t) {
+      t.view.devicePixelRatio = 3;
+      t.view.physicalSize = const Size(1080, screenHeight * 3);
+      t.view.padding = const FakeViewPadding(bottom: navBar * 3);
+      t.view.viewPadding = const FakeViewPadding(bottom: navBar * 3);
+      addTearDown(t.view.reset);
+    }
+
+    Future<void> scrollToEnd(WidgetTester t, Finder list) async {
+      for (var i = 0; i < 12; i++) {
+        await t.drag(list, const Offset(0, -2000));
+        await t.pumpAndSettle();
+      }
+    }
+
+    testWidgets('the last Settings card ends above the bar', (t) async {
+      phoneWithNavBar(t);
+      final h = await pumpApp(t, location: '/settings');
+
+      await scrollToEnd(t, find.byType(SingleChildScrollView).first);
+
+      final lastCard = find.ancestor(
+        of: find.text('Developer tools'),
+        matching: find.byType(Material),
+      );
+      expect(
+        t.getRect(lastCard.first).bottom,
+        lessThanOrEqualTo(screenHeight - navBar),
+      );
+      await h.dispose(t);
+    });
+
+    testWidgets('the last Developer tools panel ends above the bar', (t) async {
+      phoneWithNavBar(t);
+      final h = await pumpApp(t, location: '/settings/developer');
+
+      await scrollToEnd(t, find.byType(ListView).first);
+
+      expect(
+        t.getRect(find.byType(SyncDebugPanel)).bottom,
+        lessThanOrEqualTo(screenHeight - navBar),
+      );
+      await h.dispose(t);
+    });
   });
 
   // Beyond the plan's list.

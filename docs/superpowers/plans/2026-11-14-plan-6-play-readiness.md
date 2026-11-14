@@ -118,8 +118,8 @@ Made while planning, where the spec, the roadmap and the code leave a choice (ea
 | `android/.../calendar/DeviceCalendarReader.kt` (+ its test) | `calendar_not_synced` | 6 |
 | `lib/core/model/sync_log_entry.dart`, `lib/core/sync/outcome_severity.dart`, `lib/core/sources/device_calendar_api.dart`, `device_calendar_source.dart` | `calendarNotSynced` | 6 |
 | `lib/features/health/health_text.dart`, `lib/features/sources/problem_card.dart`, `source_detail_screen.dart` | Its text, icon and action | 6 |
-| `lib/features/sources/calendar_groups.dart` | `kindLabel` (moved from the picker), `defaultSourceName` | 7 |
-| `lib/features/sources/calendar_picker.dart`, `add_source_panel.dart` | Use `kindLabel`; pass the default name | 7 |
+| `lib/features/sources/calendar_groups.dart` | `kindLabel` (for names), `defaultSourceName` | 7 |
+| `lib/features/sources/add_source_panel.dart` | Pass the default name | 7 |
 | `test/features/sources/calendar_picker_test.dart`, `calendar_groups_test.dart`, `add_source_panel_test.dart` | `isFalse`; naming tests | 7 |
 | `docs/play/listing.md`, `docs/play/declarations.md` (new) | Listing copy; every Play Console answer | 8 |
 | `tool/gen_feature_graphic.py` (new), `docs/play/feature-graphic.png` | 1024 × 500 feature graphic from the icon's geometry | 8 |
@@ -157,7 +157,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   grep -n "CALENDAR_MISSING\|SYNC_EVENTS" android/app/src/main/kotlin/io/github/fifothehein/tminus/calendar/DeviceCalendarReader.kt
   grep -n "CalendarGroupKind.google =>" lib/features/sources/calendar_picker.dart
   grep -n "isNot(isTrue)" test/features/sources/calendar_picker_test.dart        # lines 460 and 612
-  grep -n "'About & privacy'\|licencesButton\|Feeds are fetched" lib/features/settings/settings_screen.dart
+  grep -n "'About & privacy'\|licencesButton\|Feeds are " lib/features/settings/settings_screen.dart   # the copy is split over three lines
   grep -n "class _PrivacyNote" lib/features/onboarding/onboarding_screen.dart
   ```
 - [ ] **Step 3:** Run the gates on `main` and record the counts (`flutter test` total, Gradle test total). If `main` is red, report it to the user before Wave 1.
@@ -245,12 +245,12 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
 - Modify:
   - `lib/core/storage/tables.dart`, `app_database.dart` and their generated `*.g.dart`;
   - `occurrence_repository.dart`, `alert_history_repository.dart`, `sync_log_repository.dart`;
-  - `lib/core/sources/source_admin.dart`;
+  - `lib/core/sources/source_admin.dart`, `lib/core/sources/fast_alarms.dart` (its `delete` also relies on the cascade today: "its cached occurrences go with it");
   - `lib/app/restore_guard.dart`, `app_lifecycle.dart`, `di.dart`;
   - `test/core/storage/test_database.dart`;
   - every test that builds one of the three repositories directly (`grep -rln "OccurrenceRepository(\|AlertHistoryRepository(\|SyncLogRepository(" test`).
 - Generated: `drift_schemas/drift_schema_v3.json`, `test/generated_migrations/**`, `test/generated_migrations/cache/**`.
-- Test: `test/core/storage/cache_database_test.dart` (new), `test/core/storage/migration_test.dart` (v2 → v3), `test/app/restore_guard_test.dart`, `test/core/sources/source_admin_test.dart`, `test/app/app_lifecycle_test.dart`.
+- Test: `test/core/storage/cache_database_test.dart` (new), `test/core/storage/app_database_test.dart` (its migration tests: v1 → v3 and v2 → v3), `test/core/storage/cache_storage_test.dart`, `test/app/restore_guard_test.dart`, `test/core/sources/source_admin_test.dart`, `test/app/app_lifecycle_test.dart`.
 
 - [ ] **Step 1: Dump schema 2 first:** `dart run drift_dev schema dump lib/core/storage/app_database.dart drift_schemas/`. Confirm `drift_schema_v2.json` is unchanged (`git diff --exit-code drift_schemas/`).
 - [ ] **Step 2: `cache_tables.dart`.** Move `Occurrences`, `AlertHistory` and `SyncLog` (with their `@TableIndex`es and `@DataClassName`s) out of `tables.dart` without changing their columns. The one exception: `Occurrences.sourceId` loses `.references(Sources, …)`, because SQLite has no foreign keys across files. The table names and the generated row classes (`Occurrence`, `AlertHistoryData` or whatever the generator names them today) must stay the same, so the repositories' mapping code does not change.
@@ -284,7 +284,9 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
       },
     );
 
-    Future<void> checkpoint() => customSelect('PRAGMA wal_checkpoint(PASSIVE)').get();
+    Future<void> checkpoint() async {
+      await customSelect('PRAGMA wal_checkpoint(PASSIVE)').get();
+    }
   }
   ```
   `LegacyCacheMove.run()` (in the same file) does the following:
@@ -314,12 +316,13 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
 - [ ] **Step 5: Repositories and callers.**
   - `OccurrenceRepository`, `AlertHistoryRepository` and `SyncLogRepository` take a `CacheDatabase`.
   - `OccurrenceRepository` gains `Future<int> deleteForSource(String sourceId)`.
-  - `SourceAdmin.delete` calls `occurrences.deleteForSource(id)` after `sources.delete(id)`, replacing the lost cascade. A crash between the two leaves cache rows for a source that no longer exists. The planner reads only enabled sources' copies, so those rows plan nothing, and `deleteEndedBefore` prunes them.
+  - `SourceAdmin.delete` calls `occurrences.deleteForSource(id)` after `sources.delete(id)`, replacing the lost cascade. It takes `{bool clearCache = true}` for Step 6. `FastAlarms`' `delete` does the same, through `OccurrenceRepository`. A crash between the two leaves cache rows for a source that no longer exists. The planner reads only enabled sources' copies, so those rows plan nothing, and `deleteEndedBefore` prunes them.
   - `SourceAdmin.updateDeviceCalendar` clears the source's cache rows **before** its main transaction, not inside it. A crash in between leaves the old calendar's source with an empty cache. That plans nothing for it until the next fetch refills it, the same as a new source.
 - [ ] **Step 6: `RestoreGuard._makeSafe`.** The guard runs before anything opens `CacheDatabase`, at both entry points (`start_services.dart`, `sync_main.dart`). Keep it that way, and keep the race it already handles: the UI isolate and a headless sync can both reach `_makeSafe`, and the one that comes second must find the first one's work and touch nothing.
   - **Inside** the existing transaction, after the install-id check, replace the three `db.delete(db.occurrences / alertHistory / syncLog)` calls with `DROP TABLE IF EXISTS` for `legacy_occurrences`, `legacy_alert_history` and `legacy_sync_log`. A pre-Plan-6 backup's cached meetings are then gone in the same commit as the new install id, and `LegacyCacheMove` finds nothing to move. The `sync.%` settings delete stays where it is.
   - **After** the transaction, and only when it returned `RestoreOutcome.restored`, delete every row of the three cache tables through `CacheDatabase`. A restored phone normally has no cache file, because it is never backed up or transferred. This covers a cache left from using the app on this phone before the restore. It is safe after the commit: the restore leaves every source disabled, so no sync in another isolate can be filling the cache.
   - **Never** clear the cache before the transaction or when the outcome is `normal`. Clearing it there would wipe a cache that the first guard's sync has already filled.
+  - **`_makeSafe` must not open `CacheDatabase` before its transaction.** Today it deletes the debug source first, with `admin.delete(s.id)`. After Step 5 that would open the cache database, and with it `LegacyCacheMove`. A second isolate could then copy the restored backup's legacy rows into the cache after the first guard's post-commit clear. So the guard calls `admin.delete(s.id, clearCache: false)`; the post-commit clear covers the debug source's rows. Nothing else in `RestoreGuard.run` may touch an `OccurrenceRepository`, `AlertHistoryRepository` or `SyncLogRepository` before the transaction.
 - [ ] **Step 7: `AppLifecycle` and DI.**
   - `AppLifecycle` marks both databases' tables updated, on a resume and on the background-sync signal.
   - `AppLifecycle` checkpoints only `tminus.sqlite` on pause, because only it is backed up.
@@ -338,6 +341,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - `a restore drops the legacy tables with the new install id` (`restore_guard_test.dart`): a schema-2 backup restored onto Plan 6 leaves no `legacy_*` table and an empty cache, and the move copies nothing.
   - `a restore clears a cache left on this phone`.
   - `a guard that finds the restore already done leaves the cache alone`: the second-isolate case, where the cache holds rows a sync wrote after the first guard committed.
+  - `the restore opens the cache only after its transaction`: a `CacheDatabase` fake that records when it is opened.
   - `a resume refreshes the watchers of both databases` (`app_lifecycle_test.dart`).
   - The existing `BackupRulesTest` keeps passing unchanged. Task 4 adds the cache file assertion.
 - [ ] **Step 9:** Run the gates, then commit `Move the meeting cache into a database that is never backed up`.
@@ -398,6 +402,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
     - `INTERNET`, `READ_CALENDAR`;
     - whatever WorkManager adds (`ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` for its own service).
   - Any `com.google.android.gms.permission.AD_ID` fails the task: Data safety and the policy say no advertising id.
+  - List every `<service>` with an `android:foregroundServiceType`. Expected: only `RingingService` (`systemExempted`). WorkManager's `SystemForegroundService` is merged too. `SyncWorker` asks for expedited work and gives a `ForegroundInfo`, so on API 26–30 WorkManager runs it in that service, with no type, and without the type checks that start at API 34. If the merged manifest gives that service a type, Play Console will ask for a declaration for it. Record it, and either declare it or override the attribute with `tools:node="merge"` and `tools:remove="android:foregroundServiceType"` (a manifest change, so the Kotlin gate runs again).
   - `grep -n "firebase\|crashlytics\|analytics\|ads" pubspec.lock` → nothing.
 - [ ] **Step 6: 16 KB pages.** Run in Git Bash on the build machine. Tools:
   - `zipalign` from Android SDK build-tools **35.0.0 or later** (older versions have no `-P`);
@@ -415,7 +420,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
 - [ ] **Step 7: Release smoke test on the API 36 emulator** (decision 14: R8 is on). `adb uninstall io.github.fifothehein.tminus`, `adb install build/app/outputs/flutter-apk/app-release.apk`. Then:
   1. onboarding with the demo feed. Until Task 5's docs are on `main` (Task 5 Step 8), use the branch's raw file: `https://raw.githubusercontent.com/FifoTheHein/tminus/<branch>/docs/play/demo.ics`. The repo is public, so this is https and needs no token. After that, use `https://fifothehein.github.io/tminus/play/demo.ics`;
   2. the test alarm rings full screen and stops;
-  3. **Sync now** runs, and Health's sync log shows it;
+  3. Sources → the demo calendar → **Sync now** runs (or pull to refresh on the Agenda), and Health's sync log shows it;
   4. `adb shell cmd jobscheduler run -f io.github.fifothehein.tminus <job id>`, or wait for the periodic sync: a headless sync runs (`HeadlessFlutterRunner` log line, Health's sync log);
   5. the Mute today tile toggles;
   6. `adb reboot`: after the reboot, Health's upcoming alarms are still listed.
@@ -508,6 +513,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - `the demo feed parses and has a meeting in every two-hour window`: `expandIcs` over the next 24 h from a few fixed `now`s gives twelve occurrences, all two hours apart.
   - `About opens the privacy policy` and `onboarding opens the privacy policy` mock `tminus_ui.openUrl` and assert the URL.
   - `a failed open shows the snackbar`.
+  - `settings_screen_test.dart`'s About copy check (about line 648) changes to the new sentence.
   - `test/no_em_dash_test.dart` stays green.
 - [ ] **Step 7:** Run the gates, then commit `Publish the privacy policy and a demo feed, and link the policy in the app`.
 - [ ] **Step 8: Put the two pages online early**, once **both Task 5 and Task 3 are committed**. The policy says the meeting cache is never backed up, which becomes true only with Task 3. Open a small PR to `main` containing only `docs/privacy.md`, `docs/play/demo.ics` and the `docs/index.md` link, and merge it. Then check that `https://fifothehein.github.io/tminus/privacy/` and `…/play/demo.ics` load, and that the feed downloads as `text/calendar`. Merge the plan branch with `main` afterwards; the files are identical, so there is no conflict. The app code stays on the plan branch until Task 13's PR.
@@ -522,11 +528,12 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - `lib/core/model/sync_log_entry.dart`, `lib/core/sync/outcome_severity.dart`;
   - `lib/core/sources/device_calendar_api.dart`, `device_calendar_source.dart`;
   - `lib/features/health/health_text.dart`;
-  - `lib/features/sources/problem_card.dart`, `source_detail_screen.dart`.
+  - `lib/features/sources/problem_card.dart`, `source_detail_screen.dart`;
+  - `lib/core/sync/sync_service.dart` (the notice text).
 - Test: `android/app/src/test/kotlin/io/github/fifothehein/tminus/calendar/DeviceCalendarReaderTest.kt`, `test/core/sources/device_calendar_source_test.dart`, `test/core/sync/sync_service_test.dart`, `test/features/health/health_text_test.dart`, `test/features/sources/problem_card_test.dart`, `test/features/sources/source_detail_screen_test.dart`
 
 - [ ] **Step 1: Kotlin.**
-  - `instances()` already reads the existing calendar ids. It now also reads `Calendars.SYNC_EVENTS` for the asked ids, and after the missing check throws `DeviceCalendarException(CALENDAR_NOT_SYNCED, "A calendar is not synced")` if any asked calendar has `SYNC_EVENTS == 0`.
+  - `instances()` already calls `calendars()` to find the missing ids, and each row already carries `"syncEvents"` (PR #20; a null column reads as synced). Keep those rows. After the missing check, throw `DeviceCalendarException(CALENDAR_NOT_SYNCED, "A calendar is not synced")` if any asked calendar's row has `syncEvents == false`. No second query is needed.
   - The message names no calendar id; ids are opaque, but keep it fixed.
   - Add `const val CALENDAR_NOT_SYNCED = "calendar_not_synced"`.
 - [ ] **Step 2: Dart.**
@@ -539,11 +546,12 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
     - title `Calendar is not syncing`;
     - icon `Icons.sync_disabled`;
     - body `Turn on sync for this calendar in your phone's account settings, or choose another calendar.`
-  - `source_detail_screen.dart`: treat `calendarNotSynced` like `calendarMissing` where it offers **Choose another calendar** (line 830 today).
+  - `source_detail_screen.dart`: treat `calendarNotSynced` like `calendarMissing` where it offers **Choose calendar** (`Key('chooseCalendar')`, about line 830 today).
+  - `sync_service.dart`: the Feed broken notice text switch (about line 559) has a `_` arm that says "feed link stopped working". Add `SyncOutcome.calendarNotSynced => '${config.name}: calendar is not syncing'`, or the phone source's notice would talk about a feed link.
 - [ ] **Step 3: Tests** (negative control for each):
   - `a calendar whose sync is off is refused` (Robolectric, a provider row with `SYNC_EVENTS = 0`);
   - `a synced calendar still returns its instances`;
-  - `a not-synced calendar keeps its cached meetings and turns the source red`: `SyncService` with a fake API throwing the code; the cache and the plan are unchanged, the log row is `calendarNotSynced`, and one Feed broken notice is posted, once;
+  - `a not-synced calendar keeps its cached meetings and turns the source red`: `SyncService` with a fake API throwing the code; the cache and the plan are unchanged, the log row is `calendarNotSynced`, and one Feed broken notice is posted, once, with the text `<name>: calendar is not syncing`;
   - the text, icon and action tests for the three widgets.
 - [ ] **Step 4: Roadmap §3.** The `queryInstances` row's errors become `permission_denied`, `calendar_missing` (Plan 4), `calendar_not_synced` (Plan 6). This is the one contract edit; it is made in this task's commit.
 - [ ] **Step 5:** Run the gates (Kotlin too), then commit `Say when a phone calendar stops syncing and keep its alarms`.
@@ -553,10 +561,10 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
 **Deep review:** no.
 
 **Files:**
-- Modify: `lib/features/sources/calendar_groups.dart`, `calendar_picker.dart`, `add_source_panel.dart`
+- Modify: `lib/features/sources/calendar_groups.dart`, `add_source_panel.dart` (`calendar_picker.dart` does not change)
 - Test: `test/features/sources/calendar_groups_test.dart`, `calendar_picker_test.dart`, `add_source_panel_test.dart`
 
-- [ ] **Step 1:** Move the picker's kind-label function to `calendar_groups.dart` as the public `String? kindLabel(CalendarGroupKind kind)`. It returns `Google`, `Samsung account`, `Outlook`, `Exchange`, `Phone` for `phoneOnly`, and `null` for the others. The picker's headings keep the words they show today, because the heading builder keeps its own text for the kinds that have no label.
+- [ ] **Step 1:** The picker's private `_kindWords` (`calendar_picker.dart`) stays as it is; it names every group for the headings ("Other", "Shared with you", "On this phone only"…). Add a separate public `String? kindLabel(CalendarGroupKind kind)` to `calendar_groups.dart`, for source names only. It returns `Google`, `Samsung account`, `Outlook` and `Exchange` (the same words as `_kindWords`), `Phone` for `phoneOnly`, and `null` for `other`, `shared` and `holidays`.
 - [ ] **Step 2: A pure `defaultSourceName`** (decision 17):
   ```dart
   /// The name a new phone-calendar source gets (Plan 6 decision 17).
@@ -616,7 +624,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - **Ads:** No.
   - **Content rating:** the IARC questionnaire. Category Utility/Productivity. No violence, sexual content, language, drugs or gambling. No user interaction between users, no sharing of location, no purchases.
   - **Target audience:** 18 and over, not designed for children, so no Families policy applies.
-  - **Data safety:** no data collected, no data shared. Every question about collection is answered "No", because the app sends nothing to the developer or third parties (Play counts only data transmitted off the device by the app to the developer or others; calendar fetches go to the user's own provider, at the user's request). "Is all of the user data collected by your app encrypted in transit?" does not apply. Data deletion: no account, so no deletion request mechanism is needed; uninstall removes everything.
+  - **Data safety:** no data collected, no data shared. This is the plan's reading of Play's rules; Task 10's reviewer checks it against Play Console's Data safety help on the day the form is filled in, and records any change here. Every question about collection is answered "No", because the app sends nothing to the developer or third parties (Play counts only data transmitted off the device by the app to the developer or others; calendar fetches go to the user's own provider, at the user's request). "Is all of the user data collected by your app encrypted in transit?" does not apply. Data deletion: no account, so no deletion request mechanism is needed; uninstall removes everything.
   - **Government app, Financial features, Health, News:** No.
   - **Advertising ID:** No (Task 4 Step 5 confirms the merged manifest has no `AD_ID`).
   - **Exact alarms:** core functionality "alarm / calendar". Text: "T-Minus is a meeting alarm app. Its core function is ringing an alarm at an exact minute before each calendar meeting, as set by the user, so the alarm must fire on time even in Doze."
@@ -650,7 +658,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   6. Health all green.
 
   Then 7 and 8: the Agenda and the alarm in the light theme. Check each for anything personal (no real names, no account emails in the calendar picker); retake if needed.
-- [ ] **Step 3: The FGS video.** `adb shell screenrecord --time-limit 60 /sdcard/fgs.mp4`: Settings → Test alarm (or Health → Test alarm), the alarm rings full screen, then Stop. A second clip shows a scheduled demo meeting's alarm firing on the lock screen, with the notification's Stop. Pull the files. The **user** uploads them to YouTube as **unlisted** and puts the link into `docs/play/declarations.md`.
+- [ ] **Step 3: The FGS video.** `adb shell screenrecord --time-limit 60 /sdcard/fgs.mp4`: Health → **Test alarm**: the alarm rings full screen in about five seconds, then Stop. A second clip shows a scheduled demo meeting's alarm firing on the lock screen, with the notification's Stop. Pull the files. The **user** uploads them to YouTube as **unlisted** and puts the link into `docs/play/declarations.md`.
 - [ ] **Step 4:** Commit `Add the store screenshots`.
 
 ### Task 10 (user, with a review-worker first): Upload and declarations

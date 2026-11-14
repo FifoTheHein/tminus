@@ -1,7 +1,7 @@
 # T-Minus: Meeting Alarm — Design Spec
 
 - **Date:** 2026-10-06
-- **Status:** Approved in brainstorming, pending written-spec review
+- **Status:** Approved, and built through Plan 5 (2026-11-13). Phase 1.5 (Play readiness, Plan 6) is next. Later changes that refine this spec: the calendar picker grouping (`2026-11-13-calendar-grouping-design.md`) and the list in the roadmap's "Changes merged after Plan 5".
 - **Store name:** T-Minus: Meeting Alarm · **Project/package:** `tminus` · **Application ID:** `io.github.fifothehein.tminus`
 - **Platform:** Android (Flutter UI + native Kotlin alarm engine). iOS is backlog.
 
@@ -120,6 +120,7 @@ The window is **now − 1 h to now + 7 days**.
 - Reads `CalendarContract.Instances` natively through the channel. Android has already expanded recurrence there.
 - Provides `AVAILABILITY` (busy/free/tentative) and `SELF_ATTENDEE_STATUS` (declined).
 - Asks for `READ_CALENDAR` only when the user adds this kind of source.
+- The user picks the calendar from a list grouped by account kind and account. Shared, holiday and phone-only calendars are set apart, and calendars that are not synced are greyed out (`2026-11-13-calendar-grouping-design.md`).
 
 ### `ics_core` (pure Dart package, no Flutter dependency)
 
@@ -318,6 +319,10 @@ Material 3, dark theme first, with a light theme too; calendar colours used as a
 - The native Compose `AlarmActivity` uses the same hex values.
 - **Fonts:** IBM Plex Sans (UI) and IBM Plex Mono (times, countdowns, chips).
   - They're **bundled as app assets**, not fetched at runtime with `google_fonts`. That keeps the promise "no servers, your calendar never leaves your phone" and works offline at first launch.
+- **Icon and logo:**
+  - The launcher icon is an adaptive icon: a slate disc, a 270° countdown arc and a T- mark, with a monochrome layer.
+  - The app draws the same mark with `TMinusMark`.
+- **Edge to edge:** targetSdk 36 draws behind the system bars. Every screen keeps its last content above the navigation bar, including screens outside the tab bar such as Settings, Developer tools and Onboarding.
 
 1. Onboarding: welcome → add source → permissions → test alarm → done
 2. Agenda (home)
@@ -394,7 +399,7 @@ The rule: never lose an alarm because of bad data, and never fail silently.
    - This decides the primary source but changes no code.
 2. **Published-feed latency:** measure how long Outlook takes to update the published ICS feed after a meeting change. This sets expectations for the pre-alarm sync.
 3. **Teams link in the feed:** confirm the "Can view all details" feed includes the Teams join URL in DESCRIPTION.
-4. **Foreground service type:** confirm `mediaPlayback` is acceptable for alarm ringing under the current Play policy; otherwise use `specialUse`.
+4. **Foreground service type:** confirm `mediaPlayback` is acceptable for alarm ringing under the current Play policy; otherwise use `specialUse`. *Superseded (2026-11-02):* Plan 6 moves `RingingService` to `systemExempted`, with `mediaPlayback` as the fallback (roadmap, Plan 6 decision 2).
 
 ## 13. Meetings in more than one source
 

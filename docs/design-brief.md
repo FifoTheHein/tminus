@@ -26,11 +26,16 @@ Busy professionals who live in back-to-back Teams meetings, including people wit
   - **Heads-up** 🔔: outline or soft style
   - **Alarm** ⏰: solid, high-emphasis style
 - Status colours (green, amber, red) are used **only** for health and sync state.
-- App icon idea: a countdown ring or clock face with a small "T−" mark. It must read clearly at small sizes.
+- App icon:
+  - **As built (PR #18):** a slate disc with a light-blue 270° countdown arc (round ends) over a faint track, and a "T-" mark. It reads clearly at small sizes.
+  - It is an adaptive icon with a monochrome layer for themed icons, and the Play listing copy is `docs/play/icon-512.png`.
+  - The app shows the same mark (`TMinusMark`, PR #19) in the Agenda app bar, on the onboarding Welcome step and in Settings → About. It uses the dark colours in both themes, so it matches the home-screen icon.
 
 ## Navigation
 
 Bottom navigation with 4 tabs: **Agenda · Alerts · Sources · Health**. Settings sits in the top-app-bar overflow menu.
+
+The app draws edge to edge. Screens outside the tab bar (Settings, Developer tools, Onboarding) keep their last content above the system navigation bar.
 
 ## Screens
 
@@ -39,7 +44,11 @@ Bottom navigation with 4 tabs: **Agenda · Alerts · Sources · Health**. Settin
 1. **Welcome:** the value in one sentence.
 2. **Add a source**, with two options:
    - **Paste an Outlook ICS link.** Show a hint with a small illustration of where to find it: Outlook → Settings → Calendar → Shared calendars → Publish → ICS. The app validates the link and shows "Found 23 events this week".
-   - **Use a calendar on this phone.** Shows a list of device calendars with toggles.
+   - **Use a calendar on this phone.** Shows the phone's calendars with checkboxes, grouped under headings by account kind and account (Google, Samsung account, Outlook, and so on).
+     - **Shared with you**, **Holidays and birthdays** and **On this phone only** get their own groups.
+     - Calendars that are not synced are greyed out with a **Not synced** label, and a footnote explains how to turn sync on.
+     - The layout and the rules are in `docs/superpowers/specs/2026-11-13-calendar-grouping-design.md` §4 and §6.
+     - The same picker is used from the Sources tab.
 3. **Permissions**, one per step, each with a one-line reason and an Allow button:
    - notifications
    - full-screen alarms
@@ -65,7 +74,7 @@ Bottom navigation with 4 tabs: **Agenda · Alerts · Sources · Health**. Settin
 - Title
 - Location, or a "Teams" badge when there's a join link
 - Alert chips, e.g. `🔔 −10` `⏰ −1`
-- On/off toggle
+- On/off toggle, shown only until the meeting starts. Every alert fires at or before the start, so after that the toggle could change nothing.
 - A small grey reason line, e.g. "Quick · rule: standup", "Silent · tentative", "Silenced · Mute today"
 
 **Other**

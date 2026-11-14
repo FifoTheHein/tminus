@@ -34,6 +34,7 @@
 - **Drift schema changes** follow CLAUDE.md: dump the **old** schema before touching tables, add an `if (from < 3)` step, never edit the `from < 2` step, then dump and regenerate the migration helpers. The new cache database gets its own schema folder (`drift_schemas/cache/`) and its own generated helpers (`test/generated_migrations/cache/`).
 - **Alarms must never go silent because of this plan.** The cache move must not leave a moment in which a sync or an edit re-plan reads an empty cache while the old one still has meetings. An empty plan makes Kotlin cancel every alarm (roadmap §3, "an occurrenceKey absent from a plan means the meeting was cancelled").
 - Public copy (privacy policy, store listing, declaration answers) follows the house style: plain sentences, no marketing superlatives, no em dashes. **Every factual claim must be true of the code at the commit it ships with.** Review Focus 3 checks this.
+- **`SyncWorker` stays without a foreground-service type.** Its `ForegroundInfo` has no type, and it never calls `setForeground`. If a later change gives it a type or makes it long-running through `setForeground`, then `SystemForegroundService` needs that type in the manifest, the matching `FOREGROUND_SERVICE_<TYPE>` permission and its own Play Console declaration. On targetSdk 34+, an untyped foreground start on API 34+ throws.
 - Gates at the end of **every** task, from the repo root:
   - `flutter analyze` → `No issues found!`
   - `flutter test` → `All tests passed!`
@@ -400,9 +401,15 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
     - `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`;
     - `RECEIVE_BOOT_COMPLETED`, `WAKE_LOCK`, `VIBRATE`;
     - `INTERNET`, `READ_CALENDAR`;
-    - whatever WorkManager adds (`ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` for its own service).
+    - `ACCESS_NETWORK_STATE` (WorkManager), and the app's own `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` (protection level signature).
+
+    Checked before building, on 2026-11-14 (a local release build of `main` at `1d01901`, read from the APK with aapt2 36.0.0): exactly this list, plus `FOREGROUND_SERVICE_MEDIA_PLAYBACK` where Task 2 puts `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`.
   - Any `com.google.android.gms.permission.AD_ID` fails the task: Data safety and the policy say no advertising id.
-  - List every `<service>` with an `android:foregroundServiceType`. Expected: only `RingingService` (`systemExempted`). WorkManager's `SystemForegroundService` is merged too. `SyncWorker` asks for expedited work and gives a `ForegroundInfo`, so on API 26–30 WorkManager runs it in that service, with no type, and without the type checks that start at API 34. If the merged manifest gives that service a type, Play Console will ask for a declaration for it. Record it, and either declare it or override the attribute with `tools:node="merge"` and `tools:remove="android:foregroundServiceType"` (a manifest change, so the Kotlin gate runs again).
+  - List every `<service>` with an `android:foregroundServiceType`. Expected: only `RingingService` (`systemExempted`).
+    - **Checked on 2026-11-14** (the same build). WorkManager's `SystemForegroundService` is merged with **no** type, so it needs no Play declaration and no `tools:remove`. `SyncWorker` builds `ForegroundInfo(id, notification)` (type 0) and never calls `setForeground`. `SyncScheduler` uses `setExpedited(RUN_AS_NON_EXPEDITED_WORK_REQUEST)`. On API 31+ that work runs as a JobScheduler job; on API 26–30 it runs in `SystemForegroundService` with no type, which those versions allow.
+    - Re-check after Task 2: still only `RingingService` has a type.
+    - Other services in that build, all untyped: `QuietTileService` (exported, guarded by `BIND_QUICK_SETTINGS_TILE`), `SystemJobService` (exported, guarded by `BIND_JOB_SERVICE`) and `androidx.room.MultiInstanceInvalidationService`.
+    - Exported components in that build: `MainActivity`, `BootReceiver`, `TimeChangeReceiver`, `SyncBootReceiver`, the two guarded services above, and WorkManager's `DiagnosticsReceiver` and `ProfileInstallReceiver` (both guarded by `android.permission.DUMP`). Any new exported component in the release manifest needs a reason in the run log.
   - `grep -n "firebase\|crashlytics\|analytics\|ads" pubspec.lock` → nothing.
 - [ ] **Step 6: 16 KB pages.** Run in Git Bash on the build machine. Tools:
   - `zipalign` from Android SDK build-tools **35.0.0 or later** (older versions have no `-P`);

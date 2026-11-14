@@ -12,7 +12,7 @@ Status: **in development**. These are built (Plans 1–5):
 
 Since then, the phone calendar picker groups calendars by account, and the app has its own launcher icon and in-app logo.
 
-Play readiness (Plan 6) is next. Its decisions so far are in the roadmap; the plan itself is still to be written.
+Play readiness (Plan 6) is next: [docs/superpowers/plans/2026-11-14-plan-6-play-readiness.md](docs/superpowers/plans/2026-11-14-plan-6-play-readiness.md).
 
 - Implementation roadmap: [docs/superpowers/plans/2026-10-06-tminus-roadmap.md](docs/superpowers/plans/2026-10-06-tminus-roadmap.md)
 

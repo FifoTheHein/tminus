@@ -2,19 +2,34 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-06-tminus-design.md` · **Design brief:** `docs/design-brief.md` · **Design system:** already implemented in `lib/app/theme/`.
 
-The spec covers six subsystems, so it is split into six plans. Each one ends in working, tested software. Plans 1–3 are written now; 4–6 are written when their turn comes, against the code that exists by then.
+The spec covers six subsystems, so it is split into six plans. Each one ends in working, tested software. Each plan is written when its turn comes, against the code that exists by then.
+
+**Status (2026-11-14):**
+- Plans 1–5 and 4b are built and merged into `main`.
+- Plan 6 is next. Write it against `main` as it is now, including the changes listed below.
 
 | # | Plan | File | Depends on | Delivers |
 |---|---|---|---|---|
 | 1 | `ics_core` | `2026-10-06-plan-1-ics-core.md` | — | Pure Dart package: ICS text → occurrences in a window, with per-event error isolation |
 | 2 | Domain, storage, rules, planner | `2026-10-06-plan-2-domain-rules-planner.md` | 1 (only for the field mapping notes) | Domain model, drift database, profile resolution, quiet modes, explanations, `PlannedAlert` plan building |
 | 3 | Native alarm engine | `2026-10-06-plan-3-alarm-engine.md` | contract §3 only | Kotlin scheduling, ringing, Compose alarm screen, notifications, re-arm, `alarm_engine` channel + Dart client, debug test-alarm buttons |
-| 4 | Sources + sync | written later | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
+| 4 | Sources + sync | `2026-10-06-plan-4-sources-sync.md` | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
 | 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
 | 5 | UI | `2026-10-11-plan-5-ui.md` | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
-| 6 | Play readiness (phase 1.5) | written after Plan 5 merges (decisions below) | all | Privacy policy, store listing, Play declarations, FGS type decision |
+| 6 | Play readiness (phase 1.5) | not written yet (decisions below) | all | Privacy policy, store listing, Play declarations, FGS type decision |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).
+
+### Changes merged after Plan 5 (2026-11-13 and 14)
+
+Plan 6 builds on these. Each one's PR description has the details.
+
+| PR | Change | Where it is written down |
+|---|---|---|
+| #17 | The Agenda hides a meeting's on/off switch once the meeting has started. Every alert fires at or before the start, so after that the switch could change nothing (`AgendaItem.showsToggle`). | §4 below; design brief §2 |
+| #18 | The launcher icon (a Plan 6 item, done early). It is adaptive, with a monochrome layer for Android 13+ themed icons. There are legacy PNGs, and the 512 px Play listing icon is `docs/play/icon-512.png`. `tool/gen_launcher_icon.py` draws the PNGs, and `test/launcher_icon_test.dart` pins the vector layers. | Decision 5 below; design brief, Visual direction |
+| #19 | `TMinusMark` (`lib/features/common/tminus_mark.dart`) draws the launcher icon in the app: the Agenda app bar, the onboarding Welcome step and Settings → About. Settings and Developer tools now keep their last card above the system navigation bar (the app draws edge to edge). | Design brief, Visual direction and Navigation; `docs/design/README.md` |
+| #20 | The **Use a calendar on this phone** picker groups the phone's calendars by account kind and account. It sets apart shared, holiday and phone-only calendars, and marks calendars that are not synced. `queryDeviceCalendars` returns five more fields (§3). Nothing is stored, and there is no schema change. | `specs/2026-11-13-calendar-grouping-design.md`, `plans/2026-11-13-calendar-grouping.md` (see its "Built differently") |
 
 **Execution (decided 2026-10-06):** every plan is built subagent-driven, using the orchestrator pattern (`/orchestrate`). One orchestrating session directs and checks and never writes code; `dev-worker`s build, test authors write tests from the acceptance criteria without reading the implementation, a `review-worker` reviews each wave's diff, and `scout`s run checks, tests and commits. For each plan (or for Plans 2 and 3 together, as parallel waves), run `/orchestrate` in plan mode first to turn it into an orchestration plan, then run that in a fresh session. No plan is executed inline.
 
@@ -24,7 +39,11 @@ Plan 6 is written after Plan 5 has merged, against the code that exists then. Ag
 
 1. **Scope ends at Play internal testing.** A signed AAB is uploaded to the internal testing track, and every Play Console declaration is filed. The closed test and the production rollout are a later, separate step.
 2. **`RingingService` moves to the `systemExempted` FGS type** (`FOREGROUND_SERVICE_SYSTEM_EXEMPTED`). Android's FGS docs (updated 2026-10-28) allow it for apps holding `USE_EXACT_ALARM` / `SCHEDULE_EXACT_ALARM`, and unlike `mediaPlayback` it is not barred from starting at `BOOT_COMPLETED` on Android 15+. That may make `EngineActions.RECOVERY_DELAY_MS` unnecessary, but only a device test can show it. Plan 6 checks that Play Console accepts the type. `mediaPlayback` is the fallback.
-3. **The privacy policy is hosted on GitHub Pages** at `fifothehein.github.io/tminus/…`, built from `docs/`. That needs a public repo; if this one stays private, the policy goes in a small public repo with the same Pages URL.
+3. **The privacy policy is hosted on GitHub Pages** at `fifothehein.github.io/tminus/…`, built from `docs/`.
+   - **Done (2026-11-13):** the repo is public, and Pages builds from `main` `/docs` with Jekyll.
+   - A placeholder home page (`docs/index.md`) is live at https://fifothehein.github.io/tminus/. It says the privacy policy will be published there before release.
+   - Plan 6 adds the policy page itself. Everything under `docs/` is served, including `docs/play/icon-512.png`.
+   - The history was rewritten before the repo went public, so every commit is authored by Heinrich J Nel with the noreply address. GitHub still keeps the old commits of merged PRs #1–#16 under `refs/pull/*`, and only GitHub Support can purge them.
 4. **Play policy, as read on 2026-11-02** (Play Policy Center and Play Console Help):
    - **`USE_EXACT_ALARM`: eligible, keep it.** Play restricts it to apps whose "core, user-facing functionality genuinely requires precise timing, like dedicated alarm, timer, or calendar applications with event notifications", and says to request it "only if your app's core functionality is of alarm or calendar". It is subject to review. `SCHEDULE_EXACT_ALARM` on every API level (with a grant prompt) stays the fallback only if review rejects it.
    - **`USE_FULL_SCREEN_INTENT`: file the Play Console declaration.** On Android 14+ it is auto-granted only to apps whose core function is "setting an alarm" (or calls), and the app must "submit a declaration form in your Play Console to establish pre-grant eligibility". Without approval, users must grant it by hand, so the existing `canUseFullScreenIntent` check in Health and onboarding stays.
@@ -34,12 +53,17 @@ Plan 6 is written after Plan 5 has merged, against the code that exists then. Ag
 
 5. **Known Plan 6 items besides the spec's phase 1.5 list:**
    - an upload keystore through a gitignored `key.properties` (release builds are signed with the debug key today);
-   - an adaptive and monochrome launcher icon (it is Flutter's default today);
+   - ~~an adaptive and monochrome launcher icon~~: **done in PR #18** (and the in-app logo in #19; see "Changes merged after Plan 5"). Plan 6 only checks it in the release build and on the Play listing;
    - a 16 KB page-size check on the native libraries (updates without 16 KB support are blocked from 1 Feb 2027);
    - R8 keep rules and logging, checked on a release build;
    - a version scheme;
    - a full device checklist run on the Play-installed build;
    - Android developer verification (developer.android.com/developer-verification, read 2026-11-08). Play-distributed apps are registered automatically, and the Play Console account needs identity verification. `adb` installs are unaffected. Enforcement covers four countries from 2026-09-30 and goes global on certified devices in 2027. From then on, a release APK sideloaded outside Play and signed with our own upload key installs normally only once `io.github.fifothehein.tminus` and that key are registered in Play Console. Until then it needs Android's advanced sideloading flow. Play builds are covered by Play App Signing.
+
+6. **Open follow-ups from the work after Plan 5.** These are not Plan 6 scope unless the plan takes them on:
+   - A device source whose calendar later stops syncing goes empty without saying so. The source detail or Health could say "This calendar is no longer synced". This needs `syncEvents` on the sync path (grouping spec §10).
+   - Two device sources can both be called "My calendar". The add flow could put the account kind in the default name (grouping spec §10).
+   - The picker test's check of a blocked `pickOne` row uses `isNot(isTrue)` where `isFalse` would be stricter (grouping plan, "Built differently").
 
 ## 1. Repository layout (from spec §4)
 
@@ -342,7 +366,7 @@ Errors carry a code and never a message: `busy`, `cancelled`, `no_activity`, `io
 - `EventOccurrence` (spec §5) plus three fields the spec implies: `description` (rules match on it), `cancelled` (device source skip filter) and `sourceId`. Key = `'$sourceId|$uid|${originalStartUtc.toUtc().toIso8601String()}'`.
 - Occurrences reach the rules engine and the planner as *meetings* (spec §13, Plan 4b): `MeetingMerger.merge` joins the copies of one meeting found in several sources, so `occurrenceKey` in plans and history is the meeting key (a copy's key when it stands alone), and Plan 5's Agenda must call `MeetingMerger.merge` with `MeetingLinkRepository.all()` to show what the sync plans.
 - Built-in profile ids: `meeting`, `quick`, `important`, `silent` with the alerts in spec §6 (`Important` = headsUp 30, headsUp 10, alarm 2, `ringsInQuietMode: true`).
-- Overrides: scope `occurrence` (by key) or `series` (by `seriesUid`); each sets any of `profileId`, `customAlerts`, `enabled`. The agenda toggle writes an occurrence override with `enabled`. "Turned on with an occurrence override" (spec quiet modes) means `enabled == true`.
+- Overrides: scope `occurrence` (by key) or `series` (by `seriesUid`); each sets any of `profileId`, `customAlerts`, `enabled`. The agenda toggle writes an occurrence override with `enabled`. The Agenda shows the toggle only until the meeting starts (PR #17). "Turned on with an occurrence override" (spec quiet modes) means `enabled == true`.
 - Explanation strings have the form `<Profile name> · <reason>`, e.g. `Quick · rule: "standup"`, `Meeting · default`, `Silent · tentative`. Reasons by resolution step: `this event`, `series`, `all-day` / `free` / `tentative` / `cancelled` / `declined`, `rule: "<pattern>"`, `source default`, `default`. An event the agenda toggle turned off reads `Off · this event` (`Off · series` for a series override). Custom alerts read `Custom · this event` / `Custom · series`. A has-Teams-link rule reads `<Profile> · rule: Teams link`. When a quiet mode silences an event the whole line becomes `Silenced · Mute today`, `Silenced · Paused until 14:00` (local time; `Paused until Wed 09:00` when it ends within the next 6 days, `Paused until 14 Oct 09:00` beyond that) or `Silenced · Vacation`.
 
 ## 5. Decisions made while planning (the spec is silent; flagged for review)

@@ -1,7 +1,7 @@
 # T-Minus: Group phone calendars in the picker — Design Spec
 
 - **Date:** 2026-11-13
-- **Status:** Agreed in brainstorming, pending written-spec review
+- **Status:** Built and merged (PR #20, 2026-11-14), and checked on the S24. Where the code differs from this spec, the plan's "Built differently from this plan" section (`plans/2026-11-13-calendar-grouping.md`) explains why. The fixes found on the S24 are already in §4 (own accounts are never shared, and not-synced rows come last in their group) and in §6 (normal letter spacing for the account part of a heading).
 - **Touches:** Sources → Add a calendar → **Use a calendar on this phone** (`CalendarPicker`), both its `pickMany` form (Add source, also used by onboarding) and its `pickOne` form (choosing a calendar again for a restored source).
 - **Builds on:** spec §5 (`DeviceCalendarSource`), roadmap §3 (`alarm_engine` channel), Plan 4 decision 18 (**Already added**).
 

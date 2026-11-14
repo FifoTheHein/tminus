@@ -6,7 +6,7 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 
 **Status (2026-11-14):**
 - Plans 1–5 and 4b are built and merged into `main`.
-- Plan 6 is next. Write it against `main` as it is now, including the changes listed below.
+- Plan 6 is written (`2026-11-14-plan-6-play-readiness.md`, 2026-11-14) and is next to build. It also takes the three follow-ups in decision 6 below, and moves the meeting cache out of Android backup.
 
 | # | Plan | File | Depends on | Delivers |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 | 4 | Sources + sync | `2026-10-06-plan-4-sources-sync.md` | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
 | 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
 | 5 | UI | `2026-10-11-plan-5-ui.md` | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
-| 6 | Play readiness (phase 1.5) | not written yet (decisions below) | all | Privacy policy, store listing, Play declarations, FGS type decision |
+| 6 | Play readiness (phase 1.5) | `2026-11-14-plan-6-play-readiness.md` (decisions below) | all | Privacy policy, store listing, Play declarations, FGS type decision |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).
 

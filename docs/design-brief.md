@@ -4,7 +4,7 @@ The brief for designing the app's screens. Engine and architecture details are i
 
 ## Product in one line
 
-An Android app that turns your work calendar (Outlook/Teams, later Google) into alarms you can't miss and can always stop.
+An Android app that turns your work calendar (Outlook/Teams, or any calendar on the phone, Google included) into alarms you can't miss and can always stop.
 
 ## Who it's for
 

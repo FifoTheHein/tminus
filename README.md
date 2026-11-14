@@ -1,6 +1,6 @@
 # T-Minus: Meeting Alarm
 
-An Android app (Flutter UI and a native Kotlin alarm engine) that turns your Outlook/Teams calendar into alarms you can't miss and can always stop. It reads calendars from published ICS feeds or from calendars already on the phone. Google Calendar is planned for Phase 2.
+An Android app (Flutter UI and a native Kotlin alarm engine) that turns your Outlook/Teams calendar into alarms you can't miss and can always stop. It reads calendars from published ICS feeds or from calendars already on the phone, so Google calendars synced to the phone already work. Phase 2 only checks setups with several Google accounts and fills any gaps.
 
 Status: **in development**. These are built (Plans 1–5):
 - the ICS parser;

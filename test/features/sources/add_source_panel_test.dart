@@ -169,7 +169,9 @@ void main() {
       expect(_alreadyAddedIn(id), findsNothing, reason: id);
     }
     expect(find.text('Already added'), findsOneWidget);
-    expect(find.text('me@gmail.com'), findsOneWidget);
+    // The account is in the heading of its group, not under the row. These
+    // calendars have no account type, so they are in the Other groups.
+    expect(find.text('OTHER · me@gmail.com'), findsOneWidget);
 
     // A calendar that is a source takes no taps.
     await t.tap(find.byKey(const Key('calendar-2')));
@@ -223,7 +225,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Use a calendar on this phone'), findsOneWidget);
-    expect(find.text('Google, Samsung, Exchange accounts'), findsOneWidget);
+    expect(
+      find.text('Google, Samsung, Outlook and other accounts'),
+      findsOneWidget,
+    );
     // The link card is open, with Outlook's path to the link.
     expect(
       find.text(

@@ -69,6 +69,35 @@ class CalendarChannelTest {
     }
 
     @Test
+    fun `queryDeviceCalendars passes the grouping columns through`() {
+        shadowOf(app).grantPermissions(Manifest.permission.READ_CALENDAR)
+        provider.calendars += mapOf(
+            Calendars._ID to 4L,
+            Calendars.CALENDAR_DISPLAY_NAME to "Team",
+            Calendars.ACCOUNT_NAME to "me@example.com",
+            Calendars.ACCOUNT_TYPE to "com.google",
+            Calendars.OWNER_ACCOUNT to "team@group.calendar.google.com",
+            Calendars.CALENDAR_ACCESS_LEVEL to 200,
+            Calendars.CALENDAR_COLOR to 0xFF33AA66.toInt(),
+            Calendars.VISIBLE to 1,
+            Calendars.SYNC_EVENTS to 0,
+            Calendars.IS_PRIMARY to 1,
+        )
+        val calendars = call("queryDeviceCalendars").value as List<*>
+        val team = calendars.map { it as Map<*, *> }.single { it["id"] == "4" }
+        assertEquals(
+            mapOf(
+                "accountType" to "com.google",
+                "ownerAccount" to "team@group.calendar.google.com",
+                "accessLevel" to 200,
+                "syncEvents" to false,
+                "primary" to true,
+            ),
+            listOf("accountType", "ownerAccount", "accessLevel", "syncEvents", "primary").associateWith { team[it] },
+        )
+    }
+
+    @Test
     fun `queryInstances passes the ids and window through`() {
         shadowOf(app).grantPermissions(Manifest.permission.READ_CALENDAR)
         val rows = call("queryInstances", mapOf("calendarIds" to listOf("3"), "fromUtcMs" to 0, "toUtcMs" to 5_000L)).value as List<*>

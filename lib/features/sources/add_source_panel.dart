@@ -253,7 +253,7 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
           key: const Key('choice-phone'),
           icon: Icons.phone_android,
           title: 'Use a calendar on this phone',
-          subtitle: 'Google, Samsung, Exchange accounts',
+          subtitle: 'Google, Samsung, Outlook and other accounts',
           selected: _choice == _Choice.phone,
           onSelect: _selectPhone,
           child: CalendarPicker.pickMany(takenIds: _taken, onAdd: _addDevice),

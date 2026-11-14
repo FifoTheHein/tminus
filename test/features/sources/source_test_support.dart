@@ -250,15 +250,29 @@ SourceConfig phoneSource({
 );
 
 /// One calendar as `queryDeviceCalendars` answers.
+///
+/// What is not given is how a phone answers when a provider leaves the columns
+/// empty: no account type, no owner, no access level, no primary flag, and a
+/// calendar that is synced. That calendar lands in the picker's Other group.
 Map<String, Object?> phoneCalendar(
   String id,
   String name, {
   String? account,
   int color = 0xFF5BC48A,
+  String? accountType,
+  String? owner,
+  int? access,
+  bool syncEvents = true,
+  bool? primary,
 }) => {
   'id': id,
   'name': name,
   'accountName': account,
   'color': color,
   'visible': true,
+  'accountType': accountType,
+  'ownerAccount': owner,
+  'accessLevel': access,
+  'syncEvents': syncEvents,
+  'primary': primary,
 };

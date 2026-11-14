@@ -86,7 +86,7 @@ Made while planning, where the spec, the roadmap and the code leave a choice (ea
     - Choosing another calendar for a source keeps the source's name.
 18. **A calendar that stops syncing is a failure, not an empty result.** `DeviceCalendarReader.instances` checks `Calendars.SYNC_EVENTS` for the asked calendars and throws `calendar_not_synced` for any that is 0. Dart maps that to a new `SyncOutcome.calendarNotSynced` (appended to the enum; stored by name), with error severity and one "Feed broken" notice, like `calendarMissing`. The cached meetings stay, so the alarms keep ringing from the last good data (spec §9: never lose an alarm because of bad data). The source detail offers **Choose another calendar**, as for a removed one.
 19. **About's copy is corrected.** "Feeds are fetched directly from Outlook" becomes "Calendars are read directly from your calendar provider", because link help (PR #15) covers Google and other providers too.
-20. **`full-backup-content` (API 26–30) gains `requireFlags="clientSideEncryption"`** on its includes, matching `disableIfNoEncryptionCapabilities="true"` on API 31+. The database is then backed up only when Android can encrypt it end to end.
+20. **`full-backup-content` (API 26–30) gains `requireFlags="clientSideEncryption"`** on its includes, matching `disableIfNoEncryptionCapabilities="true"` on API 31+. On API 28–30 the database is then backed up only when Android can encrypt it end to end. Android ignores the flag on API 26–27, so the backup there may be unencrypted. This is accepted: after Task 3 the backup holds no meetings and no links, only settings, rules and source names.
 
 ---
 
@@ -131,9 +131,9 @@ Made while planning, where the spec, the roadmap and the code leave a choice (ea
 |---|---|---|
 | 0 | 1 (scout: preflight); **A (user)**: trademark search; **B (user)**: Play Console account and app | — |
 | 1 | 2 (Kotlin), 3, 5, 7 | 0 |
-| 2 | 6 (Kotlin), 8 | 1 (Task 6 touches `source_detail_screen.dart` after Task 3 is in; Task 8 quotes Task 5's URLs) |
+| 2 | 6 (Kotlin), 8 | 1. Task 6 runs Gradle, and Wave 1 already has Task 2's Gradle job. Task 6 also edits `sync_service_test.dart`, which Task 3 rewrites for the new database. Task 8 quotes Task 5's URLs. |
 | 3 | 4 (Gradle: signing, backup rules, release smoke) | 2, and **C (user)**: the upload keystore |
-| 4 | 9 (screenshots and video), 10 (user: upload and declarations) | 3 |
+| 4 | 9 (screenshots and video), 10 (user: upload and declarations) | 3; Task 5 Step 8's pages are live |
 | 5 | 11 (emulators: API 26 to 36), 12 (user: the phone) | 4 (the Play build) |
 | 6 | 13 (docs), then the PR | 5 |
 
@@ -316,7 +316,10 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - `OccurrenceRepository` gains `Future<int> deleteForSource(String sourceId)`.
   - `SourceAdmin.delete` calls `occurrences.deleteForSource(id)` after `sources.delete(id)`, replacing the lost cascade. A crash between the two leaves cache rows for a source that no longer exists. The planner reads only enabled sources' copies, so those rows plan nothing, and `deleteEndedBefore` prunes them.
   - `SourceAdmin.updateDeviceCalendar` clears the source's cache rows **before** its main transaction, not inside it. A crash in between leaves the old calendar's source with an empty cache. That plans nothing for it until the next fetch refills it, the same as a new source.
-- [ ] **Step 6: `RestoreGuard._makeSafe`.** Delete the three cache tables' rows through `CacheDatabase` **before** the main transaction, keeping the comment's promise: "a stored id always means the database is safe". The `sync.%` settings delete stays in the main transaction. A restored phone has no cache file at all; the delete still covers a pre-Plan-6 backup, whose legacy tables were just moved in on open.
+- [ ] **Step 6: `RestoreGuard._makeSafe`.** The guard runs before anything opens `CacheDatabase`, at both entry points (`start_services.dart`, `sync_main.dart`). Keep it that way, and keep the race it already handles: the UI isolate and a headless sync can both reach `_makeSafe`, and the one that comes second must find the first one's work and touch nothing.
+  - **Inside** the existing transaction, after the install-id check, replace the three `db.delete(db.occurrences / alertHistory / syncLog)` calls with `DROP TABLE IF EXISTS` for `legacy_occurrences`, `legacy_alert_history` and `legacy_sync_log`. A pre-Plan-6 backup's cached meetings are then gone in the same commit as the new install id, and `LegacyCacheMove` finds nothing to move. The `sync.%` settings delete stays where it is.
+  - **After** the transaction, and only when it returned `RestoreOutcome.restored`, delete every row of the three cache tables through `CacheDatabase`. A restored phone normally has no cache file, because it is never backed up or transferred. This covers a cache left from using the app on this phone before the restore. It is safe after the commit: the restore leaves every source disabled, so no sync in another isolate can be filling the cache.
+  - **Never** clear the cache before the transaction or when the outcome is `normal`. Clearing it there would wipe a cache that the first guard's sync has already filled.
 - [ ] **Step 7: `AppLifecycle` and DI.**
   - `AppLifecycle` marks both databases' tables updated, on a resume and on the background-sync signal.
   - `AppLifecycle` checkpoints only `tminus.sqlite` on pause, because only it is backed up.
@@ -332,7 +335,9 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - `running the schema 3 step twice changes nothing`: the second-isolate case of the `from < 2` step, repeated for the new step.
   - `deleting a source deletes its cached meetings` (`source_admin_test.dart`).
   - `choosing another calendar clears the old calendar's meetings` (the existing test, kept green with the new order).
-  - `a restore clears the cache and then stores the id` (`restore_guard_test.dart`). Also: if the cache delete throws, the id is not stored.
+  - `a restore drops the legacy tables with the new install id` (`restore_guard_test.dart`): a schema-2 backup restored onto Plan 6 leaves no `legacy_*` table and an empty cache, and the move copies nothing.
+  - `a restore clears a cache left on this phone`.
+  - `a guard that finds the restore already done leaves the cache alone`: the second-isolate case, where the cache holds rows a sync wrote after the first guard committed.
   - `a resume refreshes the watchers of both databases` (`app_lifecycle_test.dart`).
   - The existing `BackupRulesTest` keeps passing unchanged. Task 4 adds the cache file assertion.
 - [ ] **Step 9:** Run the gates, then commit `Move the meeting cache into a database that is never backed up`.
@@ -394,17 +399,23 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
     - whatever WorkManager adds (`ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` for its own service).
   - Any `com.google.android.gms.permission.AD_ID` fails the task: Data safety and the policy say no advertising id.
   - `grep -n "firebase\|crashlytics\|analytics\|ads" pubspec.lock` → nothing.
-- [ ] **Step 6: 16 KB pages.**
+- [ ] **Step 6: 16 KB pages.** Run in Git Bash on the build machine. Tools:
+  - `zipalign` from Android SDK build-tools **35.0.0 or later** (older versions have no `-P`);
+  - the bundletool jar (from its GitHub releases);
+  - `llvm-readelf` from the NDK the build uses (`$ANDROID_HOME/ndk/<version>/toolchains/llvm/prebuilt/windows-x86_64/bin/`).
+
+  Work in a scratch folder outside the repo:
   ```bash
-  bundletool build-apks --bundle=build/app/outputs/bundle/release/app-release.aab --output=/tmp/tminus.apks --mode=universal
-  unzip -o /tmp/tminus.apks universal.apk -d /tmp/tminus && zipalign -c -P 16 -v 4 /tmp/tminus/universal.apk | tail -3
-  for so in $(unzip -l /tmp/tminus/universal.apk | awk '/arm64-v8a.*\.so$/{print $4}'); do unzip -p /tmp/tminus/universal.apk "$so" > /tmp/lib.so; echo "$so $(llvm-readelf -l /tmp/lib.so | awk '/LOAD/{print $NF}' | sort -u | tr '\n' ' ')"; done
+  S=$(mktemp -d)
+  java -jar bundletool.jar build-apks --bundle=build/app/outputs/bundle/release/app-release.aab --output="$S/tminus.apks" --mode=universal
+  unzip -o "$S/tminus.apks" universal.apk -d "$S" && zipalign -c -P 16 -v 4 "$S/universal.apk" | tail -3
+  for so in $(unzip -l "$S/universal.apk" | awk '/arm64-v8a.*\.so$/{print $4}'); do unzip -p "$S/universal.apk" "$so" > "$S/lib.so"; echo "$so $(llvm-readelf -l "$S/lib.so" | awk '/LOAD/{print $NF}' | sort -u | tr '\n' ' ')"; done
   ```
   Expected: `Verification successful`, and every arm64 `.so` (Flutter's engine, `libapp.so` and sqlite3's library) has LOAD alignment `0x4000` or more. Any library at `0x1000` blocks the upload. Record its package and version, and fix it by upgrading within the repo's pins, or stop and ask.
 - [ ] **Step 7: Release smoke test on the API 36 emulator** (decision 14: R8 is on). `adb uninstall io.github.fifothehein.tminus`, `adb install build/app/outputs/flutter-apk/app-release.apk`. Then:
-  1. onboarding with the demo feed `https://fifothehein.github.io/tminus/play/demo.ics` (Task 5 must be on `main` and Pages rebuilt, or use the stub);
+  1. onboarding with the demo feed. Until Task 5's docs are on `main` (Task 5 Step 8), use the branch's raw file: `https://raw.githubusercontent.com/FifoTheHein/tminus/<branch>/docs/play/demo.ics`. The repo is public, so this is https and needs no token. After that, use `https://fifothehein.github.io/tminus/play/demo.ics`;
   2. the test alarm rings full screen and stops;
-  3. a fast-alarms style check is not available in release, so **Sync now** must run and Health must show it in the sync log;
+  3. **Sync now** runs, and Health's sync log shows it;
   4. `adb shell cmd jobscheduler run -f io.github.fifothehein.tminus <job id>`, or wait for the periodic sync: a headless sync runs (`HeadlessFlutterRunner` log line, Health's sync log);
   5. the Mute today tile toggles;
   6. `adb reboot`: after the reboot, Health's upcoming alarms are still listed.
@@ -499,6 +510,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
   - `a failed open shows the snackbar`.
   - `test/no_em_dash_test.dart` stays green.
 - [ ] **Step 7:** Run the gates, then commit `Publish the privacy policy and a demo feed, and link the policy in the app`.
+- [ ] **Step 8: Put the two pages online early**, once **both Task 5 and Task 3 are committed**. The policy says the meeting cache is never backed up, which becomes true only with Task 3. Open a small PR to `main` containing only `docs/privacy.md`, `docs/play/demo.ics` and the `docs/index.md` link, and merge it. Then check that `https://fifothehein.github.io/tminus/privacy/` and `…/play/demo.ics` load, and that the feed downloads as `text/calendar`. Merge the plan branch with `main` afterwards; the files are identical, so there is no conflict. The app code stays on the plan branch until Task 13's PR.
 
 ### Task 6: Say when a phone calendar stops syncing
 
@@ -600,7 +612,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
     - 4 to 8 phone screenshots from Task 9, at 1080 × 2400 or the emulator's native size, which Play accepts.
 - [ ] **Step 2: `docs/play/declarations.md`.** One section per Play Console App content item, each with the answer to enter and why:
   - **Privacy policy:** `https://fifothehein.github.io/tminus/privacy/`.
-  - **App access:** "All or some functionality is restricted". Instructions: "Open the app, tap Get started, choose Add a published link, paste `https://fifothehein.github.io/tminus/play/demo.ics`, tap Check, then Add calendar. Allow notifications. A demo meeting starts every two hours; Health → Upcoming alarms lists them, and the onboarding test alarm rings within seconds."
+  - **App access:** "All or some functionality is restricted". Instructions: "Open the app, tap Get started, choose Add a published link, paste `https://fifothehein.github.io/tminus/play/demo.ics`, tap Check, then Add calendar. Allow notifications. A demo meeting starts every two hours; Health → Upcoming alarms lists them, and the onboarding test alarm rings within seconds. With the default profile, each demo meeting rings a heads-up 10 minutes before it and a full-screen alarm 1 minute before it, so the phone rings every two hours. To stop it, use Mute today (Agenda header or the quick-settings tile), or remove the calendar in Sources."
   - **Ads:** No.
   - **Content rating:** the IARC questionnaire. Category Utility/Productivity. No violence, sexual content, language, drugs or gambling. No user interaction between users, no sharing of location, no purchases.
   - **Target audience:** 18 and over, not designed for children, so no Families policy applies.
@@ -644,7 +656,7 @@ Kotlin and Gradle work is in Waves 1, 2 and 3, one task per wave, so only one Gr
 ### Task 10 (user, with a review-worker first): Upload and declarations
 
 - [ ] **Step 1: Review first.** A `review-worker` reads `docs/privacy.md`, `listing.md` and `declarations.md` against the code at `HEAD`, sentence by sentence (Review Focus 3). For example: the backup contents against `data_extraction_rules.xml`, `backup_rules.xml` and the tables in `tminus.sqlite`; the permission table against Task 4's merged manifest; the "no crash reporting" claim against `pubspec.lock`. Every false or unprovable sentence is fixed before Step 2.
-- [ ] **Step 2:** Merge the plan's branch so far into `main`, so Pages serves `privacy/` and `play/demo.ics`. Check both URLs in a browser, and that the demo feed downloads as `text/calendar`.
+- [ ] **Step 2:** Check that Task 5 Step 8's pages are live: the policy and the demo feed load in a browser, and the policy is the version the reviewer approved in Step 1. If Step 1 changed the policy, publish the change the same way: a small docs-only PR to `main`.
 - [ ] **Step 3: Store listing.** Enter Task 8's copy and graphics, and Task 9's screenshots.
 - [ ] **Step 4: Upload.** Testing → Internal testing → Create release:
   - Accept Play App Signing (Google holds the app signing key; ours is the upload key).
@@ -693,7 +705,9 @@ On system images for **API 26, 30, 33, 35 and 36** (create the AVDs if missing; 
 - [ ] **Step 6: Boot window** (decision 9). An alarm due within 30 s of a reboot: record whether it rang at once or 30 s later.
 - [ ] **Step 7: Full-screen intent.** Health shows full-screen alerts allowed. If Play has not approved the declaration yet and Android 14+ shows it off, Health's fix opens the setting. Record which.
 - [ ] **Step 8: Backup without the cache** (Plan 5 decision 47).
-  - `adb shell bmgr backupnow io.github.fifothehein.tminus`, then uninstall and reinstall from Play (restore runs on install).
+  - `adb shell bmgr enable true`, then `adb shell bmgr list transports`. The Google transport (`com.google.android.gms/.backup.BackupTransportService`) must be the selected one: Settings → Google → Backup on, with the phone signed in.
+  - `adb shell bmgr backupnow io.github.fifothehein.tminus`. The output must end with `Backup finished with result: Success`.
+  - Uninstall, then reinstall from Play (restore runs on install).
   - Expected: profiles, rules and source names are back. Every feed shows **needs link** and every phone calendar **needs calendar**. The Agenda is empty until a calendar is set up, and Health's history is empty.
   - `adb shell run-as` cannot read a release build, so check with the app only.
 - [ ] **Step 9: Device transfer** (`is_device_transfer`, not run in Plan 5), if a second phone is at hand: Smart Switch or Google's transfer to the second phone. Same expectations as Step 8.

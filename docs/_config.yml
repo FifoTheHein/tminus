@@ -1,0 +1,12 @@
+# GitHub Pages builds docs/ as the site. Only the home page, the privacy policy
+# and the demo feed are public, so every other path is kept out of the site.
+exclude:
+  - design
+  - design-brief.md
+  - play/declarations.md
+  - play/feature-graphic.png
+  - play/icon-512.png
+  - play/listing.md
+  - play/release.md
+  - play/screenshots
+  - superpowers

@@ -898,6 +898,33 @@ void main() {
     await h.dispose(t);
   });
 
+  testWidgets('a sync-log row written while the detail is open updates its '
+      'problem card', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      location: '/sources/ics-1',
+      seed: (h) => _seedFailing(icsSource(), outcome: SyncOutcome.httpError),
+    );
+    expect(find.text('Link no longer works'), findsOneWidget);
+
+    // The sync log is in the cache database (Plan 6 decision 4), so a sync's
+    // row reaches the open screen through that database's own updates.
+    await getIt<SyncLogRepository>().add(
+      SyncLogEntry(
+        sourceId: 'ics-1',
+        atUtc: DateTime.utc(2026, 10, 6, 7, 25),
+        outcome: SyncOutcome.networkError,
+        message: 'Could not reach the calendar.',
+      ),
+    );
+    await t.pumpAndSettle();
+
+    expect(find.text("Can't reach the calendar"), findsOneWidget);
+    expect(find.text('Link no longer works'), findsNothing);
+    await h.dispose(t);
+  });
+
   testWidgets('Sync now reports this source\'s failure message', (t) async {
     tallScreen(t);
     const message =

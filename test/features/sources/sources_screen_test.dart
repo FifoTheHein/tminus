@@ -6,6 +6,7 @@ import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/profile_repository.dart';
 import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
@@ -377,17 +378,25 @@ void main() {
 
   group('SourcesController', () {
     late AppDatabase db;
-    setUp(() => db = openTestDatabase());
-    tearDown(() => db.close());
+    late CacheDatabase cacheDb;
+    setUp(() {
+      db = openTestDatabase();
+      cacheDb = openTestCacheDatabase();
+    });
+    tearDown(() async {
+      await db.close();
+      await cacheDb.close();
+    });
 
     SourcesController controller({bool showDebug = false}) {
       final settings = SettingsRepository(db);
       final appSettings = AppSettings(settings);
       return SourcesController(
         db: db,
+        cache: cacheDb,
         statuses: SourceStatusLoader(
           sources: SourceRepository(db),
-          syncLog: SyncLogRepository(db),
+          syncLog: SyncLogRepository(cacheDb),
           appSettings: appSettings,
         ),
         appSettings: appSettings,
@@ -422,6 +431,26 @@ void main() {
       expect(await idsOf(debug), ['debug-fast', 'ics-1']);
     });
 
+    test('a sync-log row in the cache database reloads the list', () async {
+      // The sync log is in its own database (Plan 6 decision 4), so a sync's
+      // rows reach the list through that database's updates.
+      await SourceRepository(db).save(icsSource());
+      final c = controller()..start();
+      addTearDown(c.dispose);
+      await waitUntil(() => c.items != null);
+      expect(c.items!.single.status.latest, isNull);
+
+      await SyncLogRepository(cacheDb).add(
+        SyncLogEntry(
+          sourceId: 'ics-1',
+          atUtc: DateTime.utc(2026, 10, 6, 6),
+          outcome: SyncOutcome.success,
+        ),
+      );
+
+      await waitUntil(() => c.items!.single.status.latest != null);
+    });
+
     test('a restore marker with nothing left to set up is cleared', () async {
       // A restored database that held no calendars: the banner has nothing to
       // ask for.
@@ -444,9 +473,10 @@ void main() {
       final appSettings = AppSettings(settings);
       final c = SourcesController(
         db: db,
+        cache: cacheDb,
         statuses: _RestoreLandsAfterRead(
           sources: SourceRepository(db),
-          syncLog: SyncLogRepository(db),
+          syncLog: SyncLogRepository(cacheDb),
           appSettings: appSettings,
         ),
         appSettings: appSettings,

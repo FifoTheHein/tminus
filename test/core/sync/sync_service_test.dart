@@ -21,6 +21,8 @@ import 'package:tminus/core/sources/ics_feed_source.dart';
 import 'package:tminus/core/sources/source_secrets.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
+import 'package:tminus/core/storage/cache_value_repository.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
@@ -89,11 +91,13 @@ void main() {
   // 06:00 UTC on 6 Oct 2026; the work meeting starts at 08:00.
   late DateTime now;
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late OccurrenceRepository cache;
   late MeetingLinkRepository links;
   late AlertHistoryRepository history;
   late SyncLogRepository log;
+  late CacheValueRepository cacheValues;
   late SettingsRepository settings;
   late SyncService sync;
   late Map<String, SourceResult Function()> results;
@@ -142,6 +146,7 @@ void main() {
       links: links,
       history: history,
       syncLog: log,
+      cacheValues: cacheValues,
       settings: settings,
       ruleSets: RuleSetLoader(
         profiles: ProfileRepository(db),
@@ -175,11 +180,13 @@ void main() {
     initZones();
     now = DateTime.utc(2026, 10, 6, 6);
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
-    cache = OccurrenceRepository(db);
+    cache = OccurrenceRepository(cacheDb);
     links = MeetingLinkRepository(db);
-    history = AlertHistoryRepository(db);
-    log = SyncLogRepository(db);
+    history = AlertHistoryRepository(cacheDb);
+    log = SyncLogRepository(cacheDb);
+    cacheValues = CacheValueRepository(cacheDb);
     settings = SettingsRepository(db);
     await sources.save(work);
     results = {
@@ -226,6 +233,7 @@ void main() {
     messenger.setMockMethodCallHandler(syncChannel, null);
     tz.setLocalLocation(tz.UTC);
     await db.close();
+    await cacheDb.close();
   });
 
   test('a sync caches, plans, applies, schedules and logs', () async {
@@ -590,7 +598,7 @@ void main() {
     final run = (await log.recent()).firstWhere((e) => e.sourceId == null);
     expect(run.outcome, SyncOutcome.otherError);
     expect(run.message, contains('applyPlan failed (engine_error)'));
-    expect(await settings.getString(SyncService.expectedKey), '[]');
+    expect(await cacheValues.getString(SyncService.expectedKey), '[]');
   });
 
   test('an armed alert with no fired record becomes missed (system)', () async {
@@ -749,6 +757,13 @@ void main() {
     results[phone.id] = () => SourceFetched([phoneCopy]);
   }
 
+  /// What `SourceAdmin.delete` does to the data: the row, then the cached
+  /// copies, which no foreign key reaches since the cache is its own database.
+  Future<void> removeSource(String id) async {
+    await sources.delete(id);
+    await cache.deleteForSource(id);
+  }
+
   int utcMs(int hour, int minute) =>
       DateTime.utc(2026, 10, 6, hour, minute).millisecondsSinceEpoch;
 
@@ -771,8 +786,32 @@ void main() {
 
   Future<List<ExpectedAlert>> expectedAlerts() async =>
       MissedSystemDetector.decode(
-        await settings.getString(SyncService.expectedKey),
+        await cacheValues.getString(SyncService.expectedKey),
       );
+
+  test(
+    'the expected alerts are kept in the cache, not in the backed-up settings',
+    () async {
+      await sync.run(SyncTrigger.periodic); // arms 07:50 and 07:59
+
+      // The alerts carry the meeting's title, so the file that is backed up
+      // (the main database) must hold it nowhere.
+      expect(
+        await tablesHolding(db, meeting.title),
+        isEmpty,
+        reason: 'the main database is backed up',
+      );
+      expect(await settings.getString(SyncService.expectedKey), isNull);
+      // They are in the cache database, and the next sync reads them there.
+      final expected = await expectedAlerts();
+      expect(expected.map((e) => e.title).toSet(), {meeting.title});
+      expect(expected, hasLength(2));
+      expect(
+        await tablesHolding(cacheDb, meeting.title),
+        contains('cache_values'),
+      );
+    },
+  );
 
   test('a single source merges nothing and logs no merged count', () async {
     final report = await sync.run(SyncTrigger.periodic);
@@ -825,7 +864,7 @@ void main() {
 
       // The source's cached copy goes with it, but its links stay: they do not
       // point at the sources table.
-      await sources.delete(phone.id);
+      await removeSource(phone.id);
       final report = await sync.run(SyncTrigger.periodic);
 
       expect(await cache.byKey(phoneCopy.key), isNull);
@@ -859,7 +898,7 @@ void main() {
       // The feed's copy is alone now. It is planned under the meeting key,
       // which is the one the dismissal was recorded for: under its own key it
       // would ring again.
-      await sources.delete(phone.id);
+      await removeSource(phone.id);
       await sync.run(SyncTrigger.periodic);
       expect(applied(), isEmpty);
     },
@@ -972,7 +1011,7 @@ void main() {
     // The phone calendar goes, so the feed decides the time of the meeting,
     // which is still planned under the key it had. The feed then fails, 70 min
     // after its last success, with the heads-up due in 40 min.
-    await sources.delete(phone.id);
+    await removeSource(phone.id);
     now = DateTime.utc(2026, 10, 6, 7, 10);
     results['work'] = () =>
         const SourceFailed(SyncOutcome.networkError, 'offline');
@@ -1071,7 +1110,7 @@ void main() {
 
       // The phone calendar goes before either alert is due. The meeting keeps
       // its key, so the alerts the engine holds are the ones still expected.
-      await sources.delete(phone.id);
+      await removeSource(phone.id);
       now = DateTime.utc(2026, 10, 6, 6, 30);
       final split = await sync.run(SyncTrigger.periodic);
       expect(split.missedSystem, 0);
@@ -1472,9 +1511,9 @@ END:VCALENDAR
       await bothAsked.future;
 
       // Both are removed while they fetch, as SourceAdmin.delete does it: the
-      // row (its cached events go with it) and the stored body.
+      // row, its cached events and the stored body.
       for (final id in ['work', 'team']) {
-        await sources.delete(id);
+        await removeSource(id);
         await bodies.delete(id);
       }
       answers['work.example']!.complete(http.Response(feed, 200));

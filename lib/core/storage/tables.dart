@@ -1,12 +1,9 @@
 import 'package:drift/drift.dart';
 
-import '../model/alert_history_entry.dart';
-import '../model/event_occurrence.dart';
 import '../model/event_override.dart';
 import '../model/keyword_rule.dart';
 import '../model/meeting_link.dart';
 import '../model/source_config.dart';
-import '../model/sync_log_entry.dart';
 
 // Conventions for every table:
 // - Instants are INTEGER milliseconds since the epoch, UTC, in columns ending
@@ -18,6 +15,10 @@ import '../model/sync_log_entry.dart';
 // - Indexes are `CREATE INDEX IF NOT EXISTS`, like drift's tables, so two
 //   connections opening a new file at once both finish `onCreate`
 //   (decision 14).
+//
+// The occurrence cache, the alert history and the sync log are not here: since
+// schema 3 they live in `cache_tables.dart`, in a second database that is never
+// backed up (Plan 6 decision 4).
 
 /// Configured calendar sources (spec §5). Never stores an ICS URL; only the
 /// key under which Plan 4 keeps it in flutter_secure_storage.
@@ -40,46 +41,6 @@ class Sources extends Table {
 
   @override
   Set<Column<Object>> get primaryKey => {id};
-}
-
-/// The occurrence cache: the latest good fetch per source (spec §5).
-@DataClassName('OccurrenceRow')
-@TableIndex.sql(
-  'CREATE INDEX IF NOT EXISTS occurrences_start ON occurrences (start_utc_ms)',
-)
-@TableIndex.sql(
-  'CREATE INDEX IF NOT EXISTS occurrences_source ON occurrences (source_id)',
-)
-class Occurrences extends Table {
-  TextColumn get occurrenceKey => text()();
-  TextColumn get sourceId =>
-      text().references(Sources, #id, onDelete: KeyAction.cascade)();
-  TextColumn get uid => text()();
-  IntColumn get originalStartUtcMs => integer()();
-  TextColumn get seriesUid => text().nullable()();
-  TextColumn get title => text()();
-  TextColumn get location => text().nullable()();
-  TextColumn get organizer => text().nullable()();
-  TextColumn get description => text().nullable()();
-  TextColumn get joinUrl => text().nullable()();
-  IntColumn get startUtcMs => integer()();
-  IntColumn get endUtcMs => integer()();
-  BoolColumn get allDay => boolean()();
-  TextColumn get busyStatus => textEnum<BusyStatus>()();
-  BoolColumn get declined => boolean()();
-  BoolColumn get cancelled => boolean()();
-  IntColumn get calendarColor => integer()();
-
-  /// Comma-separated [OccurrenceWarning] names; empty for none.
-  TextColumn get warnings => text().withDefault(const Constant(''))();
-
-  /// The event's iCalendar UID where the source has one; null otherwise and
-  /// for rows cached before schema 2. Declared last, because a column added
-  /// by a migration is appended to the table.
-  TextColumn get icalUid => text().nullable()();
-
-  @override
-  Set<Column<Object>> get primaryKey => {occurrenceKey};
 }
 
 /// Per-occurrence and per-series overrides (spec §5). One row per target.
@@ -156,54 +117,6 @@ class QuietStates extends Table {
 
   @override
   Set<Column<Object>> get primaryKey => {id};
-}
-
-/// Engine events drained from Kotlin (spec §7), plus `missedSystem` rows
-/// Plan 4 adds. De-duplicated on (type, alertId, atUtcMs) (roadmap §3).
-@DataClassName('AlertHistoryRow')
-@TableIndex.sql(
-  'CREATE INDEX IF NOT EXISTS alert_history_start '
-  'ON alert_history (start_utc_ms)',
-)
-class AlertHistory extends Table {
-  @override
-  String get tableName => 'alert_history';
-
-  IntColumn get id => integer().autoIncrement()();
-  TextColumn get type => textEnum<AlertEventType>()();
-  TextColumn get alertId => text()();
-  TextColumn get occurrenceKey => text()();
-  IntColumn get startUtcMs => integer()();
-  IntColumn get atUtcMs => integer()();
-  IntColumn get snoozeUntilUtcMs => integer().nullable()();
-
-  /// Event title at the time, so Health's timeline survives cache pruning.
-  TextColumn get title => text().nullable()();
-
-  @override
-  List<Set<Column<Object>>> get uniqueKeys => [
-    {type, alertId, atUtcMs},
-  ];
-}
-
-/// One row per source per sync attempt (spec §5, §9).
-@DataClassName('SyncLogRow')
-@TableIndex.sql(
-  'CREATE INDEX IF NOT EXISTS sync_log_at ON sync_log (at_utc_ms)',
-)
-class SyncLog extends Table {
-  @override
-  String get tableName => 'sync_log';
-
-  IntColumn get id => integer().autoIncrement()();
-
-  /// Null for a whole-run entry (e.g. "applyPlan failed").
-  TextColumn get sourceId => text().nullable()();
-  IntColumn get atUtcMs => integer()();
-  TextColumn get outcome => textEnum<SyncOutcome>()();
-  TextColumn get message => text().nullable()();
-  IntColumn get occurrenceCount => integer().nullable()();
-  IntColumn get durationMs => integer().nullable()();
 }
 
 /// Small key/value settings: skip filters (JSON), global default profile id,

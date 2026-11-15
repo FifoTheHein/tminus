@@ -21,6 +21,7 @@ import '../../core/sources/source_admin.dart';
 import '../../core/sources/source_secrets.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/app_settings.dart';
+import '../../core/storage/cache_database.dart';
 import '../../core/storage/profile_repository.dart';
 import '../../core/storage/settings_repository.dart';
 import '../../core/sync/source_status.dart';
@@ -55,6 +56,7 @@ class SourceDetailController extends ChangeNotifier {
   SourceDetailController({
     required this.sourceId,
     required this.db,
+    required this.cache,
     required this.statuses,
     required this.profiles,
     required this.settings,
@@ -68,6 +70,10 @@ class SourceDetailController extends ChangeNotifier {
 
   final String sourceId;
   final AppDatabase db;
+
+  /// The sync log is in the cache database: its writes reach this controller
+  /// only through that database's own updates.
+  final CacheDatabase cache;
   final SourceStatusLoader statuses;
   final ProfileRepository profiles;
   final SettingsRepository settings;
@@ -104,6 +110,7 @@ class SourceDetailController extends ChangeNotifier {
   /// have changed them, not on every database write.
   bool _extrasStale = true;
   StreamSubscription<Object?>? _updates;
+  StreamSubscription<Object?>? _cacheUpdates;
 
   /// Null until loaded, and when the source does not exist.
   SourceStatus? get status => _status;
@@ -133,6 +140,7 @@ class SourceDetailController extends ChangeNotifier {
 
   void start() {
     _updates ??= db.tableUpdates().listen((_) => unawaited(reload()));
+    _cacheUpdates ??= cache.tableUpdates().listen((_) => unawaited(reload()));
     unawaited(reload());
   }
 
@@ -367,6 +375,8 @@ class SourceDetailController extends ChangeNotifier {
     _disposed = true;
     unawaited(_updates?.cancel());
     _updates = null;
+    unawaited(_cacheUpdates?.cancel());
+    _cacheUpdates = null;
     super.dispose();
   }
 }
@@ -405,6 +415,7 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
     return SourceDetailController(
         sourceId: widget.sourceId,
         db: getIt(),
+        cache: getIt(),
         statuses: getIt(),
         profiles: getIt(),
         settings: getIt(),

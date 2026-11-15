@@ -18,6 +18,7 @@ import 'package:tminus/core/sources/source_factory.dart';
 import 'package:tminus/core/sources/source_secrets.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
@@ -43,6 +44,16 @@ class _UndeletableSecrets extends SourceSecrets {
 
 /// A source table that cannot save a row, as after a full disk or a locked
 /// database. The error names a link, to prove it is never logged.
+/// A cache whose delete throws an `Error`, not an `Exception`, with a message
+/// that names a link.
+class _CacheThatThrows extends OccurrenceRepository {
+  _CacheThatThrows(super.db);
+
+  @override
+  Future<int> deleteForSource(String sourceId) =>
+      throw StateError('No delete for $_secretUrl');
+}
+
 class _SaveFails extends SourceRepository {
   _SaveFails(super.db);
 
@@ -74,6 +85,7 @@ void main() {
   const syncChannel = MethodChannel(SyncPlatform.channelName);
   final syncCalls = <MethodCall>[];
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late SettingsRepository settings;
   late Directory dir;
@@ -88,6 +100,7 @@ void main() {
       return null;
     });
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
     settings = SettingsRepository(db);
     dir = await Directory.systemTemp.createTemp('feeds');
@@ -98,7 +111,7 @@ void main() {
       bodies: bodies,
       platform: SyncPlatform(),
       settings: settings,
-      occurrences: OccurrenceRepository(db),
+      occurrences: OccurrenceRepository(cacheDb),
       db: db,
     );
   });
@@ -107,10 +120,18 @@ void main() {
     syncCalls.clear();
     messenger.setMockMethodCallHandler(syncChannel, null);
     await db.close();
+    await cacheDb.close();
     await dir.delete(recursive: true);
   });
 
   group('SourceAdmin', () {
+    Future<SourceConfig> addWorkNamed(String name) async =>
+        (await admin.addIcsSource(
+          name: name,
+          color: blue,
+          url: 'https://${name.toLowerCase()}.example/a.ics',
+        )).source;
+
     test(
       'an ICS source keeps its link in secure storage, not in drift',
       () async {
@@ -163,7 +184,7 @@ void main() {
           bodies: bodies,
           platform: SyncPlatform(),
           settings: settings,
-          occurrences: OccurrenceRepository(db),
+          occurrences: OccurrenceRepository(cacheDb),
           db: db,
         );
 
@@ -298,13 +319,37 @@ void main() {
       },
     );
 
+    test('deleting a source deletes its cached meetings', () async {
+      final gone = await addWorkNamed('Gone');
+      final kept = await addWorkNamed('Kept');
+      final cache = OccurrenceRepository(cacheDb);
+      await cache.replaceForSource(gone.id, [occ(sourceId: gone.id)]);
+      await cache.replaceForSource(kept.id, [occ(sourceId: kept.id)]);
+
+      await admin.delete(gone.id);
+
+      expect(await cache.countForSource(gone.id), 0);
+      expect(await cache.countForSource(kept.id), 1);
+    });
+
+    test('a delete can leave the cached meetings to its caller', () async {
+      final s = await addWorkNamed('W');
+      final cache = OccurrenceRepository(cacheDb);
+      await cache.replaceForSource(s.id, [occ(sourceId: s.id)]);
+
+      await admin.delete(s.id, clearCache: false);
+
+      expect(await sources.byId(s.id), isNull);
+      expect(await cache.countForSource(s.id), 1);
+    });
+
     test('delete removes the row, its occurrences, its link, its body and its notices', () async {
       final s = (await admin.addIcsSource(
         name: 'W',
         color: blue,
         url: 'https://a.example/a.ics',
       )).source;
-      await OccurrenceRepository(db)
+      await OccurrenceRepository(cacheDb)
           .replaceForSource(s.id, [occ(sourceId: s.id)]);
       await bodies.write(s.id, 'body');
       final since = SyncService.serverErrorSinceKey(s.id);
@@ -315,7 +360,7 @@ void main() {
       await admin.delete(s.id);
 
       expect(await sources.byId(s.id), isNull);
-      expect(await OccurrenceRepository(db).countForSource(s.id), 0);
+      expect(await OccurrenceRepository(cacheDb).countForSource(s.id), 0);
       expect(await secrets.readUrl(s.secureStorageKey!), isNull);
       expect(await bodies.read(s.id), isNull);
       expect(await settings.getString(since), isEmpty);
@@ -341,7 +386,7 @@ void main() {
           bodies: bodies,
           platform: SyncPlatform(),
           settings: settings,
-          occurrences: OccurrenceRepository(db),
+          occurrences: OccurrenceRepository(cacheDb),
           db: db,
         );
         final s = (await failing.addIcsSource(
@@ -380,6 +425,38 @@ void main() {
         expect(logged.join('\n'), isNot(contains('s3cr3t')));
       },
     );
+
+    test('a cache that throws still lets the removal delete the link', () async {
+      final failing = SourceAdmin(
+        sources: sources,
+        secrets: secrets,
+        bodies: bodies,
+        platform: SyncPlatform(),
+        settings: settings,
+        occurrences: _CacheThatThrows(cacheDb),
+        db: db,
+      );
+      final s = (await failing.addIcsSource(
+        name: 'W',
+        color: blue,
+        url: _secretUrl,
+      )).source;
+      await bodies.write(s.id, 'body');
+      final logged = <String>[];
+      final realDebugPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => logged.add(message ?? '');
+      addTearDown(() => debugPrint = realDebugPrint);
+
+      // The cache's failure does not escape, and the secrets were not skipped.
+      await failing.delete(s.id);
+
+      expect(await sources.byId(s.id), isNull);
+      expect(await secrets.readUrl(s.secureStorageKey!), isNull);
+      expect(await bodies.read(s.id), isNull);
+      // Logged by its type; its message names the link.
+      expect(logged.join('\n'), contains('StateError'));
+      expect(logged.join('\n'), isNot(contains('s3cr3t')));
+    });
 
     Future<SourceConfig> addWork() async => (await admin.addIcsSource(
       name: 'W',
@@ -423,7 +500,7 @@ void main() {
 
     test("choosing a calendar sets its id, enables the source, clears the marker, the old error and the old calendar's cached events", () async {
       final app = AppSettings(settings);
-      final cache = OccurrenceRepository(db);
+      final cache = OccurrenceRepository(cacheDb);
       final withCache = SourceAdmin(
         sources: sources,
         secrets: secrets,
@@ -550,62 +627,69 @@ void main() {
       );
     });
 
-    test('choosing a calendar changes nothing when the marker cannot be cleared', () async {
-      final app = AppSettings(settings);
-      final cache = OccurrenceRepository(db);
-      const old = DeviceCalendar(
-        id: '3',
-        name: 'Work',
-        color: 0xFF33AA66,
-        visible: true,
-      );
-      const picked = DeviceCalendar(
-        id: '7',
-        name: 'Calendar',
-        color: 0xFF112233,
-        visible: true,
-      );
-      final s = await admin.addDeviceSource(calendar: old, name: 'Phone');
-      // As after a restore: switched off and waiting for a calendar, with the
-      // old phone's error and cached events still on it.
-      await sources.save(s.copyWith(enabled: false));
-      await app.setSourceSetup(s.id, SourceSetup.needsCalendar);
-      await sources.updateSyncState(
-        s.id,
-        SourceSyncState(
-          lastSuccessUtc: DateTime.utc(2026, 10, 6, 7),
-          lastError: 'The calendar on this phone is gone.',
-          emptyStreak: 2,
-        ),
-      );
-      await cache.replaceForSource(s.id, [occ(sourceId: s.id)]);
-      final failing = SourceAdmin(
-        sources: sources,
-        secrets: secrets,
-        bodies: bodies,
-        platform: SyncPlatform(),
-        settings: _MarkerWriteFails(db, s.id),
-        occurrences: cache,
-        db: db,
-      );
+    test(
+      'choosing a calendar changes nothing when the marker cannot be cleared',
+      () async {
+        final app = AppSettings(settings);
+        final cache = OccurrenceRepository(cacheDb);
+        const old = DeviceCalendar(
+          id: '3',
+          name: 'Work',
+          color: 0xFF33AA66,
+          visible: true,
+        );
+        const picked = DeviceCalendar(
+          id: '7',
+          name: 'Calendar',
+          color: 0xFF112233,
+          visible: true,
+        );
+        final s = await admin.addDeviceSource(calendar: old, name: 'Phone');
+        // As after a restore: switched off and waiting for a calendar, with the
+        // old phone's error and cached events still on it.
+        await sources.save(s.copyWith(enabled: false));
+        await app.setSourceSetup(s.id, SourceSetup.needsCalendar);
+        await sources.updateSyncState(
+          s.id,
+          SourceSyncState(
+            lastSuccessUtc: DateTime.utc(2026, 10, 6, 7),
+            lastError: 'The calendar on this phone is gone.',
+            emptyStreak: 2,
+          ),
+        );
+        await cache.replaceForSource(s.id, [occ(sourceId: s.id)]);
+        final failing = SourceAdmin(
+          sources: sources,
+          secrets: secrets,
+          bodies: bodies,
+          platform: SyncPlatform(),
+          settings: _MarkerWriteFails(db, s.id),
+          occurrences: cache,
+          db: db,
+        );
 
-      // Every step before the marker works, and then clearing it fails.
-      await expectLater(
-        failing.updateDeviceCalendar(s.id, picked),
-        throwsStateError,
-      );
+        // Every step before the marker works, and then clearing it fails.
+        await expectLater(
+          failing.updateDeviceCalendar(s.id, picked),
+          throwsStateError,
+        );
 
-      // None of it stays: the source is not enabled with its marker still set.
-      final after = (await sources.byId(s.id))!;
-      expect((after.enabled, after.deviceCalendarId), (false, '3'));
-      expect(await app.sourceSetup(s.id), SourceSetup.needsCalendar);
-      final state = (await sources.syncState(s.id))!;
-      expect(
-        (state.lastError, state.emptyStreak),
-        ('The calendar on this phone is gone.', 2),
-      );
-      expect(await cache.countForSource(s.id), 1);
-    });
+        // None of the source's changes stays: it is not enabled with its marker
+        // still set.
+        final after = (await sources.byId(s.id))!;
+        expect((after.enabled, after.deviceCalendarId), (false, '3'));
+        expect(await app.sourceSetup(s.id), SourceSetup.needsCalendar);
+        final state = (await sources.syncState(s.id))!;
+        expect(
+          (state.lastError, state.emptyStreak),
+          ('The calendar on this phone is gone.', 2),
+        );
+        // The old calendar's events were cleared before the transaction, in
+        // another database, so they are not brought back. They plan nothing for
+        // the source until the next fetch refills them (Plan 6 decision 4).
+        expect(await cache.countForSource(s.id), 0);
+      },
+    );
 
     test('re-linking changes nothing but the link when the marker cannot be cleared', () async {
       final app = AppSettings(settings);
@@ -631,7 +715,7 @@ void main() {
         bodies: bodies,
         platform: SyncPlatform(),
         settings: _MarkerWriteFails(db, s.id),
-        occurrences: OccurrenceRepository(db),
+        occurrences: OccurrenceRepository(cacheDb),
         db: db,
       );
 
@@ -665,6 +749,7 @@ void main() {
         final fast = FastAlarms(
           sources: sources,
           settings: SettingsRepository(db),
+          cache: OccurrenceRepository(cacheDb),
         );
         final now = DateTime.utc(2026, 10, 6, 8, 0, 10, 500);
         await fast.create(now);
@@ -696,6 +781,23 @@ void main() {
         expect(await fast.occurrences(source), isEmpty);
       },
     );
+
+    test('clearing the fast alarms removes their cached events', () async {
+      final cache = OccurrenceRepository(cacheDb);
+      final fast = FastAlarms(
+        sources: sources,
+        settings: SettingsRepository(db),
+        cache: cache,
+      );
+      await fast.create(DateTime.utc(2026, 10, 6, 8));
+      await cache.replaceForSource(FastAlarms.sourceId, [
+        occ(sourceId: FastAlarms.sourceId, uid: 'fast-1'),
+      ]);
+
+      await fast.clear();
+
+      expect(await cache.countForSource(FastAlarms.sourceId), 0);
+    });
   });
 
   test('the factory builds the source type each kind needs', () {
@@ -707,6 +809,7 @@ void main() {
       fastAlarms: FastAlarms(
         sources: sources,
         settings: SettingsRepository(db),
+        cache: OccurrenceRepository(cacheDb),
       ),
     );
     SourceConfig config(SourceKind kind) =>

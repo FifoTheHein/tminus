@@ -6,6 +6,7 @@ import '../core/model/source_config.dart';
 import '../core/sources/source_admin.dart';
 import '../core/storage/app_database.dart';
 import '../core/storage/app_settings.dart';
+import '../core/storage/cache_database.dart';
 import '../core/storage/source_repository.dart';
 import '../core/sync/sync_platform.dart';
 
@@ -53,20 +54,34 @@ enum RestoreOutcome {
 /// ([unsafe]): onboarding done here since does not turn it into a first start.
 ///
 /// On a restore it clears what described the old phone: the occurrence cache,
-/// `alert_history`, `sync_log` and every `sync.*` setting. It deletes the debug
-/// source, disables every other source, marks it as needing its link or its
-/// calendar and forgets its sync state (last error, last success, validators,
-/// empty streak), sets `ui.restorePending`, clears `ui.onboardingDone` and
-/// stores the new id. Profiles, rules, overrides, meeting links, the quiet mode
-/// and every other setting (skip filters, default profile, theme, merge
-/// switch) stay.
+/// `alert_history`, `sync_log` and every `sync.*` setting. The three tables
+/// are in the cache database, which is never backed up (Plan 6 decision 4), so
+/// a backup holds them only as the `legacy_*` tables that a build before Plan 6
+/// left in the main database. The transaction drops those (and deletes the
+/// `sync.*` setting that held the expected alerts, now a cache value), and the
+/// cache database itself is emptied after it. It deletes the debug source,
+/// disables every other source, marks it as needing its link or its calendar
+/// and forgets its sync state (last error, last success, validators, empty
+/// streak), sets `ui.restorePending`, clears `ui.onboardingDone` and stores the
+/// new id. Profiles, rules, overrides, meeting links, the quiet mode and every
+/// other setting (skip filters, default profile, theme, merge switch) stay.
 ///
-/// The changes are made in one transaction with the new id last. A restore
-/// that fails leaves the database as it was (only the debug source, which is
-/// deleted first, is gone) and is reported as [RestoreOutcome.unsafe]. The next
-/// run tries it again: the next start, the next headless sync, or the next sync
-/// or re-plan the open app is asked for, which run the guard first while
-/// [unsafe] is set and do nothing until it reports anything else.
+/// The changes to the main database are made in one transaction with the new id
+/// last. A restore that fails leaves the database as it was (only the debug
+/// source, which is deleted first, is gone) and is reported as
+/// [RestoreOutcome.unsafe]. The next run tries it again: the next start, the
+/// next headless sync, or the next sync or re-plan the open app is asked for,
+/// which run the guard first while [unsafe] is set and do nothing until it
+/// reports anything else.
+///
+/// Nothing before that transaction may open the cache database. Opening it
+/// moves the legacy tables' rows into it (`LegacyCacheMove`), and a second
+/// isolate could then copy a restored backup's meetings into the cache after
+/// this guard has emptied it. So the debug source is removed without clearing
+/// its cached events (the `clearCache` argument of `SourceAdmin.delete`), and
+/// the cache is emptied only when this call has made the restore, after the
+/// transaction has committed. That is safe because a restore leaves every
+/// source disabled, so no sync in another isolate fills the cache again.
 ///
 /// The app's guard and a headless sync's can find the same restore together.
 /// The transaction therefore reads the id again before it changes anything:
@@ -76,6 +91,7 @@ enum RestoreOutcome {
 class RestoreGuard {
   RestoreGuard({
     required this.db,
+    required this.cache,
     required this.platform,
     required this.appSettings,
     required this.sources,
@@ -83,6 +99,10 @@ class RestoreGuard {
   });
 
   final AppDatabase db;
+
+  /// Only touched after the restore's transaction has committed, and only by
+  /// the call that made the restore (see above).
+  final CacheDatabase cache;
   final SyncPlatform platform;
   final AppSettings appSettings;
   final SourceRepository sources;
@@ -176,15 +196,20 @@ class RestoreGuard {
   /// [RestoreOutcome.restored] when this call made the database safe, and
   /// [RestoreOutcome.normal] when another guard had already finished.
   Future<RestoreOutcome> _makeSafe(String id) async {
-    // The debug source belongs to the old installation's debug panel.
+    // The debug source belongs to the old installation's debug panel. Its
+    // cached events are not removed here: that would open the cache database
+    // before the transaction below (see the class comment). The emptying of the
+    // cache after the transaction covers them.
     for (final s in await sources.all()) {
-      if (s.kind == SourceKind.debug) await admin.delete(s.id);
+      if (s.kind == SourceKind.debug) {
+        await admin.delete(s.id, clearCache: false);
+      }
     }
     // One transaction with the new id last, so a restore is done completely or
     // not at all: a stored id always means the database is safe, and a start
     // that failed half way would otherwise disable the sources again after the
     // user had set them up.
-    return db.transaction(() async {
+    final outcome = await db.transaction(() async {
       // The app's guard and a headless sync's can reach this point together.
       // The transaction takes the write lock as it starts, so the one that
       // comes second finds the first one's finished work here. Doing it again
@@ -192,9 +217,13 @@ class RestoreGuard {
       // the sync has filled in. The answer is the one a start gets when the id
       // already matches: this call did no restore, so it does not claim one.
       if (await appSettings.installId() == id) return RestoreOutcome.normal;
-      await db.delete(db.occurrences).go();
-      await db.delete(db.alertHistory).go();
-      await db.delete(db.syncLog).go();
+      // A backup made before Plan 6 holds the old phone's cached meetings in
+      // the tables that schema 3 set aside. They go in the same commit as the
+      // new id, so `CacheDatabase` finds nothing to move from them. A backup
+      // made since has no such tables.
+      await db.customStatement('DROP TABLE IF EXISTS legacy_occurrences');
+      await db.customStatement('DROP TABLE IF EXISTS legacy_alert_history');
+      await db.customStatement('DROP TABLE IF EXISTS legacy_sync_log');
       await (db.delete(db.settings)..where((s) => s.name.like('sync.%'))).go();
       for (final s in await sources.all()) {
         final setup = switch (s.kind) {
@@ -214,5 +243,30 @@ class RestoreGuard {
       await appSettings.setInstallId(id);
       return RestoreOutcome.restored;
     });
+    if (outcome == RestoreOutcome.restored) await _clearCache();
+    return outcome;
+  }
+
+  /// Empties the cache database: what it holds is no restore's to keep. A
+  /// restored phone normally has no such file, because it is never backed up or
+  /// transferred, but one that ran the app before the restore may have rows.
+  /// Only for the call that has just committed the restore. Never before the
+  /// transaction, and never when another guard did the restore: the cache then
+  /// holds what a sync wrote since.
+  ///
+  /// The restore has committed and made the database safe, so a failure here is
+  /// logged by type and does not make the outcome [RestoreOutcome.unsafe]: a
+  /// later run would find the new id and not come back to this.
+  Future<void> _clearCache() async {
+    try {
+      await cache.transaction(() async {
+        await cache.delete(cache.occurrences).go();
+        await cache.delete(cache.alertHistory).go();
+        await cache.delete(cache.syncLog).go();
+        await cache.delete(cache.cacheValues).go();
+      });
+    } catch (e) {
+      debugPrint('Emptying the cache after a restore failed: ${e.runtimeType}');
+    }
   }
 }

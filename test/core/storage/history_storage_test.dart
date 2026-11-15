@@ -3,13 +3,13 @@ import 'package:tminus/core/model/alert_history_entry.dart';
 import 'package:tminus/core/model/planned_alert.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
-import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/sync_log_repository.dart';
 
 import 'test_database.dart';
 
 void main() {
-  late AppDatabase db;
+  late CacheDatabase db;
   late AlertHistoryRepository history;
   late SyncLogRepository syncLog;
 
@@ -33,7 +33,7 @@ void main() {
   );
 
   setUp(() {
-    db = openTestDatabase();
+    db = openTestCacheDatabase();
     history = AlertHistoryRepository(db);
     syncLog = SyncLogRepository(db);
   });

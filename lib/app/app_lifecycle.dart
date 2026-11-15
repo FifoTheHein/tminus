@@ -4,16 +4,20 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import '../core/storage/app_database.dart';
+import '../core/storage/cache_database.dart';
 import '../core/sync/sync_platform.dart';
 import 'replan_scheduler.dart';
 
 /// Keeps the open UI current and the database safe to back up (Plan 5
 /// decisions 4 and 6).
 /// - drift tells watchers only about writes made in this isolate, so when a
-///   headless sync finishes, and on every resume, every table is marked as
-///   updated and each screen re-reads.
-/// - On pause a waiting re-plan runs, then a passive WAL checkpoint folds the
-///   log into the main file that backup copies.
+///   headless sync finishes, and on every resume, every table of both
+///   databases is marked as updated and each screen re-reads.
+/// - On pause a waiting re-plan runs, then a WAL checkpoint folds the log into
+///   the main file that backup copies and empties it (the log is backed up
+///   too, and its old frames would keep what was deleted). Only
+///   `tminus.sqlite` is backed up (Plan 6 decision 4), so the cache database is
+///   not checkpointed.
 ///
 /// The signal arrives through the `tminus_sync` channel's one method-call
 /// handler, which [SyncPlatform.backgroundSyncFinished] sets on its first
@@ -24,11 +28,13 @@ import 'replan_scheduler.dart';
 class AppLifecycle {
   AppLifecycle({
     required this.db,
+    required this.cache,
     required this.platform,
     required this.replan,
   });
 
   final AppDatabase db;
+  final CacheDatabase cache;
   final SyncPlatform platform;
   final ReplanScheduler replan;
   AppLifecycleListener? _listener;
@@ -44,16 +50,20 @@ class AppLifecycle {
     );
   }
 
-  /// Marks every table as updated, so every watcher reads again.
+  /// Marks every table of both databases as updated, so every watcher reads
+  /// again.
   Future<void> refresh() async {
     try {
       db.markTablesUpdated(db.allTables);
+      cache.markTablesUpdated(cache.allTables);
     } catch (e) {
       debugPrint('Refreshing the screens failed: ${e.runtimeType}');
     }
   }
 
-  /// Runs a waiting re-plan, then checkpoints the WAL. Never throws.
+  /// Runs a waiting re-plan, then checkpoints the WAL and empties it
+  /// (`AppDatabase.checkpoint`; a reader that keeps it from emptying the log is
+  /// no error). Never throws.
   Future<void> onPause() async {
     await replan.flush();
     try {

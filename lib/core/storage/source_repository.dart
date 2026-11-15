@@ -33,8 +33,10 @@ class SourceRepository {
         ),
       );
 
-  /// Deletes the source; its cached occurrences go with it (FK cascade).
-  /// Plan 4 deletes the ICS URL from secure storage.
+  /// Deletes the source row only. Its cached occurrences are in the cache
+  /// database, which has no foreign key to this table: `SourceAdmin.delete`
+  /// removes them with `OccurrenceRepository.deleteForSource`. Plan 4 deletes
+  /// the ICS URL from secure storage.
   Future<void> delete(String id) =>
       (_db.delete(_db.sources)..where((s) => s.id.equals(id))).go();
 

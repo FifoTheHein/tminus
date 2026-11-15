@@ -17,6 +17,8 @@ import 'package:tminus/core/sources/calendar_source.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
+import 'package:tminus/core/storage/cache_value_repository.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
@@ -74,6 +76,7 @@ void main() {
   );
 
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late OccurrenceRepository cache;
   late AlertHistoryRepository history;
@@ -127,10 +130,11 @@ void main() {
   setUp(() {
     initZones();
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
-    cache = OccurrenceRepository(db);
-    history = AlertHistoryRepository(db);
-    syncLog = SyncLogRepository(db);
+    cache = OccurrenceRepository(cacheDb);
+    history = AlertHistoryRepository(cacheDb);
+    syncLog = SyncLogRepository(cacheDb);
     settings = SettingsRepository(db);
     appSettings = AppSettings(settings);
     ruleSets = RuleSetLoader(
@@ -163,7 +167,10 @@ void main() {
     );
   });
 
-  tearDown(() => db.close());
+  tearDown(() async {
+    await db.close();
+    await cacheDb.close();
+  });
 
   test('the agenda shows the alerts the sync planned', () async {
     const engineChannel = MethodChannel(AlarmEngine.methodChannelName);
@@ -204,6 +211,7 @@ void main() {
       links: MeetingLinkRepository(db),
       history: history,
       syncLog: syncLog,
+      cacheValues: CacheValueRepository(cacheDb),
       settings: settings,
       ruleSets: ruleSets,
       rulesEngine: rulesEngine,

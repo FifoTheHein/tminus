@@ -1,3 +1,14 @@
+import 'package:drift/drift.dart'
+    show
+        ApplyInterceptorConnection,
+        DatabaseConnection,
+        QueryExecutor,
+        QueryExecutorUser,
+        QueryInterceptor,
+        TransactionExecutor,
+        driftRuntimeOptions;
+import 'package:drift/native.dart';
+import 'package:drift_dev/api/migrations_native.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +25,8 @@ import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
+import 'package:tminus/core/storage/cache_value_repository.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
@@ -23,9 +36,11 @@ import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
 import 'package:tminus/core/storage/sync_log_repository.dart';
 import 'package:tminus/core/sync/sync_platform.dart';
+import 'package:tminus/core/sync/sync_service.dart';
 
 import '../core/fixtures.dart';
 import '../core/storage/test_database.dart';
+import '../generated_migrations/schema.dart';
 import 'restore_guard_fakes.dart';
 
 /// A settings store that cannot store the install id, as when the last write
@@ -65,13 +80,62 @@ class _AnotherGuardFinishesFirst extends SettingsRepository {
   }
 }
 
+/// Writes down when a database commits a transaction, once [armed].
+class _CommitRecorder extends QueryInterceptor {
+  _CommitRecorder(this.events);
+
+  final List<String> events;
+  bool armed = false;
+
+  @override
+  Future<void> commitTransaction(TransactionExecutor inner) {
+    if (armed) events.add('main database committed');
+    return inner.send();
+  }
+}
+
+/// A database whose deletes fail, as when another connection holds it locked.
+/// The message names a link on purpose: a failure must only ever be logged by
+/// its type.
+class _DeletesFail extends QueryInterceptor {
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) => throw StateError('no delete for https://calendar.example/s3cr3t.ics');
+}
+
+/// Calls [onFirstUse] when something first uses the database, which is when it
+/// opens (and, for the cache database, moves the legacy tables' rows).
+class _OpenRecorder extends QueryInterceptor {
+  _OpenRecorder(this.onFirstUse);
+
+  final void Function() onFirstUse;
+  bool _used = false;
+
+  @override
+  Future<bool> ensureOpen(QueryExecutor executor, QueryExecutorUser user) {
+    if (!_used) {
+      _used = true;
+      onFirstUse();
+    }
+    return executor.ensureOpen(user);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   const syncChannel = MethodChannel(SyncPlatform.channelName);
 
+  // Some tests open a second AppDatabase next to the one from setUp.
+  setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
+  tearDownAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false);
+
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late SettingsRepository raw;
   late AppSettings app;
@@ -106,14 +170,16 @@ void main() {
   // delete for the debug source, so the test builds a real one over fakes.
   RestoreGuard guard() => RestoreGuard(
     db: db,
+    cache: cacheDb,
     platform: SyncPlatform(),
     appSettings: app,
     sources: sources,
-    admin: fakeAdmin(db),
+    admin: fakeAdmin(db, cacheDb),
   );
 
   setUp(() async {
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase(legacy: db);
     sources = SourceRepository(db);
     raw = SettingsRepository(db);
     app = AppSettings(raw);
@@ -133,6 +199,7 @@ void main() {
   tearDown(() async {
     messenger.setMockMethodCallHandler(syncChannel, null);
     await db.close();
+    await cacheDb.close();
   });
 
   test('a fresh install stores the id and changes nothing else', () async {
@@ -145,13 +212,13 @@ void main() {
     'an upgrade keeps every source enabled and marks onboarding done',
     () async {
       await sources.save(ics);
-      await OccurrenceRepository(db)
+      await OccurrenceRepository(cacheDb)
           .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
       expect(await guard().run(), RestoreOutcome.firstStart);
       expect((await sources.byId('ics-1'))!.enabled, isTrue);
       expect(await app.sourceSetup('ics-1'), SourceSetup.ready);
       expect(await app.onboardingDone(), isTrue);
-      expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+      expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
     },
   );
 
@@ -184,9 +251,9 @@ void main() {
       'device-1',
       SourceSyncState(lastSuccessUtc: DateTime.utc(2026, 10, 6, 7)),
     );
-    await OccurrenceRepository(db)
+    await OccurrenceRepository(cacheDb)
         .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
-    await AlertHistoryRepository(db).record(
+    await AlertHistoryRepository(cacheDb).record(
       AlertHistoryEntry(
         type: AlertEventType.dismissedAll,
         alertId: 'a',
@@ -195,7 +262,7 @@ void main() {
         atUtc: DateTime.utc(2026, 10, 6, 7),
       ),
     );
-    await SyncLogRepository(db).add(
+    await SyncLogRepository(cacheDb).add(
       SyncLogEntry(
         atUtc: DateTime.utc(2026, 10, 6),
         outcome: SyncOutcome.success,
@@ -228,9 +295,9 @@ void main() {
       expect(state.httpLastModified, isNull, reason: id);
       expect(state.emptyStreak, 0, reason: id);
     }
-    expect(await OccurrenceRepository(db).countForSource('ics-1'), 0);
-    expect(await AlertHistoryRepository(db).recent(), isEmpty);
-    expect(await SyncLogRepository(db).recent(), isEmpty);
+    expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 0);
+    expect(await AlertHistoryRepository(cacheDb).recent(), isEmpty);
+    expect(await SyncLogRepository(cacheDb).recent(), isEmpty);
     expect(await raw.getString('sync.lastFinishedUtcMs'), isNull);
     expect(await raw.getString('sync.missedSystemExpected'), isNull);
     expect(await OverrideRepository(db).all(), hasLength(1)); // kept
@@ -264,7 +331,7 @@ void main() {
       await app.setOnboardingDone(true);
       await sources.save(ics.copyWith(defaultProfileId: 'important'));
       await sources.save(phone);
-      await OccurrenceRepository(db)
+      await OccurrenceRepository(cacheDb)
           .replaceForSource('device-1', [occ(sourceId: 'device-1')]);
 
       // What the user set up: all of it stays.
@@ -317,7 +384,7 @@ void main() {
       expect(await raw.getString('sync.missedSystemExpected'), isNull);
       expect(await raw.getString('sync.brokenNotice.ics-1'), isNull);
       expect(await raw.getString('sync.serverErrorSince.ics-1'), isNull);
-      expect(await OccurrenceRepository(db).countForSource('device-1'), 0);
+      expect(await OccurrenceRepository(cacheDb).countForSource('device-1'), 0);
 
       final kept = await sources.byId('ics-1');
       expect(kept!.defaultProfileId, 'important');
@@ -343,22 +410,23 @@ void main() {
     await app.setInstallId('device-OLD');
     await app.setOnboardingDone(true);
     await sources.save(ics);
-    await OccurrenceRepository(db)
+    await OccurrenceRepository(cacheDb)
         .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
     await raw.setString('sync.lastFinishedUtcMs', '1');
 
     final failing = RestoreGuard(
       db: db,
+      cache: cacheDb,
       platform: SyncPlatform(),
       appSettings: AppSettings(_IdWriteFails(db)),
       sources: sources,
-      admin: fakeAdmin(db),
+      admin: fakeAdmin(db, cacheDb),
     );
     expect(await failing.run(), RestoreOutcome.unsafe);
 
     expect((await sources.byId('ics-1'))!.enabled, isTrue);
     expect(await app.sourceSetup('ics-1'), SourceSetup.ready);
-    expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+    expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
     expect(await raw.getString('sync.lastFinishedUtcMs'), '1');
     expect(await app.restorePending(), isFalse);
     expect(await app.onboardingDone(), isTrue);
@@ -378,7 +446,7 @@ void main() {
     await app.setInstallId('device-OLD');
     await app.setOnboardingDone(true);
     await sources.save(ics);
-    await OccurrenceRepository(db)
+    await OccurrenceRepository(cacheDb)
         .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
     await raw.setString('sync.lastFinishedUtcMs', '1');
     final oldState = SourceSyncState(
@@ -390,10 +458,11 @@ void main() {
 
     final failing = RestoreGuard(
       db: db,
+      cache: cacheDb,
       platform: SyncPlatform(),
       appSettings: AppSettings(_IdWriteFails(db)),
       sources: sources,
-      admin: fakeAdmin(db),
+      admin: fakeAdmin(db, cacheDb),
     );
 
     /// The restore is all or nothing: the sync state it clears is rolled back
@@ -402,7 +471,7 @@ void main() {
     Future<void> expectNothingChanged({bool onboarded = true}) async {
       expect((await sources.byId('ics-1'))!.enabled, isTrue);
       expect(await app.sourceSetup('ics-1'), SourceSetup.ready);
-      expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+      expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
       expect(await raw.getString('sync.lastFinishedUtcMs'), '1');
       expect(await sources.syncState('ics-1'), oldState);
       expect(await app.restorePending(), isFalse);
@@ -433,7 +502,7 @@ void main() {
     await app.setOnboardingDone(true);
     await sources.save(ics);
     await sources.save(phone);
-    await OccurrenceRepository(db)
+    await OccurrenceRepository(cacheDb)
         .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
 
     // The app's guard and a headless sync's both find this restore. The slower
@@ -443,6 +512,7 @@ void main() {
     late RestoreOutcome other;
     final slower = RestoreGuard(
       db: db,
+      cache: cacheDb,
       platform: SyncPlatform(),
       appSettings: AppSettings(
         _AnotherGuardFinishesFirst(db, () async {
@@ -451,13 +521,13 @@ void main() {
           await app.setSourceSetup('ics-1', SourceSetup.ready);
           await app.setRestorePending(false);
           await app.setOnboardingDone(true);
-          await OccurrenceRepository(db)
+          await OccurrenceRepository(cacheDb)
               .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
           await raw.setString('sync.lastFinishedUtcMs', '2');
         }),
       ),
       sources: sources,
-      admin: fakeAdmin(db),
+      admin: fakeAdmin(db, cacheDb),
     );
 
     // It does nothing, and does not claim a restore it did not do.
@@ -470,7 +540,7 @@ void main() {
     expect(await app.sourceSetup('device-1'), SourceSetup.needsCalendar);
     expect((await sources.byId('ics-1'))!.enabled, isTrue);
     expect(await app.sourceSetup('ics-1'), SourceSetup.ready);
-    expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+    expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
     expect(await raw.getString('sync.lastFinishedUtcMs'), '2');
     expect(await app.restorePending(), isFalse);
     expect(await app.onboardingDone(), isTrue);
@@ -494,7 +564,7 @@ void main() {
           emptyStreak: 2,
         ),
       );
-      await OccurrenceRepository(db)
+      await OccurrenceRepository(cacheDb)
           .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
       await raw.setString('sync.lastFinishedUtcMs', '1');
       expect(await app.installId(), isNull);
@@ -506,7 +576,7 @@ void main() {
       expect((await sources.byId('device-1'))!.enabled, isFalse);
       expect(await app.sourceSetup('device-1'), SourceSetup.needsCalendar);
       expect(await sources.byId('debug-fast-alarms'), isNull);
-      expect(await OccurrenceRepository(db).countForSource('ics-1'), 0);
+      expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 0);
       expect(await raw.getString('sync.lastFinishedUtcMs'), isNull);
       expect((await sources.syncState('ics-1'))!.lastError, isNull);
       expect(await app.restorePending(), isTrue);
@@ -534,7 +604,7 @@ void main() {
         emptyStreak: 2,
       ),
     );
-    await OccurrenceRepository(db)
+    await OccurrenceRepository(cacheDb)
         .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
     await raw.setString('sync.lastFinishedUtcMs', '1');
     expect(await app.installId(), isNull);
@@ -547,7 +617,7 @@ void main() {
     expect((await sources.byId('device-1'))!.enabled, isTrue);
     expect(await app.sourceSetup('device-1'), SourceSetup.ready);
     expect(await sources.byId('debug-fast-alarms'), isNotNull);
-    expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+    expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
     expect(await raw.getString('sync.lastFinishedUtcMs'), '1');
     expect((await sources.syncState('ics-1'))!.lastError, 'HTTP 410');
     expect(await app.restorePending(), isFalse);
@@ -564,7 +634,7 @@ void main() {
     neverUpdated = false;
     await sources.save(ics);
     await sources.save(phone);
-    await OccurrenceRepository(db)
+    await OccurrenceRepository(cacheDb)
         .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
     await sources.updateSyncState(
       'ics-1',
@@ -580,7 +650,7 @@ void main() {
     expect(await app.sourceSetup('ics-1'), SourceSetup.ready);
     expect((await sources.byId('device-1'))!.enabled, isTrue);
     expect(await app.sourceSetup('device-1'), SourceSetup.ready);
-    expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+    expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
     expect((await sources.syncState('ics-1'))!.lastError, 'HTTP 410');
     expect(await app.restorePending(), isFalse);
     expect(await app.onboardingDone(), isTrue);
@@ -699,7 +769,7 @@ void main() {
       // was never updated: sources, no id, and onboarding never done.
       neverUpdated = true;
       await sources.save(ics);
-      await OccurrenceRepository(db)
+      await OccurrenceRepository(cacheDb)
           .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
       // A write that a restore makes and a first start does not, so a first
       // start would go through where the restore cannot.
@@ -722,7 +792,7 @@ void main() {
       expect(g.unsafe, isTrue);
       expect(await app.installId(), isNull);
       expect((await sources.byId('ics-1'))!.enabled, isTrue);
-      expect(await OccurrenceRepository(db).countForSource('ics-1'), 1);
+      expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
 
       // What stopped it has passed: the next run does the whole restore.
       await db.customStatement('DROP TRIGGER no_restore_pending');
@@ -730,7 +800,7 @@ void main() {
       expect(g.unsafe, isFalse);
       expect((await sources.byId('ics-1'))!.enabled, isFalse);
       expect(await app.sourceSetup('ics-1'), SourceSetup.needsLink);
-      expect(await OccurrenceRepository(db).countForSource('ics-1'), 0);
+      expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 0);
       expect(await app.installId(), 'device-A');
       expect(await app.restorePending(), isTrue);
       // The restore wins over the onboarding done in the meantime: the user
@@ -772,4 +842,255 @@ void main() {
       expect(logged.join('\n'), isNot(contains('s3cr3t')));
     },
   );
+
+  group('with the cache in its own database (Plan 6 decision 4)', () {
+    final verifier = SchemaVerifier(GeneratedHelper());
+
+    DatabaseConnection memory() => DatabaseConnection(
+      NativeDatabase.memory(),
+      closeStreamsSynchronously: true,
+    );
+
+    /// What a build before Plan 6 backed up on another phone: a schema 2
+    /// database whose `occurrences`, `alert_history` and `sync_log` hold that
+    /// phone's meetings, history and log, and whose settings carry the other
+    /// installation's id.
+    Future<InitializedSchema> backupOfAnotherPhone() async {
+      final schema = await verifier.schemaAt(2);
+      addTearDown(schema.close);
+      final raw = schema.rawDatabase;
+      await Schema2Cache().insertInto((sql, args) => raw.execute(sql, args));
+      raw.execute('INSERT INTO settings (name, value) VALUES (?, ?)', [
+        AppSettings.installIdKey,
+        'device-OLD',
+      ]);
+      return schema;
+    }
+
+    List<String> legacyTablesIn(InitializedSchema schema) => [
+      for (final r in schema.rawDatabase.select(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name LIKE 'legacy_%' ORDER BY name",
+      ))
+        r['name'] as String,
+    ];
+
+    test('a restore drops the legacy tables with the new install id', () async {
+      final schema = await backupOfAnotherPhone();
+      final restored = AppDatabase(schema.newConnection());
+      addTearDown(restored.close);
+      // The first use upgrades the backup to schema 3, which sets the cache's
+      // tables aside as legacy tables.
+      expect((await SourceRepository(restored).all()).map((s) => s.id), [
+        'phone',
+        'work',
+      ]);
+      expect(legacyTablesIn(schema), [
+        'legacy_alert_history',
+        'legacy_occurrences',
+        'legacy_sync_log',
+      ]);
+
+      // What the move would have found when the cache database first opened:
+      // the legacy tables, and the old setting of the expected alerts.
+      final legacyWhenCacheOpens = <String>[];
+      final settingWhenCacheOpens = <Object?>[];
+      final cache = CacheDatabase(
+        memory().interceptWith(
+          _OpenRecorder(() {
+            legacyWhenCacheOpens.addAll(legacyTablesIn(schema));
+            settingWhenCacheOpens.addAll(
+              schema.rawDatabase
+                  .select('SELECT value FROM settings WHERE name = ?', [
+                    Schema2Cache.expectedAlertsKey,
+                  ])
+                  .map((r) => r['value']),
+            );
+          }),
+        ),
+        legacy: restored,
+      );
+      addTearDown(cache.close);
+      final restoredGuard = RestoreGuard(
+        db: restored,
+        cache: cache,
+        platform: SyncPlatform(),
+        appSettings: AppSettings(SettingsRepository(restored)),
+        sources: SourceRepository(restored),
+        admin: fakeAdmin(restored, cache),
+      );
+
+      expect(await restoredGuard.run(), RestoreOutcome.restored);
+
+      // The tables went in the commit that stored the new id, so by the time
+      // the cache database opened there was nothing for the move to copy.
+      expect(legacyTablesIn(schema), isEmpty);
+      expect(legacyWhenCacheOpens, isEmpty);
+      // And the old phone's expected alerts, with its meetings' titles, went
+      // in that commit too: they were not moved into the cache.
+      expect(settingWhenCacheOpens, isEmpty);
+      expect(
+        await CacheValueRepository(cache)
+            .getString(Schema2Cache.expectedAlertsKey),
+        isNull,
+      );
+      expect(await OccurrenceRepository(cache).countForSource('work'), 0);
+      expect(await OccurrenceRepository(cache).countForSource('phone'), 0);
+      expect(await AlertHistoryRepository(cache).recent(), isEmpty);
+      expect(await SyncLogRepository(cache).recent(), isEmpty);
+      expect(
+        await AppSettings(SettingsRepository(restored)).installId(),
+        'device-A',
+      );
+    });
+
+    test('a restore clears a cache left on this phone', () async {
+      // The app ran here before the backup was restored: its cache holds the
+      // meetings of a calendar the backup knows nothing about, a history and a
+      // log.
+      await app.setInstallId('device-OLD');
+      await app.setOnboardingDone(true);
+      await sources.save(ics);
+      await OccurrenceRepository(cacheDb)
+          .replaceForSource('local-1', [occ(sourceId: 'local-1')]);
+      await AlertHistoryRepository(cacheDb).record(
+        AlertHistoryEntry(
+          type: AlertEventType.dismissedAll,
+          alertId: 'a',
+          occurrenceKey: 'k',
+          startUtc: DateTime.utc(2026, 10, 6, 8),
+          atUtc: DateTime.utc(2026, 10, 6, 7),
+        ),
+      );
+      await SyncLogRepository(cacheDb).add(
+        SyncLogEntry(
+          atUtc: DateTime.utc(2026, 10, 6),
+          outcome: SyncOutcome.success,
+        ),
+      );
+      await CacheValueRepository(cacheDb)
+          .setString(SyncService.expectedKey, '[{"title":"Standup"}]');
+
+      expect(await guard().run(), RestoreOutcome.restored);
+
+      expect(await OccurrenceRepository(cacheDb).countForSource('local-1'), 0);
+      expect(await AlertHistoryRepository(cacheDb).recent(), isEmpty);
+      expect(await SyncLogRepository(cacheDb).recent(), isEmpty);
+      expect(
+        await CacheValueRepository(cacheDb).getString(SyncService.expectedKey),
+        isNull,
+      );
+    });
+
+    test('a guard that finds the restore already done leaves the cache alone', () async {
+      await app.setInstallId('device-OLD');
+      await app.setOnboardingDone(true);
+      await sources.save(ics);
+
+      // The slower guard has read the old id when the other one finishes the
+      // restore, and a sync then writes to the cache. Only then does the slower
+      // one reach its transaction.
+      late RestoreOutcome other;
+      final slower = RestoreGuard(
+        db: db,
+        cache: cacheDb,
+        platform: SyncPlatform(),
+        appSettings: AppSettings(
+          _AnotherGuardFinishesFirst(db, () async {
+            other = await guard().run();
+            await OccurrenceRepository(cacheDb)
+                .replaceForSource('ics-1', [occ(sourceId: 'ics-1')]);
+            await AlertHistoryRepository(cacheDb).record(
+              AlertHistoryEntry(
+                type: AlertEventType.fired,
+                alertId: 'a',
+                occurrenceKey: 'k',
+                startUtc: DateTime.utc(2026, 10, 6, 8),
+                atUtc: DateTime.utc(2026, 10, 6, 7),
+              ),
+            );
+            await SyncLogRepository(cacheDb).add(
+              SyncLogEntry(
+                atUtc: DateTime.utc(2026, 10, 6),
+                outcome: SyncOutcome.success,
+              ),
+            );
+          }),
+        ),
+        sources: sources,
+        admin: fakeAdmin(db, cacheDb),
+      );
+
+      expect(await slower.run(), RestoreOutcome.normal);
+      expect(other, RestoreOutcome.restored);
+
+      // What the sync wrote after the first guard committed is still there.
+      expect(await OccurrenceRepository(cacheDb).countForSource('ics-1'), 1);
+      expect(await AlertHistoryRepository(cacheDb).recent(), hasLength(1));
+      expect(await SyncLogRepository(cacheDb).recent(), hasLength(1));
+    });
+
+    test('the restore opens the cache only after its transaction', () async {
+      final events = <String>[];
+      final commits = _CommitRecorder(events);
+      final mainDb = AppDatabase(memory().interceptWith(commits));
+      addTearDown(mainDb.close);
+      final cache = CacheDatabase(
+        memory().interceptWith(
+          _OpenRecorder(() => events.add('cache database opened')),
+        ),
+        legacy: mainDb,
+      );
+      addTearDown(cache.close);
+      final rows = SourceRepository(mainDb);
+      final settings = AppSettings(SettingsRepository(mainDb));
+      await settings.setInstallId('device-OLD');
+      await settings.setOnboardingDone(true);
+      await rows.save(ics);
+      // The debug source is the one the guard removes before its transaction,
+      // and removing it must not be what opens the cache.
+      await rows.save(fast);
+      commits.armed = true;
+
+      final recording = RestoreGuard(
+        db: mainDb,
+        cache: cache,
+        platform: SyncPlatform(),
+        appSettings: settings,
+        sources: rows,
+        admin: fakeAdmin(mainDb, cache),
+      );
+      expect(await recording.run(), RestoreOutcome.restored);
+
+      expect(events, ['main database committed', 'cache database opened']);
+    });
+
+    test('a cache that cannot be emptied does not undo the restore', () async {
+      final logged = captureLog();
+      final stuck = CacheDatabase(memory().interceptWith(_DeletesFail()));
+      addTearDown(stuck.close);
+      await app.setInstallId('device-OLD');
+      await app.setOnboardingDone(true);
+      await sources.save(ics);
+      final stuckGuard = RestoreGuard(
+        db: db,
+        cache: stuck,
+        platform: SyncPlatform(),
+        appSettings: app,
+        sources: sources,
+        admin: fakeAdmin(db, stuck),
+      );
+
+      // The database is safe: the sources are off and the new id is stored, and
+      // a later run would find that and not come back to the cache.
+      expect(await stuckGuard.run(), RestoreOutcome.restored);
+
+      expect((await sources.byId('ics-1'))!.enabled, isFalse);
+      expect(await app.installId(), 'device-A');
+      expect(stuckGuard.unsafe, isFalse);
+      // Only the type is logged, never the message with the link in it.
+      expect(logged.join('\n'), contains('StateError'));
+      expect(logged.join('\n'), isNot(contains('s3cr3t')));
+    });
+  });
 }

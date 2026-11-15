@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 
 import '../core/storage/app_database.dart';
+import '../core/storage/cache_database.dart';
 import '../core/sync/sync_platform.dart';
 import '../core/sync/sync_service.dart';
 import 'di.dart';
@@ -28,10 +29,12 @@ import 'restore_guard.dart';
 /// lock call, a database error) reports `retry`. Failures are logged by type
 /// only, because an error message can carry a row's values or a feed link.
 ///
-/// [openDatabase] is for tests, which pass an in-memory or temporary database.
+/// [openDatabase] and [openCacheDatabase] are for tests, which pass in-memory
+/// or temporary databases (see [configureDependencies]).
 Future<void> runHeadlessSync(
   List<String> args, {
   AppDatabase Function()? openDatabase,
+  CacheDatabase Function()? openCacheDatabase,
 }) async {
   var outcome = SyncRunOutcome.retry;
   try {
@@ -39,7 +42,10 @@ Future<void> runHeadlessSync(
     // Plugins with a Dart side (path_provider) register themselves only for
     // `main`; another entry point has to ask.
     DartPluginRegistrant.ensureInitialized();
-    configureDependencies(openDatabase: openDatabase);
+    configureDependencies(
+      openDatabase: openDatabase,
+      openCacheDatabase: openCacheDatabase,
+    );
     // Never throws. Before anything plans or fetches.
     final restore = await getIt<RestoreGuard>().run();
     if (restore == RestoreOutcome.unsafe) {
@@ -55,7 +61,7 @@ Future<void> runHeadlessSync(
     debugPrint('Headless sync failed: ${e.runtimeType}');
   } finally {
     try {
-      await getIt.reset(); // closes the database
+      await getIt.reset(); // closes the databases
     } catch (e) {
       debugPrint('Headless sync cleanup failed: ${e.runtimeType}');
     }

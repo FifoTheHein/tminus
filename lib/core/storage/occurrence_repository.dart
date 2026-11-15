@@ -1,13 +1,13 @@
 import 'package:drift/drift.dart';
 
 import '../model/event_occurrence.dart';
-import 'app_database.dart';
+import 'cache_database.dart';
 
-/// The occurrence cache (spec §5).
+/// The occurrence cache (spec §5), in the cache database.
 class OccurrenceRepository {
   OccurrenceRepository(this._db);
 
-  final AppDatabase _db;
+  final CacheDatabase _db;
 
   /// Replaces every cached occurrence of [sourceId] in one transaction, so a
   /// reader never sees a half-written source. Throws [ArgumentError] if an
@@ -38,6 +38,13 @@ class OccurrenceRepository {
       });
     });
   }
+
+  /// Removes every cached occurrence of [sourceId]. Returns the count. A
+  /// source's removal calls this: the cache database has no foreign key to
+  /// `sources`, so nothing cascades into it (Plan 6 decision 4).
+  Future<int> deleteForSource(String sourceId) => (_db.delete(
+    _db.occurrences,
+  )..where((r) => r.sourceId.equals(sourceId))).go();
 
   Future<int> countForSource(String sourceId) {
     final count = _db.occurrences.occurrenceKey.count();

@@ -10,6 +10,7 @@ import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
@@ -17,10 +18,25 @@ import 'package:tminus/core/sync/sync_platform.dart';
 
 import '../core/fixtures.dart';
 
-/// `runHeadlessSync` closes its database when it finishes, and these tests read
-/// the database afterwards. This one ignores that close; the test closes it.
+/// `runHeadlessSync` closes its databases when it finishes, and these tests
+/// read them afterwards. These two ignore that close; the test closes them.
 class _KeptOpenDatabase extends AppDatabase {
   _KeptOpenDatabase()
+    : super(
+        DatabaseConnection(
+          NativeDatabase.memory(),
+          closeStreamsSynchronously: true,
+        ),
+      );
+
+  @override
+  Future<void> close() async {}
+
+  Future<void> closeForReal() => super.close();
+}
+
+class _KeptOpenCache extends CacheDatabase {
+  _KeptOpenCache()
     : super(
         DatabaseConnection(
           NativeDatabase.memory(),
@@ -50,6 +66,7 @@ void main() {
   );
 
   late _KeptOpenDatabase db;
+  late _KeptOpenCache cacheDb;
   late SourceRepository sources;
   late OccurrenceRepository cache;
   late AppSettings app;
@@ -67,8 +84,9 @@ void main() {
 
   setUp(() {
     db = _KeptOpenDatabase();
+    cacheDb = _KeptOpenCache();
     sources = SourceRepository(db);
-    cache = OccurrenceRepository(db);
+    cache = OccurrenceRepository(cacheDb);
     app = AppSettings(SettingsRepository(db));
     thisPhone = 'phone-B';
     calls = [];
@@ -106,6 +124,7 @@ void main() {
     messenger.setMockMethodCallHandler(syncChannel, null);
     tz.setLocalLocation(tz.UTC);
     await db.closeForReal();
+    await cacheDb.closeForReal();
   });
 
   /// A database that came from a backup made on another phone: it holds that
@@ -132,7 +151,11 @@ void main() {
     () async {
       await seedBackupFromAnotherPhone();
 
-      await runHeadlessSync(['periodic'], openDatabase: () => db);
+      await runHeadlessSync(
+        ['periodic'],
+        openDatabase: () => db,
+        openCacheDatabase: () => cacheDb,
+      );
 
       // The restore was made safe first: the feed is off and asks for its link,
       // and the old phone's meetings are gone.
@@ -168,7 +191,11 @@ void main() {
       "BEGIN SELECT RAISE(ABORT, 'no'); END",
     );
 
-    await runHeadlessSync(['periodic'], openDatabase: () => db);
+    await runHeadlessSync(
+      ['periodic'],
+      openDatabase: () => db,
+      openCacheDatabase: () => cacheDb,
+    );
 
     // Nothing was planned or armed from the backup's data, and WorkManager is
     // asked to try again.
@@ -186,7 +213,11 @@ void main() {
     () async {
       await app.setInstallId(thisPhone);
 
-      await runHeadlessSync(['manual'], openDatabase: () => db);
+      await runHeadlessSync(
+        ['manual'],
+        openDatabase: () => db,
+        openCacheDatabase: () => cacheDb,
+      );
 
       expect(calls, contains('sync.acquireLock'));
       expect(plans, hasLength(1));

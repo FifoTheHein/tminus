@@ -5,6 +5,7 @@ import 'package:tminus/core/sources/feed_body_cache.dart';
 import 'package:tminus/core/sources/source_admin.dart';
 import 'package:tminus/core/sources/source_secrets.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
@@ -24,11 +25,11 @@ class MapSecrets extends SourceSecrets {
   Future<void> delete(String key) async => links.remove(key);
 }
 
-/// A real [SourceAdmin] over [db]: secrets in a map, feed bodies in a temp
-/// directory (made only if something is stored or removed, and deleted when
-/// the test ends), and a [SyncPlatform] whose missing native side the admin
-/// already tolerates. Call it from inside a test or `setUp`.
-SourceAdmin fakeAdmin(AppDatabase db) {
+/// A real [SourceAdmin] over [db] and [cache]: secrets in a map, feed bodies in
+/// a temp directory (made only if something is stored or removed, and deleted
+/// when the test ends), and a [SyncPlatform] whose missing native side the
+/// admin already tolerates. Call it from inside a test or `setUp`.
+SourceAdmin fakeAdmin(AppDatabase db, CacheDatabase cache) {
   Directory? feeds;
   addTearDown(() async {
     final dir = feeds;
@@ -44,7 +45,7 @@ SourceAdmin fakeAdmin(AppDatabase db) {
     ),
     platform: SyncPlatform(),
     settings: SettingsRepository(db),
-    occurrences: OccurrenceRepository(db),
+    occurrences: OccurrenceRepository(cache),
     db: db,
   );
 }

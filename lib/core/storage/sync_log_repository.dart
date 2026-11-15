@@ -1,12 +1,12 @@
 import 'package:drift/drift.dart';
 
 import '../model/sync_log_entry.dart';
-import 'app_database.dart';
+import 'cache_database.dart';
 
 class SyncLogRepository {
   SyncLogRepository(this._db);
 
-  final AppDatabase _db;
+  final CacheDatabase _db;
 
   Future<void> add(SyncLogEntry e) => _db
       .into(_db.syncLog)

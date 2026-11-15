@@ -166,7 +166,9 @@ void main() {
 
   test('deleting a source keeps its links', () async {
     final sources = SourceRepository(db);
-    final cache = OccurrenceRepository(db);
+    final cacheDb = openTestCacheDatabase();
+    addTearDown(cacheDb.close);
+    final cache = OccurrenceRepository(cacheDb);
     await sources.save(
       const SourceConfig(
         id: 'work',
@@ -181,10 +183,13 @@ void main() {
     final kept = link('work', 'sprint', end: copy.endUtc);
     await links.apply(upsert: [kept], delete: {});
 
+    // What `SourceAdmin.delete` does: the row, then the cached meetings, which
+    // no foreign key reaches.
     await sources.delete('work');
+    await cache.deleteForSource('work');
 
-    expect(await cache.countForSource('work'), 0, reason: 'the cache cascades');
-    expect(await links.all(), [kept], reason: 'the link does not');
+    expect(await cache.countForSource('work'), 0);
+    expect(await links.all(), [kept], reason: 'the link stays');
   });
 
   test('a link can name a source that does not exist', () async {

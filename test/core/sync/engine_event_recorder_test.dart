@@ -5,11 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
-import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
-import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
-import 'package:tminus/core/storage/source_repository.dart';
 import 'package:tminus/core/sync/engine_event_recorder.dart';
 
 import '../fixtures.dart';
@@ -64,7 +62,7 @@ void main() {
   const method = MethodChannel(AlarmEngine.methodChannelName);
   const events = EventChannel(AlarmEngine.eventChannelName);
 
-  late AppDatabase db;
+  late CacheDatabase db;
   late AlertHistoryRepository history;
   late EngineEventRecorder recorder;
   late List<Map<String, Object?>> queued;
@@ -80,16 +78,8 @@ void main() {
   };
 
   setUp(() async {
-    db = openTestDatabase();
+    db = openTestCacheDatabase();
     history = AlertHistoryRepository(db);
-    await SourceRepository(db).save(
-      const SourceConfig(
-        id: 'work',
-        name: 'Work',
-        color: blue,
-        kind: SourceKind.ics,
-      ),
-    );
     await OccurrenceRepository(db).replaceForSource('work', [meeting]);
     queued = [];
     messenger.setMockMethodCallHandler(method, (call) async {

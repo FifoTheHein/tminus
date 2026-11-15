@@ -108,6 +108,66 @@ List<CalendarGroup> groupCalendars(List<DeviceCalendar> calendars) {
   ];
 }
 
+/// The word that says which kind of account a phone calendar is in, for the
+/// name of a source made from it (Plan 6 decision 17), or null when the kind
+/// would not help to tell two calendars apart.
+///
+/// It is the word the picker's heading uses for [CalendarGroupKind.google],
+/// [CalendarGroupKind.samsung], [CalendarGroupKind.outlook] and
+/// [CalendarGroupKind.exchange], and "Phone" for [CalendarGroupKind.phoneOnly].
+/// [CalendarGroupKind.other] is any account the app does not know, and
+/// [CalendarGroupKind.shared] and [CalendarGroupKind.holidays] hold calendars
+/// from several accounts, so none of those says where a calendar is from.
+String? kindLabel(CalendarGroupKind kind) => switch (kind) {
+  CalendarGroupKind.google => 'Google',
+  CalendarGroupKind.samsung => 'Samsung account',
+  CalendarGroupKind.outlook => 'Outlook',
+  CalendarGroupKind.exchange => 'Exchange',
+  CalendarGroupKind.phoneOnly => 'Phone',
+  CalendarGroupKind.other ||
+  CalendarGroupKind.shared ||
+  CalendarGroupKind.holidays => null,
+};
+
+/// The name a new phone-calendar source gets (Plan 6 decision 17).
+///
+/// It is the calendar's own name, trimmed, unless another calendar on the
+/// phone ([phoneCalendars]) or a source ([existingSourceNames]) has the same
+/// name. Then it is `<name> (<kind>)`, where the kind is [kindLabel] of the
+/// calendar's group, found by the rules of [groupCalendars]. A calendar whose
+/// group has no word keeps its name. If a source has that name too, ` 2`, ` 3`
+/// and so on is added until none has. A blank name reads as `Phone calendar`.
+/// Names are compared trimmed and without regard to case.
+///
+/// [phoneCalendars] is every calendar on the phone, [calendar] among them. The
+/// whole list is grouped, because a calendar's group can depend on the others
+/// (spec §4.2). A caller that adds several calendars at once adds each name it
+/// gets to [existingSourceNames] before it asks for the next, so no two of them
+/// are alike.
+String defaultSourceName(
+  DeviceCalendar calendar, {
+  required List<DeviceCalendar> phoneCalendars,
+  required Iterable<String> existingSourceNames,
+}) {
+  final name = _sourceNameOf(calendar);
+  final sources = {for (final n in existingSourceNames) _sameName(n)};
+  final clashes =
+      sources.contains(_sameName(name)) ||
+      phoneCalendars.any(
+        (c) =>
+            c.id != calendar.id &&
+            _sameName(_sourceNameOf(c)) == _sameName(name),
+      );
+  if (!clashes) return name;
+  final kind = kindLabel(_kindAmong(phoneCalendars, calendar));
+  final kinded = kind == null ? name : '$name ($kind)';
+  var candidate = kinded;
+  for (var n = 2; sources.contains(_sameName(candidate)); n++) {
+    candidate = '$kinded $n';
+  }
+  return candidate;
+}
+
 // Account types as `Calendars.ACCOUNT_TYPE` reports them (spec §4.1).
 const _googleType = 'com.google';
 const _localType = 'LOCAL';
@@ -243,4 +303,35 @@ int _compareRows(DeviceCalendar a, DeviceCalendar b) {
   if (aPrimary != _isPrimary(b)) return aPrimary ? -1 : 1;
   final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
   return byName != 0 ? byName : a.id.compareTo(b.id);
+}
+
+/// What a calendar with a blank name is called as a source.
+const _blankCalendarName = 'Phone calendar';
+
+/// What a source made from [c] is called before a clash is settled: the
+/// calendar's name, trimmed, or [_blankCalendarName] when it has none.
+String _sourceNameOf(DeviceCalendar c) {
+  final name = c.name.trim();
+  return name.isEmpty ? _blankCalendarName : name;
+}
+
+/// [name] trimmed and lower-cased, for telling whether two names are the same.
+String _sameName(String name) => name.trim().toLowerCase();
+
+/// The kind of the group [calendar] is in when the phone holds
+/// [phoneCalendars]. The whole phone is grouped, with [calendar] in it once
+/// whether or not the list has it, because the other calendars help to decide
+/// what it is (see [_isShared]).
+CalendarGroupKind _kindAmong(
+  List<DeviceCalendar> phoneCalendars,
+  DeviceCalendar calendar,
+) {
+  final groups = groupCalendars([
+    for (final c in phoneCalendars)
+      if (c.id != calendar.id) c,
+    calendar,
+  ]);
+  return groups
+      .singleWhere((g) => g.calendars.any((c) => c.id == calendar.id))
+      .kind;
 }

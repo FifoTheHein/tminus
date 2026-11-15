@@ -60,6 +60,28 @@ Finder _alreadyAddedIn(String calendarId) => find.descendant(
   matching: find.text('Already added'),
 );
 
+const _google = 'com.google';
+const _samsung = 'com.osp.app.signin';
+const _alex = 'alex@example.com';
+const _work = 'alex@work.example.com';
+
+/// Ticks the phone calendars [ids], one after the other, and presses Add
+/// selected.
+Future<void> _addPhoneCalendars(WidgetTester t, List<String> ids) async {
+  for (final id in ids) {
+    await t.tap(find.byKey(Key('calendar-$id')));
+    await t.pump();
+  }
+  await t.tap(find.byKey(const Key('addSelected')));
+  await t.pumpAndSettle();
+}
+
+/// The name of each phone source, by the id of the phone calendar it reads.
+Future<Map<String?, String>> _phoneSourceNames() async => {
+  for (final s in await getIt<SourceRepository>().all())
+    if (s.kind == SourceKind.device) s.deviceCalendarId: s.name,
+};
+
 /// The panel alone, on a screen of its own, in the app's theme: how onboarding
 /// hosts it. Call after `pumpApp`, which sets up the services it uses.
 Future<List<SourceConfig>> _hostPanel(
@@ -700,6 +722,220 @@ void main() {
     final work = sources.singleWhere((s) => s.name == 'Work');
     expect(pathOf(h), '/sources/${work.id}');
     expect(find.byType(SourceDetailScreen), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('a phone calendar that shares its name with another one on the '
+      'phone is added under its account kind', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      seed: (h) async {
+        h.deviceCalendars = [
+          phoneCalendar(
+            'g',
+            'My calendar',
+            account: _alex,
+            accountType: _google,
+            owner: _alex,
+            primary: true,
+          ),
+          phoneCalendar(
+            's',
+            'My calendar',
+            account: _alex,
+            accountType: _samsung,
+          ),
+          phoneCalendar(
+            'f',
+            'Family',
+            account: _alex,
+            accountType: _google,
+            owner: _alex,
+          ),
+        ];
+      },
+    );
+    await _hostPanel(t);
+    await _choosePhoneCard(t);
+
+    // Only the Samsung one is ticked. The Google one is not added, and is still
+    // the reason for the account in the name.
+    await _addPhoneCalendars(t, ['s']);
+
+    expect(await _phoneSourceNames(), {'s': 'My calendar (Samsung account)'});
+    expect(
+      t.widget<Text>(find.byKey(const Key('addedNote'))).data,
+      'Added My calendar (Samsung account).',
+    );
+    await h.dispose(t);
+  });
+
+  testWidgets('phone calendars of one name that are added together are named '
+      'by their accounts', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      seed: (h) async {
+        h.deviceCalendars = [
+          phoneCalendar(
+            'g',
+            'My calendar',
+            account: _alex,
+            accountType: _google,
+            owner: _alex,
+            primary: true,
+          ),
+          phoneCalendar(
+            's',
+            'My calendar',
+            account: _alex,
+            accountType: _samsung,
+          ),
+        ];
+      },
+    );
+    await _hostPanel(t);
+    await _choosePhoneCard(t);
+
+    await _addPhoneCalendars(t, ['g', 's']);
+
+    expect(await _phoneSourceNames(), {
+      'g': 'My calendar (Google)',
+      's': 'My calendar (Samsung account)',
+    });
+    expect(h.syncs, [SyncTrigger.manual]);
+    await h.dispose(t);
+  });
+
+  testWidgets('two phone calendars that would get one name are added with two '
+      'names', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      seed: (h) async {
+        h.deviceCalendars = [
+          phoneCalendar(
+            '1',
+            'Family',
+            account: _alex,
+            accountType: _google,
+            owner: _alex,
+          ),
+          phoneCalendar(
+            '2',
+            'Family',
+            account: _work,
+            accountType: _google,
+            owner: _work,
+          ),
+        ];
+      },
+    );
+    await _hostPanel(t);
+    await _choosePhoneCard(t);
+
+    await _addPhoneCalendars(t, ['1', '2']);
+
+    // Each name counted for the one after it, so the two are not alike. Which of
+    // them got the number is not the point.
+    final names = (await _phoneSourceNames()).values.toList();
+    expect(names, unorderedEquals(['Family (Google)', 'Family (Google) 2']));
+    expect(names.toSet(), hasLength(2));
+    await h.dispose(t);
+  });
+
+  testWidgets('a phone calendar named like a source is added under its account '
+      'kind', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      seed: (h) async {
+        h.deviceCalendars = [
+          phoneCalendar(
+            '1',
+            ' team ROTA ',
+            account: _alex,
+            accountType: _google,
+            owner: _alex,
+          ),
+        ];
+        // A link source, and a name that differs in case and spacing.
+        await getIt<SourceRepository>().save(icsSource(name: 'Team rota'));
+      },
+    );
+    await _hostPanel(t);
+    await _choosePhoneCard(t);
+
+    await _addPhoneCalendars(t, ['1']);
+
+    expect(await _phoneSourceNames(), {'1': 'team ROTA (Google)'});
+    expect(
+      (await getIt<SourceRepository>().all()).map((s) => s.name),
+      unorderedEquals(['Team rota', 'team ROTA (Google)']),
+    );
+    await h.dispose(t);
+  });
+
+  testWidgets('a phone that cannot be listed again for the names still has its '
+      'calendars added', (t) async {
+    tallScreen(t);
+    final logs = captureLogs();
+    var reads = 0;
+    final h = await pumpApp(
+      t,
+      seed: (h) async {
+        h.deviceCalendars = [
+          phoneCalendar(
+            'g',
+            'My calendar',
+            account: _alex,
+            accountType: _google,
+          ),
+          phoneCalendar(
+            's',
+            'My calendar',
+            account: _alex,
+            accountType: _samsung,
+          ),
+        ];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel(AlarmEngine.methodChannelName),
+              (call) async {
+                if (call.method != 'queryDeviceCalendars') return null;
+                // The picker's read works. The one for the names does not, and
+                // its message quotes the link.
+                if (++reads > 1) {
+                  throw PlatformException(
+                    code: 'boom',
+                    message: 'read $secretLink',
+                  );
+                }
+                return h.deviceCalendars;
+              },
+            );
+      },
+    );
+    await _hostPanel(t);
+    await _choosePhoneCard(t);
+
+    await _addPhoneCalendars(t, ['g', 's']);
+
+    // Both were added, and named by the ones that were ticked.
+    expect(reads, 2);
+    expect(await _phoneSourceNames(), {
+      'g': 'My calendar (Google)',
+      's': 'My calendar (Samsung account)',
+    });
+    expect(h.syncs, [SyncTrigger.manual]);
+    expect(find.byType(SnackBar), findsNothing);
+    // The code is all the log says.
+    expect(logs.where((l) => l.contains('for names')), [
+      'Listing the phone calendars for names failed (boom)',
+    ]);
+    expect(logs.join('\n'), isNot(contains(secretToken)));
+    releaseLogs();
     await h.dispose(t);
   });
 

@@ -453,11 +453,13 @@ void main() {
     }
 
     // One node says it all to a screen reader: the name, that it is not synced,
-    // and that nothing can be done with it.
+    // and that nothing can be done with it. The enabled flag has to be false,
+    // not merely not true: a row that said nothing about being enabled would
+    // pass `isNot(isTrue)`.
     final blocked = _rowSemantics(t, 'planning', 'Team planning');
     expect(blocked.label.toLowerCase(), contains('team planning'));
     expect(blocked.label.toLowerCase(), contains('not synced'));
-    expect(blocked.flagsCollection.isEnabled.toBoolOrNull(), isNot(isTrue));
+    expect(blocked.flagsCollection.isEnabled.toBoolOrNull(), isFalse);
     final open = _rowSemantics(t, 'family', 'Family');
     expect(open.label.toLowerCase(), isNot(contains('not synced')));
 
@@ -609,7 +611,7 @@ void main() {
     // A row that cannot be chosen is read out as not enabled here too, where
     // there is no checkbox to say so, and one that can be chosen as enabled.
     final blocked = _rowSemantics(t, 'planning', 'Team planning');
-    expect(blocked.flagsCollection.isEnabled.toBoolOrNull(), isNot(isTrue));
+    expect(blocked.flagsCollection.isEnabled.toBoolOrNull(), isFalse);
     final open = _rowSemantics(t, 'family', 'Family');
     expect(open.flagsCollection.isEnabled.toBoolOrNull(), isTrue);
 

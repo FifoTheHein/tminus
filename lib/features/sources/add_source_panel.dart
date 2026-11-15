@@ -15,6 +15,7 @@ import '../../core/storage/source_repository.dart';
 import '../../core/sync/sync_service.dart';
 import '../common/color_palette_picker.dart';
 import '../common/guarded.dart';
+import 'calendar_groups.dart';
 import 'calendar_picker.dart';
 import 'link_field.dart';
 import 'link_help.dart';
@@ -202,13 +203,44 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
     widget.onAdded(source);
   }
 
+  /// Every calendar on the phone, for naming the ones being added: a calendar
+  /// is named for what else is on the phone, not only for what is ticked. The
+  /// picker keeps its list to itself, so the phone is read once more. If that
+  /// fails the names go by the ticked calendars alone, and the add goes on: a
+  /// name is not worth a failed add.
+  Future<List<DeviceCalendar>> _phoneCalendars(
+    List<DeviceCalendar> chosen,
+  ) async {
+    try {
+      return await getIt<DeviceCalendarApi>().calendars();
+    } catch (e) {
+      debugPrint('Listing the phone calendars for names failed (${_tag(e)})');
+      return chosen;
+    }
+  }
+
   Future<bool> _addDevice(List<DeviceCalendar> chosen) async {
     setState(() => _saving = true);
     SourceConfig? first;
     final added = await guarded<bool>(context, () async {
       final admin = getIt<SourceAdmin>();
+      // Each name taken counts for the calendars after it, so calendars added
+      // together never share one.
+      final names = [
+        for (final s in await getIt<SourceRepository>().all()) s.name,
+      ];
+      final phone = await _phoneCalendars(chosen);
       for (final calendar in chosen) {
-        final source = await admin.addDeviceSource(calendar: calendar);
+        final name = defaultSourceName(
+          calendar,
+          phoneCalendars: phone,
+          existingSourceNames: names,
+        );
+        final source = await admin.addDeviceSource(
+          calendar: calendar,
+          name: name,
+        );
+        names.add(source.name);
         first ??= source;
       }
       return true;

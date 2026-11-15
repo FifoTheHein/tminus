@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tminus/app/di.dart';
+import 'package:tminus/app/links.dart';
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/source_config.dart';
@@ -231,6 +232,12 @@ Future<void> _logging(Future<void> Function(List<String> logged) body) async {
 Finder _snack(String text) =>
     find.descendant(of: find.byType(SnackBar), matching: find.text(text));
 
+/// The links the screen asked `tminus_ui` to open, in order.
+List<Object?> _openedUrls(Harness h) => [
+  for (final c in h.uiCalls)
+    if (c.method == 'openUrl') (c.arguments as Map)['url'],
+];
+
 /// Waits out the snack bar that is up (they show one at a time, so one that is
 /// queued behind it shows only now), so that "nothing else was said" can be
 /// asked of what is on the screen afterwards.
@@ -354,6 +361,54 @@ void main() {
     // Skipping the test did not ring anything.
     expect(h.engineCalls.where((c) => c.method == 'testAlarm'), isEmpty);
     await h.dispose(t);
+  });
+
+  testWidgets('onboarding opens the privacy policy', (t) async {
+    final h = await _boot(t, seed: (h) async => h.ui['openUrl'] = (_) => true);
+
+    await _tap(t, 'onboardingPrivacyPolicy');
+
+    expect(_openedUrls(h), [privacyPolicyUrl]);
+    expect(find.byType(SnackBar), findsNothing);
+    // The page opens in the browser and the step stays where it was.
+    expect(find.byKey(const Key('step-welcome')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('a failed open shows the snackbar', (t) async {
+    // The harness answers `openUrl` with nothing, which is "no app took it".
+    final h = await _boot(t);
+
+    await _tap(t, 'onboardingPrivacyPolicy');
+
+    expect(_openedUrls(h), [privacyPolicyUrl]);
+    expect(_snack('Could not open the privacy policy.'), findsOneWidget);
+    expect(find.byKey(const Key('step-welcome')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('an open that throws shows the same snackbar and logs only the '
+      'code', (t) async {
+    await _logging((logged) async {
+      final h = await _boot(
+        t,
+        seed: (h) async => h.ui['openUrl'] = (_) => throw PlatformException(
+          code: 'no_activity',
+          message: 'LEAK $privacyPolicyUrl',
+        ),
+      );
+
+      await _tap(t, 'onboardingPrivacyPolicy');
+
+      expect(_snack('Could not open the privacy policy.'), findsOneWidget);
+      await _waitOutSnackBar(t);
+      // Nothing else was said, in this or any other text.
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('LEAK'), findsNothing);
+      expect(logged.join('\n'), contains('no_activity'));
+      expect(logged.join('\n'), isNot(contains('LEAK')));
+      await h.dispose(t);
+    });
   });
 
   testWidgets('Continue on Add your calendar waits for a source, and Skip '
@@ -1201,6 +1256,17 @@ void main() {
     }
 
     expectOnScreen('getStarted');
+    expectOnScreen('onboardingPrivacyPolicy');
+    // The buttons sit at the foot of the screen, so one that takes too much
+    // room is not pushed off it but up into the page: the page must still hold
+    // its heading.
+    expect(
+      t.getRect(find.text("Meetings you can't miss")).bottom,
+      lessThanOrEqualTo(
+        t.getRect(find.byKey(const Key('step-welcome'))).bottom,
+      ),
+      reason: 'the welcome buttons leave no room for the heading',
+    );
     await _tap(t, 'getStarted');
     await _settle(t);
     expectOnScreen('continue');

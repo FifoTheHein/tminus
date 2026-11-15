@@ -227,7 +227,7 @@ class RingingService : Service() {
             return
         }
         val (index, mp) = opened
-        if (index > 0) Log.w(TAG, "Tone ${candidates[0]} failed; using ${candidates[index]}")
+        if (index > 0) Log.w(TAG, "Tone 0 failed; using candidate $index") // positions only: a tone's uri can carry a file name
         volume = if (gradual) RAMP_START else 1f
         mp.setVolume(volume, volume)
         mp.setOnErrorListener { failed, _, _ ->

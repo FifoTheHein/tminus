@@ -49,7 +49,7 @@ class PreSyncScheduler(
                 alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
             }
         } catch (e: SecurityException) {
-            Log.w(TAG, "Exact alarm refused for pre-alarm sync; using an inexact alarm", e)
+            Log.w(TAG, "Exact alarm refused for pre-alarm sync; using an inexact alarm: ${e.javaClass.simpleName}")
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
         }
     }

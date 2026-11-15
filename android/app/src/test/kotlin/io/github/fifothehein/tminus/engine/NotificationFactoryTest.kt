@@ -4,6 +4,8 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
+import io.github.fifothehein.tminus.LoggedErrors
+import io.github.fifothehein.tminus.RefusingNotificationsShadow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,6 +16,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -47,6 +51,16 @@ class NotificationFactoryTest {
         assertEquals(NotificationManager.IMPORTANCE_HIGH, ringing.importance)
         assertNull(ringing.sound) // RingingService plays the alarm itself
         assertEquals(NotificationManager.IMPORTANCE_DEFAULT, manager.getNotificationChannel(NotificationFactory.CHANNEL_MISSED).importance)
+    }
+
+    @Test
+    @Config(shadows = [RefusingNotificationsShadow::class])
+    fun `a refused notification logs the exception's class and not its message or trace`() {
+        ShadowLog.clear()
+
+        factory.postHeadsUp(listOf(meeting()))
+
+        LoggedErrors.assertClassOnly("POST_NOTIFICATIONS not granted", "SecurityException")
     }
 
     @Test

@@ -2,6 +2,7 @@ package io.github.fifothehein.tminus.engine
 
 import android.content.Context
 import android.os.Looper
+import io.github.fifothehein.tminus.LoggedErrors
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -12,6 +13,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
 class EventQueueTest {
@@ -47,6 +49,19 @@ class EventQueueTest {
         queue.file.appendText("{\"type\":\"fired\",\"alertId\"\n") // torn write
         queue.append(event(2))
         assertEquals(listOf("a1", "a2"), queue.drain().map { it.alertId })
+    }
+
+    @Test
+    fun `an unreadable line logs the exception's class and not its message or trace`() {
+        val line = "{\"type\":\"fired\",\"alertId\":\"${LoggedErrors.SECRET}" // torn: the parse error quotes all of it
+        assertTrue("the parse error quotes the line", LoggedErrors.SECRET in LoggedErrors.jsonParseError(line))
+        queue.append(event(1))
+        queue.file.appendText(line + "\n")
+        ShadowLog.clear()
+
+        assertEquals(listOf("a1"), queue.drain().map { it.alertId })
+
+        LoggedErrors.assertClassOnly("Skipping an unreadable queued event", "JSONException")
     }
 
     @Test

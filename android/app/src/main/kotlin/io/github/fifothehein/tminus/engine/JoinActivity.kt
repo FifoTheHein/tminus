@@ -34,7 +34,7 @@ class JoinActivity : Activity() {
             try {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             } catch (e: ActivityNotFoundException) {
-                Log.w("TMinusEngine", "Nothing can open the join link", e)
+                Log.w("TMinusEngine", "Nothing can open the join link: ${e.javaClass.simpleName}")
             }
         }
     }

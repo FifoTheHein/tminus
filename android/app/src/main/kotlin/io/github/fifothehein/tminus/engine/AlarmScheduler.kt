@@ -103,7 +103,7 @@ class AlarmScheduler(
                 else -> alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
             }
         } catch (e: SecurityException) {
-            Log.w(TAG, "Exact alarm refused for $label; using an inexact alarm", e)
+            Log.w(TAG, "Exact alarm refused for $label; using an inexact alarm: ${e.javaClass.simpleName}")
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
         }
     }

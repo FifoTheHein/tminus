@@ -16,6 +16,8 @@ import androidx.work.WorkerParameters
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
+import io.github.fifothehein.tminus.LoggedErrors
+import io.github.fifothehein.tminus.RefusingExactAlarmsShadow
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,7 +29,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
 class SyncSchedulingTest {
@@ -231,6 +235,17 @@ class SyncSchedulingTest {
         ShadowAlarmManager.setCanScheduleExactAlarms(false)
         PreSyncScheduler(app) { now }.setTimes(listOf(now + MINUTE))
         assertEquals(now + MINUTE, preSyncAlarms().single().triggerAtTime)
+    }
+
+    @Test
+    @Config(shadows = [RefusingExactAlarmsShadow::class])
+    fun `a refused exact pre-sync alarm logs the exception's class and not its message or trace`() {
+        ShadowLog.clear()
+
+        PreSyncScheduler(app) { now }.setTimes(listOf(now + MINUTE))
+
+        LoggedErrors.assertClassOnly("Exact alarm refused for pre-alarm sync", "SecurityException")
+        assertEquals(now + MINUTE, preSyncAlarms().single().triggerAtTime) // the inexact fallback still arms it
     }
 
     @Test

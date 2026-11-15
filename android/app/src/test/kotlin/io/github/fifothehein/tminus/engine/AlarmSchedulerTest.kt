@@ -3,7 +3,9 @@ package io.github.fifothehein.tminus.engine
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
+import io.github.fifothehein.tminus.LoggedErrors
 import io.github.fifothehein.tminus.MainActivity
+import io.github.fifothehein.tminus.RefusingExactAlarmsShadow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -20,6 +22,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowLog
 
 /** An AlarmManager that refuses exact alarms the way Android 12–13 does without SCHEDULE_EXACT_ALARM. */
 @Implements(AlarmManager::class)
@@ -283,6 +286,16 @@ class AlarmSchedulerTest {
         assertNull(a.alarmClockInfo)
         assertTrue(a.isAllowWhileIdle)
         assertNotEquals(ShadowAlarmManager.WINDOW_EXACT, a.windowLengthMs)
+    }
+
+    @Test
+    @Config(shadows = [RefusingExactAlarmsShadow::class])
+    fun `a refused exact alarm logs the exception's class and not its message or trace`() {
+        ShadowLog.clear()
+
+        scheduler.applyPlan(listOf(alert("a", NOW + 10 * MINUTE_MS)))
+
+        LoggedErrors.assertClassOnly("Exact alarm refused for a;", "SecurityException")
     }
 
     @Test

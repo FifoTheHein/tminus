@@ -233,6 +233,17 @@ class RingingServiceTest {
     }
 
     @Test
+    fun `a broken custom tone is logged by position, not by its uri`() {
+        ShadowLog.clear()
+
+        startWith(alert("a", NOW, toneUri = "content://missing/tone"))
+
+        val line = ShadowLog.getLogs().single { it.msg.orEmpty().startsWith("Tone ") }
+        assertTrue("the line names positions: ${line.msg}", Regex("Tone 0 failed; using candidate \\d+").matches(line.msg))
+        assertTrue("no uri is logged", ShadowLog.getLogs().none { "content://" in it.msg.orEmpty() || "missing/tone" in it.msg.orEmpty() })
+    }
+
+    @Test
     fun `Stop silences even when the alert is no longer presented`() {
         val service = startWith(alert("a", NOW)).get()
         assertTrue(service.isSounding)

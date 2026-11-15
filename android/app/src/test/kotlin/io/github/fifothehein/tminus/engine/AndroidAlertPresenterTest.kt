@@ -2,6 +2,7 @@ package io.github.fifothehein.tminus.engine
 
 import android.app.Application
 import android.app.NotificationManager
+import io.github.fifothehein.tminus.LoggedErrors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -13,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
 class AndroidAlertPresenterTest {
@@ -182,5 +184,29 @@ class AndroidAlertPresenterTest {
         presenter.present(listOf(a))
         assertTrue(RingingSession.alerts.isEmpty())
         assertFalse(presenter.isShowing(a.copy(coalesceGroup = "elsewhere"))) // not ringing; only its heads-up shows it
+    }
+
+    @Test
+    fun `an alarm whose ringing service cannot start logs the exception's class and not its message or trace`() {
+        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> throw IllegalStateException(LoggedErrors.SECRET) }
+        ShadowLog.clear()
+
+        presenter.present(listOf(alert("a", NOW)))
+
+        LoggedErrors.assertClassOnly("Ringing service refused to start", "IllegalStateException")
+    }
+
+    @Test
+    fun `a joining heads-up whose restart is refused logs the exception's class and not its message or trace`() {
+        val a = alert("a", NOW, group = "G")
+        val h = alert("h", NOW + 2_000, strength = Strength.HEADS_UP, group = "G")
+        RingingSession.add(listOf(a))
+        store.write(EngineState(presented = listOf(a, h))) // fire has moved h to presented
+        val presenter = AndroidAlertPresenter(app, store, NotificationFactory(app)) { _, _ -> throw IllegalStateException(LoggedErrors.SECRET) }
+        ShadowLog.clear()
+
+        presenter.present(listOf(h))
+
+        LoggedErrors.assertClassOnly("Ringing service refused the joining heads-up's restart", "IllegalStateException")
     }
 }

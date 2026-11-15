@@ -26,7 +26,7 @@ class AndroidAlertPresenter(
                     startRinging(appContext, joining.map { it.id })
                 } catch (e: IllegalStateException) {
                     // The alert is in the session already; only the timeout restart is lost.
-                    Log.w(TAG, "Ringing service refused the joining heads-up's restart", e)
+                    Log.w(TAG, "Ringing service refused the joining heads-up's restart: ${e.javaClass.simpleName}")
                 }
             }
             postHeadsUps(own)
@@ -45,7 +45,7 @@ class AndroidAlertPresenter(
             startRinging(appContext, session.map { it.id })
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (Android 12+) is an IllegalStateException.
-            Log.w(TAG, "Ringing service refused to start; showing a heads-up instead", e)
+            Log.w(TAG, "Ringing service refused to start; showing a heads-up instead: ${e.javaClass.simpleName}")
             RingingSession.remove(session.map { it.id })
             postHeadsUps(alerts)
             return

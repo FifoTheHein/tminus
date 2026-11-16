@@ -782,8 +782,157 @@ The roadmap's Plan 6 decisions and items, and where each is handled:
 
 ## Built differently from this plan
 
-(Filled in while building.)
+**Task 2** (38f22bd):
+- `NO_TYPE` is `internal`, not private, so the SDK 33 test can name it.
+- `onStartCommand` also catches `IllegalArgumentException` (a type the manifest does not declare, e.g. a half-done revert) and sends it to `refuseForeground`, like the other two refusals (deep review).
+- `refuseForeground` logs the exception's class only, not the exception (CLAUDE.md's logging rule); the phrase `refused the foreground` is kept for Task 11's logcat check.
+- Tests beyond Step 4:
+  - the SDK tests also assert the Robolectric shadow's foreground type;
+  - the manifest test also asserts `USE_EXACT_ALARM`;
+  - a `SecurityException` refusal and an `IllegalArgumentException` refusal each fall back to a heads-up;
+  - the refusal log holds no message or trace.
+- RingingService's class KDoc and `refuseForeground` KDoc are reworded too.
+- Decision 2 says the fallback is "a one-line manifest revert plus the old `foregroundType()`". It is two manifest lines plus the function; reverting 38f22bd does it in one step.
+
+**Task 2b** (6669ad8, not in the plan; R14):
+- Every main-code Kotlin `Log.*` call that passed an exception now logs only the class name, keeping its wording: 11 lines in 10 files.
+- `AlarmEngineChannel` answers `bad_args` and `engine_error` with a null message; the codes are unchanged, and Dart reads only codes. The Developer tools panel now shows the code where it showed the message.
+- RingingService's tone fallback logs list positions, not tone URIs.
+- 14 ShadowLog and channel tests plant a secret in each error and check it never reaches a log or Dart. Shared helpers live in `LoggedErrors.kt` and `RefusingShadows.kt`.
+- Left alone: the Flutter-generated `GeneratedPluginRegistrant.java`; one em dash in a pre-existing test fixture (`SyncChannelTest.kt:134`).
+
+**Task 3** (3b246a4):
+- **The `from < 2` step** uses drift's generated `Schema2` classes (`dart run drift_dev schema steps drift_schemas/ lib/core/storage/schema_versions.dart`, a generated 1140-line file: never edit or format it), not the exact-SQL fallback. It also gains one guard (R15): `ical_uid` is added only when `occurrences` exists and lacks it. CLAUDE.md says never edit a shipped step; this guard keeps the step's meaning for every file it shipped for. It stops a file whose v3 step already ran from failing every open.
+- **`LegacyCacheMove`** runs as three separate transactions:
+  1. a `from` transaction reads the existence checks and every 500-row page into memory;
+  2. one cache transaction inserts them with `INSERT OR IGNORE`, together with a `cache_values` marker `storage.legacyMoved`;
+  3. a `from` transaction drops each legacy table that still exists and deletes the old settings row.
+
+  The plan paged the reads inside one cache transaction. In that shape, a table dropped by the other isolate between check and read fails the open, and drift cannot nest one database's transaction inside another's. The marker is checked before the read and again inside the copy transaction, so a stalled second isolate cannot bring back a meeting the first one's sync removed. Column lists come from `PRAGMA table_info`, intersected with the cache table's columns.
+- **R9:** `sync.missedSystemExpected`, which holds upcoming meeting titles, moves from `settings` into a `cache_values` table in the cache database. `SyncService` takes the cache values, and the legacy move carries the old row over.
+- **R16:** `tminus.sqlite` gets `secure_delete = ON`. It is compacted once after the move (`VACUUM`, then `wal_checkpoint(TRUNCATE)`), with best-effort retries until the `settings` marker `storage.compactedV3` is set. The pause checkpoint is `TRUNCATE`, so it can wait up to the 5 s busy timeout while a headless sync writes. Upgraded phones' backups then hold no old meeting bytes.
+- **Screens:** Agenda, Sources and Source detail listened only to `AppDatabase.tableUpdates()`; they now also listen to the cache (a plan gap). `runHeadlessSync` and `configureDependencies` take `openCacheDatabase`. A test that passes only `openDatabase` gets an in-memory cache.
+- **Not built:** `CacheDatabase.checkpoint()` (the cache is never backed up).
+- **Failures and deletes:**
+  - A failed cache open stays failed until the process restarts, because drift caches it. Nothing plans meanwhile, so Kotlin keeps its alarms.
+  - `RestoreGuard`'s post-commit cache clear is try/caught and keeps the outcome `restored`.
+  - `SourceAdmin._cleanUp` catches everything, and the cache step runs last in `delete`, so a cache error cannot skip deleting the link.
+  - `updateDeviceCalendar` clears the old calendar's cache before its transaction. If that transaction fails, the source keeps its old calendar with an empty cache until the next fetch.
+
+**Task 6** (12f102b):
+- The card body for the new cause comes from a new pure `problemBody(status)` in `problem_card.dart`, which the detail screen now calls. The plan put the text under problem_card, but the screen used to pass the status line as the body. A source still waiting for its calendar keeps its old body.
+- The button stays `Choose calendar`, where decision 18's prose says "Choose another calendar".
+- `test/core/sync/outcome_severity_test.dart` was missing from the plan's file list. Its two exhaustive tables now name `calendarNotSynced`.
+- Extra tests beyond Step 3:
+  - one of several asked calendars being off refuses the whole ask (a source only ever asks for one);
+  - a calendar that is off but not asked for does not matter;
+  - a missing calendar is reported before a not-synced one;
+  - the notice is withdrawn on recovery, and a new spell posts a new one.
+- A not-synced phone source gets one Feed broken notice and no Feed stale notices afterwards (those cover link sources only), as `calendarMissing` does.
+
+**Task 8** (af0e747):
+- The App access text differs from the plan's draft, because the code does:
+  - the real flow is Get started, Paste a calendar link, ICS link, Check, Add calendar, Continue, permissions, Ring a test alarm;
+  - the 12:00 UTC demo meeting is free and skipped by default;
+  - Mute today is reached through the moon (Quiet modes) button, and the tile is left out;
+  - "a full-screen alarm" became "an alarm", and Health lists the next five alerts.
+
+  A 469-character short form was added.
+- **Listing:**
+  - Health shows whether alarms can ring, while the Agenda and the event sheet show why a meeting rings;
+  - the volume keys stop an alarm only on the full-screen alarm;
+  - keyword rules match words, or whether a meeting has a Teams link;
+  - Join appears only for meetings with a link;
+  - a trademark and independence paragraph was added.
+- **Declarations:**
+  - the FGS description says what the service does: sound, vibration, wake lock, and the ringing notification with its full-screen intent;
+  - a `USE_FULL_SCREEN_INTENT` fallback, R12 in the `SCHEDULE_EXACT_ALARM` fallback, and a manifest reference table were added;
+  - the FGS video is a placeholder line until Task 9.
+- **Feature graphic:** `tool/gen_feature_graphic.py` loads `gen_launcher_icon.py` by path and draws with its geometry and colour tokens. Its `check_vectors()` stop does not notice a change to one of two equal `strokeWidth` lines, so `test/launcher_icon_test.dart` stays the exact guard. That test also pins the graphic as a 24-bit RGB PNG.
+- **R18, the user's choice:** `docs/_config.yml` keeps everything but `index.md`, `privacy.md` and `play/demo.ics` out of the Pages site, and `test/app/pages_config_test.dart` fails on any new docs/ file that is neither public nor excluded. Not done (optional review notes): the test does not reject a top-level `include:` key or a nested `exclude:`.
+
+**Task 5** (b01e7d3):
+- **The privacy policy's text differs from Step 2.** The review found sentences that were not true of the code, and they were replaced:
+  - the Calendar permission also lists the phone's calendars;
+  - meetings include busy/free, declined and cancelled;
+  - the cache holds a 30-day alarm history with titles;
+  - the backup is end to end encrypted from Android 9, not on Android 8;
+  - device transfer copies the same settings;
+  - what a calendar fetch sends, and that http links are not encrypted;
+  - the export file holds settings and outlives an uninstall;
+  - a Network state row is added to the permissions table;
+  - Google Play's own crash and install statistics are mentioned.
+
+  Task 10's review checks the committed text, not the plan's.
+- The effective date is 14 November 2026 (R6).
+- The About card puts the name and version on their own row, with Privacy policy and Licences side by side in a `Wrap` below it. In one row they overflowed the 360 dp test by 104 px.
+- Each screen has its own `_openPrivacyPolicy` (10 lines); `links.dart` holds constants only.
+- `demo.ics` has a `DTSTAMP` on every VEVENT (RFC 5545), CRLF line endings committed as such (R8), and demo-00 is "Morning planning".
+- Extra tests: the policy page is finished and names the issues page; the demo feed has no links, one Free and one located meeting; an open that throws shows one snackbar and logs only the code. The onboarding large-text test also checks that the Welcome heading stays inside the page.
+
+**Task 7** (51a4842):
+- `AddSourcePanel._addDevice` reads the phone's calendars a second time (`DeviceCalendarApi.calendars()`) to find clashes with calendars that were not ticked. The picker's `onAdd` hands over only the ticked ones, and `calendar_picker.dart` does not change. If that read fails, names are worked out from the ticked list, the add goes on, and only the code or type is logged.
+- `defaultSourceName` returns the trimmed name, not only compares it trimmed. A blank name both reads and compares as `Phone calendar`.
+- `existingSourceNames` is every source's name: link and phone sources, enabled or not.
+- The kind comes from `groupCalendars` run over the whole phone with the calendar in it once, so it follows the grouping rules exactly.
+- 13 tests beyond Step 4's list; a comment beside the first `isFalse` says why it is stricter than `isNot(isTrue)`.
+- The debug-only sync panel (`lib/features/token_preview/sync_debug_panel.dart`) still adds phone calendars under their own name.
 
 ## Run log
 
-(Filled in while building.)
+Bookmark for the run. Stamps are local time (+0200).
+
+**Run session:** "Plan 6: build Play readiness", started 2026-11-14T22:45:22+0200 on Opus 5.5, effort high, branch `claude/plan-6-play-readiness-build-fe4abe` from `main` cb3ae71.
+
+**Decisions taken while running** (each can be overturned):
+- R1. The plan is run in its lightweight form (Execution line). It has no orchestrate template sections, so each task's **Files** list stands for its `OWNS` and its Gates for its `ACCEPTANCE`. No time booking.
+- R2. Wave 1 does not wait for Tasks A and B. Nothing in Tasks 2, 3, 5 or 7 depends on them. Task A gates Task 8's listing name, Task B gates Task 10, Task C gates Task 4.
+- R3. Task 1 Step 1 runs as `git fetch` plus an ancestry check: the worktree cannot check out `main`, which the main checkout holds.
+- R4. Each task's dev-worker writes the tests its plan step names, in the same job; the plan defines no separate test-author jobs. Each new test's negative control is run by the worker, then re-run by the test runner where the reviewer names it.
+- R5. While a wave runs, workers run only their own targeted `flutter test` files; only the Kotlin task runs Gradle. The full suite runs once per task as its acceptance, through the scouts.
+- R7. (User, 2026-11-15) An emulator check runs once Wave 1 is committed, on the Pixel_9 AVD (API 36, `-gpu swiftshader_indirect`), by a scout. Debug builds:
+  - install `main`'s build and fill the cache with the debug fast-alarms source, then install the Wave 1 build over it, which upgrades the database in place: the Agenda and Health's upcoming alarms keep the same meetings (Review Focus 1);
+  - an alarm rings and `dumpsys activity services` shows `systemExempted`;
+  - About and onboarding show the privacy policy link;
+  - a second calendar with a clashing name gets the kind label, if the emulator has a phone calendar to pick.
+
+  The plan's own emulator steps (Task 4 Step 7, Tasks 9 and 11) still run on the release build.
+- R8. `docs/play/demo.ics` is committed with CRLF line endings (RFC 5545), staged with `git -c core.autocrlf=false add` and checked with `git ls-files --eol` (`i/crlf`). The repo has `core.autocrlf=true` and no `.gitattributes`, so a plain add would store LF.
+- R9. (Task 5 review, blocker B1) `sync.missedSystemExpected` holds each upcoming alarm's meeting title and lives in `settings` in the backed-up `tminus.sqlite`. It moves into a key-value table in `CacheDatabase` as part of Task 3, with `LegacyCacheMove` moving the old row on upgrade. Without this, the policy's backup sentence and Review Focus 3 would be false.
+- R10. The privacy policy's wording changes from the plan's Step 2 text (Task 5 review: A to I). Task 5 Step 8 publishes the pages only after Tasks 3 (with R9) and 4 are committed, because the backup sentences depend on both.
+- R11. Task 2's deep review stands in for its standard review; the deep reviewer re-reviews the fix. Task 2 is committed alone (its seven android/ files), so decision 2's one-commit revert holds.
+- R12. (Task 2 deep review) Task 8's `declarations.md` fallback section must say: falling back from `USE_EXACT_ALARM` to `SCHEDULE_EXACT_ALARM` makes `systemExempted`'s prerequisite on API 34+ a permission the user can revoke, so that fallback also needs the `mediaPlayback` fallback (or a ring path that works without the grant).
+- R13. Kotlin 2.x leaves an untracked `android/.kotlin/` folder after a Gradle build. Task 4, which already edits `android/.gitignore`, also adds `.kotlin/` there.
+- R14. (Task 2 fix) Other Kotlin sites still pass an exception object to `Log` (JoinActivity, AndroidAlertPresenter, AlarmEngineChannel, PlanStore, EventQueue, CrashSilencer, SyncNotifications, NotificationFactory, PreSyncScheduler, AlarmScheduler). An exception's message can quote a join link or event text, against CLAUDE.md's logging rule and the release logcat check (Task 4 Step 7). A fix job, "Task 2b", makes them log the class name only. It runs after Task 2 is committed, as its own commit, by the same worker in Wave 1's Gradle slot.
+- R15. (Task 3 deep review) The shipped `from < 2` step gains one guard: it adds `ical_uid` only when `occurrences` exists and lacks the column. CLAUDE.md says never edit a shipped step. This edit keeps the step's meaning for every input it ever ran on and stops a file that already ran the v3 step from failing every open. The user can overturn it.
+- R16. (Task 3 deep review) `tminus.sqlite` gets `secure_delete = ON`, a one-time best-effort `VACUUM` plus `wal_checkpoint(TRUNCATE)` after the legacy move, and a TRUNCATE checkpoint on pause, so no meeting text stays in the backed-up file's free pages or WAL.
+- R17. Task 8 (Wave 2) starts while Task 3's fix is still running. It shares no file with Task 3 and needs only Task 5's committed URLs and Task A's name. Task 6 waits for Task 3, because both edit `sync_service.dart`, `sync_service_test.dart` and `source_detail_screen.dart`.
+- R18. (User, 2026-11-15) GitHub Pages publishes only the public pages: `docs/_config.yml` excludes everything under docs/ except `index.md`, `privacy.md` and `play/demo.ics`, and a test pins that. Built in Task 8, it goes into Task 5 Step 8's docs-only PR, so it takes effect when the pages go online.
+- R6. The policy's effective date is written as 14 November 2026, and updated if Task 5 Step 8's pages PR merges on a later day.
+- R19. R7's emulator check moves to after Wave 2, so it also covers Task 6 and does not compete with Task 6's Gradle runs (one Gradle build at a time).
+
+**Wave 1 closed 2026-11-16T00:12.**
+- Commits: 51a4842 (Task 7), b01e7d3 (Task 5), 38f22bd (Task 2), 6669ad8 (Task 2b), 3b246a4 (Task 3).
+- Evidence on the final content: full `flutter analyze` clean and full `flutter test` +1248 all passed (Task 3's last check, same content as 3b246a4 plus Task 8's uncommitted files); Kotlin suite 323 tests, 0 failures (Task 2b's fresh `--rerun-tasks` run; Task 3 changed no Kotlin).
+- No negative control survived.
+- Wave 2: Task 8 in progress (R17); Task 6 dispatched 2026-11-16T00:12.
+
+**Wave 2 closed 2026-11-16T05:02.**
+- Commits: af0e747 (Task 8), 12f102b (Task 6).
+- Evidence on 12f102b's content: full `flutter analyze` clean, full `flutter test` +1257 all passed, Kotlin `--rerun-tasks` 328 tests, 0 failures.
+- No negative control survived.
+- Next: the emulator check (R7, R19), then Wave 3 (Task 4; Task C is done).
+
+| Step | State | Evidence | Commit |
+|---|---|---|---|
+| Task 1 preflight | done 2026-11-14T23:14. Step 3 on cb3ae71: `flutter analyze` No issues found; `flutter test` +1179 All tests passed; `:app:testDebugUnitTest` BUILD SUCCESSFUL, 303 tests, 0 failures (results land in `<worktree>/build/app/test-results/`, not `android/app/build`) | Step 1: HEAD = origin/main = cb3ae71, 1d01901 is an ancestor. Step 2: every name the plan uses exists (RingingService.kt:283 `foregroundType()` returns MEDIA_PLAYBACK from API 29, else 0; EngineActions.kt:186 `RECOVERY_DELAY_MS`; schemaVersion 2; tables.dart:53/168/194 with the one `references(Sources` at :56; restore_guard.dart:195-197; source_admin.dart:146/208/231; DeviceCalendarReader.kt:115 `CALENDAR_MISSING`, `syncEvents` at :50/:126; calendar_picker.dart:369; calendar_picker_test.dart:460/612; settings_screen.dart:348/658/701; onboarding_screen.dart:708; sync_service.dart:563 `_ =>` arm; source_detail_screen.dart:830/833). No plan text needed changing. Step 4: Python 3.12.10, Pillow 10.3.0. `gen_launcher_icon.py` has no check mode (a `--help` run rewrote its PNGs with identical bytes, no diff). Tools: build-tools 35.0.0 and 36.0.0, NDK 26.3/27.0/28.2, AVDs Pixel_9 and Android10_x86_64, no adb device attached. Step 3 not run first time: two java daemons from another session were alive. | |
+| Task A (user) | done 2026-11-14. Registers searched at the user's request; the user ran CIPC (its free search needs a CAPTCHA): no records match. Listing name stays `T-Minus: Meeting Alarm` | USPTO, WIPO Global Brand Database (EUIPO data to 2026-11-13, UK, AU, NZ, JP and others; no South Africa) and Google Play: no live T-MINUS / TMINUS / T MINUS registration for software, alarms or calendars. Live exact marks are in other classes (golf 28, beer 32, clothing 25, UK events 35/41). Nearest composites: T-MINUS ZERO (US 98229637, pending, class 9 video game software), T-MINUSTHEDAY (US reg 8405886, class 42 greeting-card and event site that names "a calendar and reminders platform"), T-MINUS10 (finance). Dead: TMINUS 85704883 (mobile app, abandoned), T-MINUS COUNTDOWN CLOCK 78419994 (abandoned). Play has "T-Minus Zero: Launch Schedule" and "T-Minus - Overtime Tracker"; no meeting alarm with the name. Not legal advice. | |
+| Task B (user) | in progress: identity verification under way (2026-11-14) | | |
+| Task C (user) | done 2026-11-14: keystore outside the repo (`%USERPROFILE%\keys\tminus-upload.jks`, alias `upload`), worktree `android/key.properties` filled in by the user and git-ignored (`!!`). Task 4 Step 4 proves the signature | | |
+| Task 2 (Wave 1) | reported 2026-11-15T08:48:06 (worker 2072 s); checked 2026-11-15T08:56:03 (filtered Gradle BUILD SUCCESSFUL; RingingServiceTest 27/27 incl. the three new tests, RearmReceiversTest 10/10; only OWNS files under android/; no em dash; main checkout clean; the first check scout's report never arrived and it was stopped); deep review 2026-11-15T13:20: ship with fixes. No blocker for alarm delivery on API 26-36 (API 29-33 parse `systemExempted` as the compiled integer 0x400; Android 15's boot-start ban does not list the type). Warning: no test for the `SecurityException` refusal, which `systemExempted` makes reachable. Notes: `IllegalArgumentException` (type not in the manifest) is not caught; a garbled AlarmScheduler comment; `FOREGROUND_SERVICE_IMMEDIATE` on the ringing notification would be a cheap guard (NotificationFactory.kt, follow-up). Fix brief sent 13:21; fix plus a log-only-the-class change reported; checked (full Kotlin suite 309 tests, 0 failures; no em dash; RingingService.kt SHA-256 99B1A611...); deep re-review: ship. **Done 2026-11-15T13:45** | Worker: filtered Gradle BUILD SUCCESSFUL (RingingServiceTest 27, RearmReceiversTest 10), full 306 tests 0 failures; Robolectric SDK 33 ran; controls A-D each failed the matching new test, restore verified by SHA-256. Worker notes: one flake in 11 runs (`AccessDeniedException` on `state.json` in `PlanStore.writeLocked`, an existing test, a Windows file lock); `ServiceCompat` below API 34 masks the type to 8 bits and passes `FOREGROUND_SERVICE_TYPE_MANIFEST` (-1) through, a simpler alternative to `NO_TYPE` (for the deep review; kept as built). | 38f22bd |
+| Task 6 (Wave 2) | dispatched 2026-11-16T00:12 (paused by the usage limit); reported; `test/core/sync/outcome_severity_test.dart` added to its files (a plan gap: its two exhaustive tables must name the new outcome); checked (full analyze clean, full flutter test +1257, Kotlin `--rerun-tasks` 328 tests 0 failures with DeviceCalendarReaderTest 14/14, contract files unchanged, no Log call in the reader, no em dash, main clean); deep review 2026-11-16T05:00: ship, no blocker or warning (the cache and the plan stay unchanged on the failure; one notice per spell; only one calendar per ask; null SYNC_EVENTS still reads as synced). Its three suggested controls match the worker's D1, D3 and D10, which failed as expected. Commit scout dispatched 05:01 | Worker: full `flutter test` +1257 all passed, analyze clean, Kotlin 328 tests 0 failures (`--rerun-tasks`); 5 Kotlin and 14 Dart controls plus one for outcome_severity_test, each failing its target. **Done 2026-11-16T05:02.** | 12f102b |
+| Task 8 (Wave 2, started early: R17) | dispatched 2026-11-15T18:45 (paused by the usage limit); reported about 23:30; checked (launcher_icon_test +11 all passed, analyze clean, graphic regenerates byte-identical 967726c3..., no em dash, only its five files); review sent | Worker corrected the plan's draft where the code differs (button labels, the free 12:00 UTC demo meeting, the moon button, volume keys only on the full-screen alarm, Health vs the why text, the FGS description) and added R12, a full-screen-intent fallback and a manifest table. Review: approve after three one-sentence fixes (keyword rules match words, not a Teams link's text; Join only for meetings with a link; without the full-screen grant an alarm still rings). Fix brief sent with the optional notes and the icon-drift control. The user chose to publish only the public pages (R18), so `docs/_config.yml` was added to Task 8. Fix reported: W1-W3, N2, N3, N5 (bit depth 8) in, counts restated; the icon-drift control showed `check_vectors()` (inherited from gen_launcher_icon.py) misses a change to one of two equal `strokeWidth` lines, and `launcher_icon_test.dart` is the exact guard. Final check (18 tests, analyze clean, graphic byte-identical) and re-review: approve. **Done 2026-11-16T00:21.** | af0e747 |
+| Task 2b (Wave 1, R14) | dispatched 2026-11-15T13:46:31 to Task 2's worker (paused by the usage limit); reported about 18:25; check scout dispatched | Worker: 11 log lines in 10 files now log the class only; 11 ShadowLog tests with planted secrets; full Kotlin suite 320 tests, 0 failures; all 11 old calls put back at once fail exactly the 11 new tests. Left alone: `DeviceCalendarReader` has no log call; `AlarmEngineChannel` sends `e.message` to Dart as the PlatformException message (channel contract; the Dart side must log the code only); `RingingService` logs ringtone URIs on a tone fallback. Checked about 18:37 (only Task 2b's android/ files changed; 32 result files, 320 tests, 0 failures, written after the last edit, Gradle up to date on the re-run; no throwable or message left in a main-code Log call; main checkout clean). Reviewed: approve; every Dart catch of an `alarm_engine` PlatformException logs the code only. Its two follow-ups were taken into Task 2b: a fixed message for `engine_error`/`bad_args`, and tone indices instead of URIs in RingingService's fallback log; plus the missing CrashSilencer control. Follow-ups checked (323 tests, 0 failures) and re-reviewed: approve; nothing in Dart reads those messages. **Done 2026-11-15T18:44.** | 6669ad8 |
+| Task 3 (Wave 1) | reported 2026-11-15T18:21:39 (paused twice by usage limits; R9 added 13:10); checked about 18:35 (full `flutter analyze` clean, full `flutter test` +1239 all passed, schema dumps regenerate byte-identical, v1/v2 dumps unchanged, alert.dart and planned_alert.dart unchanged, no em dash, main checkout clean). Deep review about 18:55: ship with fixes. It confirmed Review Focus 1: no path reads the cache before the move, in either isolate. BLOCK: upgraded phones keep meeting text in `tminus.sqlite`'s free pages and WAL (both backed up). WARN: the `from < 2` step fails if it runs after the v3 step committed (a two-isolate v1 open, or a crash before user_version is stored, which never heals). Notes taken: `_cleanUp` order, a "moved" marker. Fix brief sent; fix reported (secure_delete, one-time VACUUM + TRUNCATE with a `storage.compactedV3` marker, TRUNCATE on pause, the R15 guard, `_cleanUp` catching everything with the cache step last, a `storage.legacyMoved` copy marker; 7 tests, every control failing its target); checked (full analyze clean, full test +1248, generated files byte-identical, contract files untouched); deep re-review: ship (note: the TRUNCATE pause checkpoint can wait up to 5 s). **Done 2026-11-16T00:12.** | Worker: full `flutter analyze` clean, full `flutter test` +1239 all passed (30 new tests of its own); about 35 negative controls, each failing as expected, restores hash-checked. Plan gaps it fixed: the Agenda, Sources and Source detail screens listened only to `AppDatabase` updates and now also listen to the cache; `SyncService` takes the cache values. | 3b246a4 |
+| Task 5 (Wave 1) | reported 2026-11-15T08:50:33 (worker 2210 s); checked 2026-11-15T08:54:27 (targeted tests +71 all passed, analyze clean on its six Dart files, only OWNS files changed, no em dash, main checkout clean); reviewed 2026-11-15T13:10: 2 blockers, 8 warnings, 5 notes. Fix brief sent 13:12 (policy sentences A-I, onboarding large-text check, links.dart comment, demo title, five controls). Blocker B1 (meeting titles in `sync.missedSystemExpected`, a backed-up settings row) went to Task 3 (R9). Fix reported about 13:40 (policy A-I, demo title, links.dart comments; two tests tightened after the reviewer's controls passed on them); fix checked (targeted +71, analyze clean, no em dash, demo.ics all CRLF); re-review sent | Worker: targeted tests +71 all passed, analyze clean, format unchanged; 10 controls on links_test and 8 on the widget tests, each failing as expected (one first passed and the assertion was tightened). Worker flagged policy sentences that are not fully true (backup encryption on API 26-27, the Network state permission missing from the table, the calendar list read before a pick, an export file outliving an uninstall, Play's own vitals); these go to the review. Re-review: approve; its two optional "such as" wordings taken. **Done 2026-11-15T13:36**, Step 8 (pages online) waits for Tasks 3 and 4 (R10). | b01e7d3 |
+| Task 7 (Wave 1) | reported 2026-11-15T08:58:24 (worker 2692 s); checked 2026-11-15T13:12 (targeted +109 all passed, analyze clean, calendar_picker.dart unchanged, no em dash, main clean; the check paused on the 5-hour usage limit 09:00-13:10); reviewed about 13:15: approve, no blockers or warnings; all six departures accepted (second phone read, trimmed name, blank as `Phone calendar`, every source counts, kind from `groupCalendars` over the whole phone, extra tests). Note: the debug-only sync panel still adds phone calendars without a name. Worktree controls, all failing as expected, restores hash-checked: removing `names.add(source.name)` (add_source_panel_test.dart:843), returning the ticked list instead of the second read (:766), enabling a not-synced row in the picker (calendar_picker_test.dart:448 and :614); restored run +109 all passed. Commit scout dispatched 2026-11-15T13:22:17 | Worker: targeted tests +109 all passed (89 before, +20), analyze clean; 15 pure, 6 panel and 3 picker controls run in a scratch copy, each failing as expected. Departure for review: the panel reads the phone's calendars a second time (`DeviceCalendarApi.calendars()`) to see clashes with calendars that were not ticked, because the picker's `onAdd` passes only the ticked ones and `calendar_picker.dart` may not change; a failed read falls back to the ticked list. **Done 2026-11-15T13:23.** | 51a4842 |

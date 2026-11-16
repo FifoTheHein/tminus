@@ -16,11 +16,15 @@ import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/rules/rules_engine.dart';
 import 'package:tminus/core/sources/calendar_source.dart';
+import 'package:tminus/core/sources/device_calendar_api.dart';
+import 'package:tminus/core/sources/device_calendar_source.dart';
 import 'package:tminus/core/sources/feed_body_cache.dart';
 import 'package:tminus/core/sources/ics_feed_source.dart';
+import 'package:tminus/core/sources/occurrence_mapping.dart';
 import 'package:tminus/core/sources/source_secrets.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/app_settings.dart';
 import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/cache_value_repository.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
@@ -34,6 +38,7 @@ import 'package:tminus/core/storage/source_repository.dart';
 import 'package:tminus/core/storage/sync_log_repository.dart';
 import 'package:tminus/core/sync/engine_event_recorder.dart';
 import 'package:tminus/core/sync/missed_system.dart';
+import 'package:tminus/core/sync/source_status.dart';
 import 'package:tminus/core/sync/sync_platform.dart';
 import 'package:tminus/core/sync/sync_service.dart';
 
@@ -51,6 +56,24 @@ class _FakeSource implements CalendarSource {
   Future<SourceResult> fetch(FetchWindow window) async {
     fetches++;
     return _result();
+  }
+}
+
+/// The phone's calendar API, answering from a script: [rows] until [failWith]
+/// holds an error code, which it then throws as the native reader does.
+class _FakePhoneApi extends DeviceCalendarApi {
+  List<DeviceInstance> rows = const [];
+  String? failWith;
+
+  @override
+  Future<List<DeviceInstance>> instances({
+    required List<String> calendarIds,
+    required DateTime fromUtc,
+    required DateTime toUtc,
+  }) async {
+    final code = failWith;
+    if (code != null) throw PlatformException(code: code);
+    return rows;
   }
 }
 
@@ -573,6 +596,144 @@ void main() {
       SyncService.brokenTitle(work, SyncOutcome.calendarMissing),
       'Work Outlook: calendar was removed',
     );
+    expect(
+      SyncService.brokenTitle(work, SyncOutcome.calendarNotSynced),
+      'Work Outlook: calendar is not syncing',
+    );
+  });
+
+  // A phone calendar whose sync is switched off in its account (Plan 6
+  // decision 18). The source is the real one, over an API that answers from a
+  // script, so the native code `calendar_not_synced` goes the whole way: the
+  // source's mapping, the sync's bookkeeping and the notice.
+  group('a phone calendar whose sync is off', () {
+    const family = SourceConfig(
+      id: 'family',
+      name: 'Family',
+      color: blue,
+      kind: SourceKind.device,
+      deviceCalendarId: '3',
+    );
+    // A meeting of its own, two hours after the feed's, so that nothing merges.
+    final review = DeviceInstance(
+      eventId: '10',
+      calendarId: '3',
+      beginMs: DateTime.utc(2026, 10, 6, 10).millisecondsSinceEpoch,
+      endMs: DateTime.utc(2026, 10, 6, 10, 30).millisecondsSinceEpoch,
+      allDay: false,
+      title: 'Design review',
+      availability: DeviceInstance.availabilityBusy,
+      selfAttendeeStatus: 1,
+      recurring: false,
+    );
+    late _FakePhoneApi api;
+    late SyncService service;
+    late EventOccurrence cached;
+
+    setUp(() async {
+      api = _FakePhoneApi()..rows = [review];
+      cached = occurrenceFromDevice(review, family, johannesburg);
+      await sources.save(family);
+      service = newSync(
+        zone: () => johannesburg,
+        buildSource: (config, state, location) =>
+            config.kind == SourceKind.device
+            ? DeviceCalendarSource(config: config, api: api, zone: location)
+            : _FakeSource(config.id, results[config.id]!),
+      );
+    });
+
+    test('a not-synced calendar keeps its cached meetings and turns the source red', () async {
+      // 06:00: the calendar reads fine. The feed's meeting and the phone's
+      // are cached and planned.
+      await service.run(SyncTrigger.periodic);
+      expect(await cache.byKey(cached.key), cached);
+      final planned = applied();
+      expect(planned.map((a) => a['occurrenceKey']).toSet(), {
+        meeting.key,
+        cached.key,
+      });
+      expect(syncCallsNamed('postSourceNotice'), isEmpty);
+
+      // 06:15 and 06:30: its sync is off, which the native reader refuses
+      // with `calendar_not_synced`.
+      api.failWith = 'calendar_not_synced';
+      now = now.add(const Duration(minutes: 15));
+      final second = await service.run(SyncTrigger.periodic);
+      now = now.add(const Duration(minutes: 15));
+      await service.run(SyncTrigger.periodic);
+
+      // Nothing it held was lost: the meeting is cached, and the plan that
+      // rings the alarms is the one from the last good read.
+      expect(await cache.byKey(cached.key), cached);
+      expect(await cache.countForSource(family.id), 1);
+      expect(applied(), planned);
+
+      // The log says why, and the source is red with nothing to retry.
+      final rows = (await log.recent()).where((e) => e.sourceId == family.id);
+      expect(rows.map((e) => e.outcome), [
+        SyncOutcome.calendarNotSynced,
+        SyncOutcome.calendarNotSynced,
+        SyncOutcome.success,
+      ]);
+      expect(
+        rows.first.message,
+        'This calendar is no longer synced on this phone.',
+      );
+      final mine = second.sources.singleWhere((r) => r.sourceId == family.id);
+      expect(mine.outcome, SyncOutcome.calendarNotSynced);
+      expect(second.outcome, SyncRunOutcome.ok);
+      final state = (await sources.syncState(family.id))!;
+      expect(state.lastSuccessUtc, DateTime.utc(2026, 10, 6, 6));
+      final status = sourceStatusOf(
+        config: family,
+        state: state,
+        latest: await log.latestForSource(family.id),
+        setup: SourceSetup.ready,
+        now: now,
+      );
+      expect(status.health, SourceHealth.error);
+      expect(status.line, 'This calendar is no longer synced on this phone.');
+
+      // One Feed broken notice, posted by the first failing run and not
+      // repeated by the second.
+      expect(syncCallsNamed('postSourceNotice').map((c) => c.arguments), [
+        {
+          'kind': 'broken',
+          'sourceId': 'family',
+          'title': 'Family: calendar is not syncing',
+          'text': 'This calendar is no longer synced on this phone.',
+        },
+      ]);
+    });
+
+    test('the notice is withdrawn when the calendar syncs again, and a new spell posts a new one', () async {
+      api.failWith = 'calendar_not_synced';
+      await service.run(SyncTrigger.periodic);
+      expect(syncCallsNamed('postSourceNotice'), hasLength(1));
+      // Kept by the outcome's name, as the other broken outcomes are.
+      expect(
+        await settings.getString(SyncService.brokenNoticeKey('family')),
+        'calendarNotSynced',
+      );
+
+      api.failWith = null;
+      syncCalls.clear();
+      await service.run(SyncTrigger.periodic);
+      expect(
+        syncCallsNamed('cancelSourceNotice').map((c) => c.arguments),
+        anyElement(equals({'kind': 'broken', 'sourceId': 'family'})),
+      );
+      expect(syncCallsNamed('postSourceNotice'), isEmpty);
+      expect(
+        await settings.getString(SyncService.brokenNoticeKey('family')),
+        '',
+      );
+
+      api.failWith = 'calendar_not_synced';
+      await service.run(SyncTrigger.periodic);
+      expect(syncCallsNamed('postSourceNotice'), hasLength(1));
+    });
   });
 
   test('an empty feed is ignored once and accepted the second time', () async {

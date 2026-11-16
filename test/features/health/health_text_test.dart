@@ -41,6 +41,7 @@ void main() {
         SyncOutcome.calendarMissing: 'The calendar was removed',
         SyncOutcome.linkMissing: 'The link is missing',
         SyncOutcome.skipped: 'Skipped: another sync was running',
+        SyncOutcome.calendarNotSynced: 'The calendar stopped syncing',
       };
 
       // A new outcome fails here until this table, like the screen, names it.
@@ -69,6 +70,7 @@ void main() {
         SyncOutcome.calendarMissing: StatusTone.error,
         SyncOutcome.linkMissing: StatusTone.error,
         SyncOutcome.skipped: StatusTone.neutral,
+        SyncOutcome.calendarNotSynced: StatusTone.error,
       };
 
       expect(expected.keys.toSet(), SyncOutcome.values.toSet());

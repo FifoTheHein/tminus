@@ -571,6 +571,8 @@ class SyncService {
         SyncOutcome.calendarAccessDenied =>
           '${config.name}: calendar access was turned off',
         SyncOutcome.calendarMissing => '${config.name}: calendar was removed',
+        SyncOutcome.calendarNotSynced =>
+          '${config.name}: calendar is not syncing',
         _ => '${config.name} feed link stopped working',
       };
 

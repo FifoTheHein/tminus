@@ -218,6 +218,63 @@ class DeviceCalendarReaderTest {
     }
 
     @Test
+    fun `a calendar whose sync is off is refused`() {
+        // It still has events in the provider, as a calendar just switched off does: only the SYNC_EVENTS
+        // check can refuse it, so a reader that skips the check hands these out instead.
+        provider.calendars += calendarRow(Calendars.SYNC_EVENTS to 0)
+        provider.instances += instance(20, calendarId = 5)
+
+        val e = assertThrows(DeviceCalendarException::class.java) { reader.instances(listOf("5"), 0L, Long.MAX_VALUE) }
+
+        // Dart reads the code as written, so it is pinned as a string too.
+        assertEquals(DeviceCalendarReader.CALENDAR_NOT_SYNCED, e.code)
+        assertEquals("calendar_not_synced", e.code)
+        // Fixed text: it names no calendar.
+        assertEquals("A calendar is not synced", e.message)
+    }
+
+    @Test
+    fun `one calendar with its sync off refuses the whole ask`() {
+        provider.calendars += calendarRow(Calendars.SYNC_EVENTS to 0)
+        provider.instances += instance(10)
+        provider.instances += instance(20, calendarId = 5)
+
+        val e = assertThrows(DeviceCalendarException::class.java) { reader.instances(listOf("3", "5"), 0L, Long.MAX_VALUE) }
+
+        assertEquals(DeviceCalendarReader.CALENDAR_NOT_SYNCED, e.code)
+    }
+
+    @Test
+    fun `a synced calendar still returns its instances`() {
+        // Calendar 5 says so itself (SYNC_EVENTS = 1); calendar 3, from setUp, leaves the column empty,
+        // which counts as synced.
+        provider.calendars += calendarRow(Calendars.SYNC_EVENTS to 1)
+        provider.instances += instance(10)
+        provider.instances += instance(20, calendarId = 5)
+
+        assertEquals(listOf("20"), reader.instances(listOf("5"), 0L, Long.MAX_VALUE).map { it["eventId"] })
+        assertEquals(listOf("10"), reader.instances(listOf("3"), 0L, Long.MAX_VALUE).map { it["eventId"] })
+    }
+
+    @Test
+    fun `a calendar with its sync off that was not asked for does not matter`() {
+        provider.calendars += calendarRow(Calendars.SYNC_EVENTS to 0)
+        provider.instances += instance(10)
+        provider.instances += instance(20, calendarId = 5)
+
+        assertEquals(listOf("10"), reader.instances(listOf("3"), 0L, Long.MAX_VALUE).map { it["eventId"] })
+    }
+
+    @Test
+    fun `a calendar that no longer exists is reported before one that is not synced`() {
+        provider.calendars += calendarRow(Calendars.SYNC_EVENTS to 0)
+
+        val e = assertThrows(DeviceCalendarException::class.java) { reader.instances(listOf("5", "99"), 0L, 1L) }
+
+        assertEquals(DeviceCalendarReader.CALENDAR_MISSING, e.code)
+    }
+
+    @Test
     fun `without READ_CALENDAR every call is refused`() {
         val denied = DeviceCalendarReader(app, hasPermission = { false })
         assertEquals(DeviceCalendarReader.PERMISSION_DENIED, assertThrows(DeviceCalendarException::class.java) { denied.calendars() }.code)

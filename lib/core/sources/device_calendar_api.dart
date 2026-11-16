@@ -137,13 +137,16 @@ class DeviceInstance {
 
 /// The device-calendar calls Plan 4 adds to the `alarm_engine` channel
 /// (roadmap §3). Errors arrive as [PlatformException]s with code
-/// [permissionDenied] or [calendarMissing].
+/// [permissionDenied], [calendarMissing] or [calendarNotSynced].
 class DeviceCalendarApi {
   DeviceCalendarApi({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(AlarmEngine.methodChannelName);
 
   static const permissionDenied = 'permission_denied';
   static const calendarMissing = 'calendar_missing';
+
+  /// The calendar exists but its sync is off, so it holds no events here.
+  static const calendarNotSynced = 'calendar_not_synced';
 
   final MethodChannel _channel;
 

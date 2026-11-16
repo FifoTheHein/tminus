@@ -838,7 +838,8 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
         ]);
       case SourceKind.device:
         if (status.setup == SourceSetup.needsCalendar ||
-            cause == SyncOutcome.calendarMissing) {
+            cause == SyncOutcome.calendarMissing ||
+            cause == SyncOutcome.calendarNotSynced) {
           actions.add(
             ProblemAction(
               key: const Key('chooseCalendar'),
@@ -868,7 +869,7 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
       tone: toneOf(status.health),
       icon: problemIcon(status),
       title: problemTitle(status),
-      body: accessOff ? calendarAccessOffText : status.line,
+      body: accessOff ? calendarAccessOffText : problemBody(status),
       detail: lastWorked == null
           ? null
           : 'Last worked ${_workedAt(lastWorked)}',

@@ -5,8 +5,9 @@ enum OutcomeSeverity { ok, warning, error }
 
 extension SyncOutcomeSeverity on SyncOutcome {
   /// Network trouble and server errors are temporary (amber) and retried.
-  /// A link or calendar that is gone, or a feed that will not parse, is red.
-  /// A skipped run changed nothing, so it counts as ok.
+  /// A link or calendar that is gone, a phone calendar whose sync is off, or a
+  /// feed that will not parse, is red. A skipped run changed nothing, so it
+  /// counts as ok.
   OutcomeSeverity get severity => switch (this) {
     SyncOutcome.success ||
     SyncOutcome.notModified ||
@@ -19,6 +20,7 @@ extension SyncOutcomeSeverity on SyncOutcome {
     SyncOutcome.otherError ||
     SyncOutcome.calendarAccessDenied ||
     SyncOutcome.calendarMissing ||
+    SyncOutcome.calendarNotSynced ||
     SyncOutcome.linkMissing => OutcomeSeverity.error,
   };
 
@@ -28,6 +30,7 @@ extension SyncOutcomeSeverity on SyncOutcome {
     SyncOutcome.httpError ||
     SyncOutcome.calendarAccessDenied ||
     SyncOutcome.calendarMissing ||
+    SyncOutcome.calendarNotSynced ||
     SyncOutcome.linkMissing => true,
     _ => false,
   };

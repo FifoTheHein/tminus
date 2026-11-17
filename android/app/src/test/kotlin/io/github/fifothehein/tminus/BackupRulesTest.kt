@@ -47,6 +47,18 @@ class BackupRulesTest {
         return null
     }
 
+    /** The requireFlags of each include in an XML resource, in file order: null for an include that has none. */
+    private fun includeFlags(resId: Int): List<String?> {
+        val out = mutableListOf<String?>()
+        val xml = app.resources.getXml(resId)
+        while (xml.next() != XmlPullParser.END_DOCUMENT) {
+            if (xml.eventType == XmlPullParser.START_TAG && xml.name == "include") {
+                out += xml.getAttributeValue(null, "requireFlags")
+            }
+        }
+        return out
+    }
+
     /**
      * The manifest this run is built from: the merged one that the Android Gradle plugin names in
      * test_config.properties (the file Robolectric loads). Only when that property is absent does it use the
@@ -84,6 +96,24 @@ class BackupRulesTest {
 
     private val database = listOf("root" to "app_flutter/tminus.sqlite", "root" to "app_flutter/tminus.sqlite-wal")
 
+    /** The cache database and the two files that SQLite keeps beside it in WAL mode, as paths under the root domain. */
+    private val cacheFiles = listOf(
+        "app_flutter/tminus_cache.sqlite",
+        "app_flutter/tminus_cache.sqlite-wal",
+        "app_flutter/tminus_cache.sqlite-shm",
+    )
+
+    /**
+     * Whether [include] backs [file] up: it names the file, or a folder above it, in the root domain. These are
+     * include-only lists, so a file that no include reaches is left out.
+     */
+    private fun reaches(include: Triple<String, String, String>, file: String): Boolean {
+        val (_, domain, path) = include
+        if (domain != "root") return false
+        val folder = path.replace('\\', '/').trim('/').removePrefix("./")
+        return folder.isEmpty() || folder == "." || file == folder || file.startsWith("$folder/")
+    }
+
     @Test
     fun `both sections include only the database`() {
         val r = rules(R.xml.data_extraction_rules)
@@ -104,6 +134,46 @@ class BackupRulesTest {
         assertEquals(database, rules(R.xml.backup_rules).map { it.second to it.third })
         // The kind counts too: a file of excludes backs up everything else by default, secure-storage prefs included.
         assertEquals(database.map { Triple("/include", it.first, it.second) }, rules(R.xml.backup_rules))
+    }
+
+    /**
+     * Android 9 to 11 read backup_rules.xml and back the database up only when the backup is encrypted end to end,
+     * the counterpart of disableIfNoEncryptionCapabilities on Android 12 and up. Android 8 ignores the flag, which
+     * is accepted: after the cache move the backup holds no meetings and no links (Plan 6 decision 20).
+     */
+    @Test
+    fun `backups below Android 12 need encryption`() {
+        assertEquals(
+            "requireFlags on each include in backup_rules.xml",
+            database.map { "clientSideEncryption" },
+            includeFlags(R.xml.backup_rules),
+        )
+    }
+
+    /**
+     * The cache database holds meeting titles, places and Teams links, and it is the file that Plan 6 moved out of
+     * the backed-up database. No include in any rule set may name it, its WAL or its shared-memory file, or a folder
+     * above them such as app_flutter or the whole root domain.
+     */
+    @Test
+    fun `the cache database is never backed up`() {
+        val ruleSets = mapOf(
+            "data_extraction_rules.xml cloud-backup" to
+                rules(R.xml.data_extraction_rules).filter { it.first == "cloud-backup/include" },
+            "data_extraction_rules.xml device-transfer" to
+                rules(R.xml.data_extraction_rules).filter { it.first == "device-transfer/include" },
+            "backup_rules.xml" to rules(R.xml.backup_rules).filter { it.first == "/include" },
+        )
+        for ((name, includes) in ruleSets) {
+            // The same matcher must see the database, or this test would pass for any rule set.
+            for ((_, databaseFile) in database) {
+                assertTrue("$name does not reach $databaseFile", includes.any { reaches(it, databaseFile) })
+            }
+            for (file in cacheFiles) {
+                val reaching = includes.filter { reaches(it, file) }
+                assertTrue("$name reaches $file through $reaching", reaching.isEmpty())
+            }
+        }
     }
 
     /**

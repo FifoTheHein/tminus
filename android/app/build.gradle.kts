@@ -1,8 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Upload signing (Plan 6 decision 12). android/key.properties is git-ignored and names a
+// keystore outside the repo. Without it a release is debug-signed, which Play refuses.
+val uploadKey = Properties().apply {
+    rootProject.file("key.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+// A file that is there but incomplete stops the build and names the missing entries, never a value.
+val uploadKeyGaps = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    .filter { uploadKey.getProperty(it).isNullOrBlank() }
+if (!uploadKey.isEmpty && uploadKeyGaps.isNotEmpty()) {
+    throw GradleException("android/key.properties has no value for: ${uploadKeyGaps.joinToString()}")
 }
 
 android {
@@ -41,11 +55,30 @@ android {
         }
     }
 
+    signingConfigs {
+        if (!uploadKey.isEmpty) create("upload") {
+            storeFile = file(uploadKey.getProperty("storeFile"))
+            storePassword = uploadKey.getProperty("storePassword")
+            keyAlias = uploadKey.getProperty("keyAlias")
+            keyPassword = uploadKey.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (uploadKey.isEmpty) {
+                // The debug key keeps `flutter run --release` working. Say so only when a release is asked
+                // for, so debug builds and unit tests stay quiet. `flutter build` runs Gradle with -q, which
+                // hides warnings, so the message is logged at the quiet level.
+                if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
+                    logger.quiet("android/key.properties is missing: the release build is debug-signed and Play will refuse it.")
+                }
+                signingConfigs.getByName("debug")
+            } else {
+                signingConfigs.getByName("upload")
+            }
+            // Native debug symbols go into the bundle, so Play can symbolicate native crashes (decision 14).
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
         }
     }
 }

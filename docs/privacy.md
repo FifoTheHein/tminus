@@ -19,7 +19,7 @@ T-Minus turns the meetings in your calendars into alarms on your Android phone. 
 
 Apart from the Android backup described below, everything the app stores stays on your phone. Meetings are kept in a cache, together with a history of the alarms of the last 30 days that includes each meeting's title. The cache is never included in a backup.
 
-Android can back up the app's settings to your Google account, such as your alert profiles, rules, quiet mode, the names and colours of your calendars, and which meetings you switched on or off. On Android 9 and later the backup is made only if Android can encrypt it end to end. On Android 8 the backup is not end to end encrypted. When you move to a new phone with Android's transfer tool, the same settings are copied to it. The backup never contains your calendar links or your meetings. On a new phone the app asks you to add each calendar link again.
+Android can back up the app's settings to your Google account, such as your alert profiles, rules, quiet mode, the names and colours of your calendars, and which meetings you switched on or off. On Android 9 and later the backup is made only if Android can encrypt it end to end. On Android 8 the backup is not end to end encrypted. When you move to a new phone with Android's transfer tool, the same settings can be copied to it. The backup never contains your calendar links or your meetings. On a new phone the app asks you to add each calendar link again.
 
 ## What leaves your phone
 

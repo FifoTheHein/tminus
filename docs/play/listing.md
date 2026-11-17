@@ -18,10 +18,10 @@ The trademark search (Plan 6, Task A) found no live registration of T-MINUS, TMI
 
 ## Short description
 
-Limit 80 characters. This text has 71.
+Limit 80 characters. This text has 78.
 
 ```text
-Meeting alarms you can't miss, from Outlook, Teams and phone calendars.
+Meeting alarms you can't miss, for Outlook, Teams and phone calendar meetings.
 ```
 
 ## Full description
@@ -129,7 +129,7 @@ Names are files and symbols, not line numbers, so the table stays true when code
 | A meeting in two calendars rings once; the switch in Settings | spec section 13, `lib/core/planner/meeting_merger.dart`, `lib/features/settings/settings_screen.dart` (`mergeSwitch`, on by default) |
 | What Health checks, upcoming alarms, history | `lib/features/health/health_report.dart`, `lib/features/health/health_screen.dart` |
 | No account, ads or analytics; the internet is used only for the calendar links | `pubspec.lock` and `android/app/build.gradle.kts` hold no analytics, advertising or crash-reporting library; `http.Client` is used only by `lib/core/sources/ics_feed_source.dart` and `ics_link_probe.dart`; [the privacy policy](../privacy.md) |
-| Links are stored encrypted and are never backed up | `lib/core/sources/source_secrets.dart` (secure storage); `android/app/src/main/res/xml/backup_rules.xml` and `data_extraction_rules.xml` list only the database files. The claim about meetings staying out of a backup, which the policy makes, holds only once Task 3 is committed: the cache database (`tminus_cache.sqlite`), the move of the expected-alerts key `sync.missedSystemExpected` (it holds meeting titles) out of the backed-up settings table (run-log R9), and the one-off compaction of `tminus.sqlite` after the upgrade, so that no meeting text stays in its free pages or WAL (R16). The "end to end encrypted from Android 9" in declarations.md (and the policy) holds, for Android 9 to 11, only once Task 4's `requireFlags="clientSideEncryption"` is on the backup rules (decision 20) |
+| Links are stored encrypted and are never backed up | `lib/core/sources/source_secrets.dart` (secure storage); `android/app/src/main/res/xml/backup_rules.xml` and `data_extraction_rules.xml` list only the database files. Meetings stay out of a backup because of Task 3 (3b246a4): the cache database (`tminus_cache.sqlite`), the move of the expected-alerts key `sync.missedSystemExpected` (it holds meeting titles) out of the backed-up settings table (run-log R9), and the one-off compaction of `tminus.sqlite` after the upgrade, so that no meeting text stays in its free pages or WAL (R16). The backup is end to end encrypted from Android 9 (declarations.md and the policy) because Task 4 (7416baf) puts `requireFlags="clientSideEncryption"` on the backup rules for Android 9 to 11 (decision 20) |
 | Android 8 and later | `android/app/build.gradle.kts` (`minSdk = 26`) |
 
 ## Notes for Task 10's reviewer

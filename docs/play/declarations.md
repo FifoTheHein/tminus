@@ -102,10 +102,10 @@ How this text differs from the plan's draft, and why:
 
 **Answer:** Core functionality: alarm clock and calendar event notifications.
 
-**Text** (438 characters):
+**Text** (484 characters):
 
 ```text
-T-Minus is a meeting alarm app. Its core function is ringing an alarm, and showing a reminder, at an exact minute before each calendar meeting, as set by the user, so the alarm must fire on time, even in Doze. The app uses setAlarmClock for alarms and setExactAndAllowWhileIdle for heads-up reminders. It holds USE_EXACT_ALARM on Android 13 and later, and SCHEDULE_EXACT_ALARM on Android 12 and 12L, where the system grants it by default.
+T-Minus is a meeting alarm app. Its core function is ringing an alarm, and showing a reminder, at an exact minute before each calendar meeting, as set by the user, so the alarm must fire on time, even in Doze. It uses setAlarmClock for alarms, and setExactAndAllowWhileIdle for heads-up reminders and for a calendar refresh just before each alarm. It holds USE_EXACT_ALARM on Android 13 and later, and SCHEDULE_EXACT_ALARM on Android 12 and 12L, where the system grants it by default.
 ```
 
 **Why:** Play restricts `USE_EXACT_ALARM` to apps whose "core, user-facing functionality genuinely requires precise timing, like dedicated alarm, timer, or calendar applications with event notifications". T-Minus is an alarm app for calendar meetings. If exact scheduling is ever refused, the app falls back to an inexact alarm and Health shows it (the Exact alarms row).
@@ -126,10 +126,10 @@ The app's alarms open full screen, including over the lock screen, at the time t
 
 **Declare** one foreground service type, `systemExempted`, for `RingingService` (manifest `android:foregroundServiceType="systemExempted"`, permission `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`). It is the only service with a type. WorkManager's `SystemForegroundService` is merged without one and `SyncWorker` never calls `setForeground`, so neither needs a declaration (Plan 6 Global Constraints; Task 4 Step 5 checks the merged manifest again).
 
-**Description** (319 characters):
+**Description** (352 characters):
 
 ```text
-When a meeting alarm fires, a foreground service plays the alarm sound on the alarm audio stream, vibrates, holds a wake lock and shows the ringing notification with its full-screen alarm, until the user stops or snoozes the alarm or the ring timeout (2 minutes by default) ends. It runs only while an alarm is ringing.
+When a meeting alarm fires, a foreground service plays the alarm sound on the alarm audio stream, vibrates if the alert profile asks for it, holds a wake lock and shows the ringing notification with its full-screen alarm, until the user stops or snoozes the alarm or the ring timeout (2 minutes by default) ends. It runs only while an alarm is ringing.
 ```
 
 **Impact if the system defers the task** (57 characters):
@@ -148,7 +148,7 @@ Video: (link added after Task 9)
 
 The line above is a placeholder. The user uploads Task 9's recordings to YouTube as unlisted, and puts the link on that line (Task 9 Step 3). Do not enter the foreground service declaration without it.
 
-**Why:** Android allows `systemExempted` for apps that hold `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM`. Play's Device and Network Abuse policy says `systemExempted` and `shortService` are exempt from its use-case criteria (roadmap, Plan 6 decision 4). The service starts only when an alarm fires: one the user set or snoozed, or a test alarm the user asked for. The user can stop it from the notification, from the full-screen alarm and, while that is showing, with the volume keys, and the ring timeout stops it otherwise. On Android 14 and later it starts with the type `systemExempted`. On Android 8 to 13 it starts without a type argument and uses the manifest's (Plan 6 decision 8).
+**Why:** Android allows `systemExempted` for apps that hold `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM`. Play's Device and Network Abuse policy says `systemExempted` and `shortService` are exempt from its use-case criteria (roadmap, Plan 6 decision 4). The service starts only when an alarm fires: one the user set or snoozed, or a test alarm the user asked for. The user can stop it from the notification, from the full-screen alarm and, while that is showing, with the volume keys, and the ring timeout stops it otherwise. On Android 14 and later it starts with the type `systemExempted`. On Android 8 to 13 it starts without a type argument: Android 10 to 13 use the manifest's type, and Android 8 and 9 have no types (Plan 6 decision 8).
 
 ## Calendar permission (`READ_CALENDAR`)
 
@@ -172,7 +172,7 @@ Revert Task 2's commit, `Run the ringing service as systemExempted` (Plan 6 deci
 
 ## Manifest reference
 
-The permissions the app's own manifest declares, and where each is explained. The two marked "merged" are added by libraries and come from the plan's read of a local release build on 2026-11-14 (before Task 2). Task 4 Step 5 reads the merged release manifest again and records the list in the run log. The listing and the privacy policy's permission table must agree with it.
+The permissions the app's own manifest declares, and where each is explained. The two marked "merged" are added by libraries. Task 4's release build (2026-11-16, after Task 2) produced exactly this list. The listing and the privacy policy's permission table must agree with it.
 
 | Permission | Why the app has it | Declaration |
 |---|---|---|

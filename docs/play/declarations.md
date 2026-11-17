@@ -144,9 +144,11 @@ The alarm would ring late, after the meeting has started.
 The alarm would stop ringing before the user noticed it, and they would miss the meeting.
 ```
 
-Video: (link added after Task 9)
+Video: https://youtube.com/shorts/Aiv6mkO4RCM
 
-The line above is a placeholder. The user uploads Task 9's recordings to YouTube as unlisted, and puts the link on that line (Task 9 Step 3). Do not enter the foreground service declaration without it.
+A second clip, if the form takes more than one link: https://youtube.com/shorts/MZqW6pTWOaI
+
+Both are unlisted YouTube videos of Task 9's recordings on the release build (2026-11-17). The first shows the test alarm from Health ringing full screen and stopped (12 s). The second shows a calendar meeting's alarm ringing on the lock screen and stopped from the notification (1 min 37 s).
 
 **Why:** Android allows `systemExempted` for apps that hold `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM`. Play's Device and Network Abuse policy says `systemExempted` and `shortService` are exempt from its use-case criteria (roadmap, Plan 6 decision 4). The service starts only when an alarm fires: one the user set or snoozed, or a test alarm the user asked for. The user can stop it from the notification, from the full-screen alarm and, while that is showing, with the volume keys, and the ring timeout stops it otherwise. On Android 14 and later it starts with the type `systemExempted`. On Android 8 to 13 it starts without a type argument: Android 10 to 13 use the manifest's type, and Android 8 and 9 have no types (Plan 6 decision 8).
 

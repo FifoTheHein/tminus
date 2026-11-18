@@ -4,9 +4,9 @@
 
 The spec covers six subsystems, so it is split into six plans. Each one ends in working, tested software. Each plan is written when its turn comes, against the code that exists by then.
 
-**Status (2026-11-14):**
+**Status (2026-11-18):**
 - Plans 1–5 and 4b are built and merged into `main`.
-- Plan 6 is written (`2026-11-14-plan-6-play-readiness.md`, 2026-11-14) and is next to build. It also takes the three follow-ups in decision 6 below, and moves the meeting cache out of Android backup.
+- Plan 6 is built (`2026-11-14-plan-6-play-readiness.md`). It also built the three follow-ups that decision 6 below listed, and moved the meeting cache out of Android backup. The app is on Google Play internal testing (1.0.1, 2026-11-18), and the store listing is in Play review. It is not in production: the closed test and the production release are a later step.
 
 | # | Plan | File | Depends on | Delivers |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 | 4 | Sources + sync | `2026-10-06-plan-4-sources-sync.md` | 1, 2, 3 | `IcsFeedSource`, `DeviceCalendarSource`, secure storage, `SyncWorker` + headless `syncMain()`, pre-alarm sync, error-handling table, empty-feed guard wiring, missed-(system) detection, debug fast-alarms source |
 | 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
 | 5 | UI | `2026-10-11-plan-5-ui.md` | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
-| 6 | Play readiness (phase 1.5) | `2026-11-14-plan-6-play-readiness.md` (decisions below) | all | Privacy policy, store listing, Play declarations, FGS type decision |
+| 6 | Play readiness (phase 1.5) | `2026-11-14-plan-6-play-readiness.md` (decisions below) | all | A signed release build on Play internal testing, the privacy policy and a demo feed on GitHub Pages, the store listing and Play declarations, the `systemExempted` ringing service, and the meeting cache in a second database that is never backed up |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).
 
@@ -38,11 +38,14 @@ Plan 6 builds on these. Each one's PR description has the details.
 Plan 6 is written after Plan 5 has merged, against the code that exists then. Agreed in advance:
 
 1. **Scope ends at Play internal testing.** A signed AAB is uploaded to the internal testing track, and every Play Console declaration is filed. The closed test and the production rollout are a later, separate step.
+   - **Done (2026-11-18), as far as the decision goes:** the signed bundle is on the internal testing track (1.0.0 first, 1.0.1 since 2026-11-18), and the Play Console declarations that Play asked for are filed (App content, Data safety, exact alarms and the full-screen intent). The store listing is in Play review. The closed test and the production rollout are not done and stay a later step. A closed-testing track (Alpha, on 1.0.0) exists only because Play locked "Send app for review" until one did (see the note under decision 4).
 2. **`RingingService` moves to the `systemExempted` FGS type** (`FOREGROUND_SERVICE_SYSTEM_EXEMPTED`). Android's FGS docs (updated 2026-10-28) allow it for apps holding `USE_EXACT_ALARM` / `SCHEDULE_EXACT_ALARM`, and unlike `mediaPlayback` it is not barred from starting at `BOOT_COMPLETED` on Android 15+. That may make `EngineActions.RECOVERY_DELAY_MS` unnecessary, but only a device test can show it. Plan 6 checks that Play Console accepts the type. `mediaPlayback` is the fallback.
+   - **Done (2026-11-18):** built in Plan 6 (Task 2). The service passes the type on Android 14 and later, and no type argument below. Checked on emulators from API 26 to 36 (Task 11) and, as the user reports, on their phone from Play internal testing (Task 12). Play Console accepted the bundle and asked for no foreground service declaration for the type. Play's review result is still open, and the `mediaPlayback` fallback stays documented in `docs/play/declarations.md`.
+   - `RECOVERY_DELAY_MS` stays at 30 s: the boot checks did not show that it can go (plan decision 9).
 3. **The privacy policy is hosted on GitHub Pages** at `fifothehein.github.io/tminus/…`, built from `docs/`.
    - **Done (2026-11-13):** the repo is public, and Pages builds from `main` `/docs` with Jekyll.
-   - A placeholder home page (`docs/index.md`) is live at https://fifothehein.github.io/tminus/. It says the privacy policy will be published there before release.
-   - Plan 6 adds the policy page itself. Everything under `docs/` is served, including `docs/play/icon-512.png`.
+   - **Done (2026-11-17):** the policy is live at https://fifothehein.github.io/tminus/privacy/ (`docs/privacy.md`). The demo calendar feed for Play's reviewers is live too, at https://fifothehein.github.io/tminus/play/demo.ics (`docs/play/demo.ics`). A docs-only PR (#25) put both online, and the home page (`docs/index.md`, once a placeholder) links the policy.
+   - Only those three files are served. `docs/_config.yml` keeps everything else under `docs/` out of the site (the plans and specs, the mockups, the design brief, and the Play texts and images), and `test/app/pages_config_test.dart` fails if a new file under `docs/` is neither public nor excluded.
    - The history was rewritten before the repo went public, so every commit is authored by Heinrich J Nel with the noreply address. GitHub still keeps the old commits of merged PRs #1–#16 under `refs/pull/*`, and only GitHub Support can purge them.
 4. **Play policy, as read on 2026-11-02** (Play Policy Center and Play Console Help):
    - **`USE_EXACT_ALARM`: eligible, keep it.** Play restricts it to apps whose "core, user-facing functionality genuinely requires precise timing, like dedicated alarm, timer, or calendar applications with event notifications", and says to request it "only if your app's core functionality is of alarm or calendar". It is subject to review. `SCHEDULE_EXACT_ALARM` on every API level (with a grant prompt) stays the fallback only if review rejects it.
@@ -50,20 +53,18 @@ Plan 6 is written after Plan 5 has merged, against the code that exists then. Ag
    - **FGS: every type used must be declared in Play Console** (App content): a description, the user impact if the system defers or interrupts it, and a demo video. The Device and Network Abuse policy says `systemExempted` and `shortService` are "exempt from the above criteria" (user-initiated, stoppable, not deferrable, and so on), which supports decision 2. Plan 6 still files the declaration for `systemExempted`.
    - **Target API: 36.** New apps and updates must target Android 16 (API 36) from 2026-08-31; the extension ran to 2026-11-01 and has passed. `flutter.targetSdkVersion` is 36 today; Plan 6 checks it in the release build.
    - **Closed testing does not block decision 1.** Internal testing has no requirements. Production needs a closed test with 12 testers opted in continuously for 14 days, but only for personal developer accounts created after 2023-11-13. That matters only for the later production step.
+   - **Note (2026-11-18), what happened:** Play asked for no foreground service declaration for `systemExempted`. After the upload it asked only for Exact alarms (Alarm clock) and Full-screen intent (Alarm clock, pre-grant at install: Yes). Play locked "Send app for review" until a closed test track existed, and a personal account needs 12 testers for 14 days before production. A closed-testing track (Alpha) was set up at the user's request, so that the changes could be sent for review.
 
 5. **Known Plan 6 items besides the spec's phase 1.5 list:**
-   - an upload keystore through a gitignored `key.properties` (release builds are signed with the debug key today);
+   - ~~an upload keystore through a gitignored `key.properties` (release builds are signed with the debug key today)~~: **done** (Task C, Task 4). Release builds are signed with the upload key from `android/key.properties`, and with the debug key (and a warning) without it. The keystore is outside the repo, and `test/no_signing_material_test.dart` fails if git tracks signing material;
    - ~~an adaptive and monochrome launcher icon~~: **done in PR #18** (and the in-app logo in #19; see "Changes merged after Plan 5"). Plan 6 only checks it in the release build and on the Play listing;
-   - a 16 KB page-size check on the native libraries (updates without 16 KB support are blocked from 1 Feb 2027);
-   - R8 keep rules and logging, checked on a release build;
-   - a version scheme;
-   - a full device checklist run on the Play-installed build;
-   - Android developer verification (developer.android.com/developer-verification, read 2026-11-08). Play-distributed apps are registered automatically, and the Play Console account needs identity verification. `adb` installs are unaffected. Enforcement covers four countries from 2026-09-30 and goes global on certified devices in 2027. From then on, a release APK sideloaded outside Play and signed with our own upload key installs normally only once `io.github.fifothehein.tminus` and that key are registered in Play Console. Until then it needs Android's advanced sideloading flow. Play builds are covered by Play App Signing.
+   - ~~a 16 KB page-size check on the native libraries (updates without 16 KB support are blocked from 1 Feb 2027)~~: **done** (Task 4). `zipalign -c -P 16` passes on the release APK, and every arm64 library in the APK and the bundle is aligned to 0x4000 or more. `docs/play/release.md` has the check;
+   - ~~R8 keep rules and logging, checked on a release build~~: **done** (Task 4). The smoke test of the release build found no R8 crash, no keep rule file was added, and the app's logs hold no meeting title, URL or link;
+   - ~~a version scheme~~: **done** (plan decision 13, Task 4). `version: <name>+<code>` in `pubspec.yaml`, and every upload raises the code. The first upload was 1.0.0+1, and 1.0.1+2 followed. `docs/play/release.md` holds the rule;
+   - ~~a full device checklist run on the Play-installed build~~: **done** (Task 12), on the user's phone from Play internal testing. The run log holds the user's report, not per-step lines. Task 11 also ran the ringing checks on emulators from API 26 to 36;
+   - Android developer verification (developer.android.com/developer-verification, read 2026-11-08). Play-distributed apps are registered automatically, and the Play Console account needs identity verification. `adb` installs are unaffected. Enforcement covers four countries from 2026-09-30 and goes global on certified devices in 2027. From then on, a release APK sideloaded outside Play and signed with our own upload key installs normally only once `io.github.fifothehein.tminus` and that key are registered in Play Console. Until then it needs Android's advanced sideloading flow. Play builds are covered by Play App Signing. **Done (2026-11-17):** the Play Console account's identity verification is complete (Task B, the user's report).
 
-6. **Open follow-ups from the work after Plan 5.** These are not Plan 6 scope unless the plan takes them on:
-   - A device source whose calendar later stops syncing goes empty without saying so. The source detail or Health could say "This calendar is no longer synced". This needs `syncEvents` on the sync path (grouping spec §10).
-   - Two device sources can both be called "My calendar". The add flow could put the account kind in the default name (grouping spec §10).
-   - The picker test's check of a blocked `pickOne` row uses `isNot(isTrue)` where `isFalse` would be stricter (grouping plan, "Built differently").
+6. **Open follow-ups from the work after Plan 5: none.** Plan 6 built the three that were open (Tasks 6 and 7): a phone calendar that stops syncing is reported and keeps its alarms, a new phone source's default name has the account kind when names clash, and the picker test checks a blocked row with `isFalse`. The follow-ups that came up while building Plan 6 are in the plan's run log (R23, R24, R26, R27, R29 to R31 and R42 to R44) and in GitHub issues #26 and #27.
 
 ## 1. Repository layout (from spec §4)
 

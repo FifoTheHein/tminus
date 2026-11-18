@@ -42,10 +42,12 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
 ### 1. Onboarding (first run only)
 
 1. **Welcome:** the value in one sentence.
+   - Under **Get started**, a lock note, "Your calendar never leaves your phone.", with a **Privacy policy** link that opens the policy page in the browser (the same link as in Settings → About & privacy). If no app can open it, a snackbar says "Could not open the privacy policy."
 2. **Add a source**, with two options, the phone first. Neither is open when the step first shows; tapping one opens it, and tapping the other switches to it (Plan 6, C1). The same panel is used from the Sources tab.
    - **Use a calendar on this phone.** Shows the phone's calendars with checkboxes, grouped under headings by account kind and account (Google, Samsung account, Outlook, and so on). The Calendar permission is asked only after this option is tapped.
      - **Shared with you**, **Holidays and birthdays** and **On this phone only** get their own groups.
      - Calendars that are not synced are greyed out with a **Not synced** label, and a footnote explains how to turn sync on.
+     - Each ticked calendar becomes its own source, named after the calendar (a blank name reads **Phone calendar**). If another calendar on the phone or a source already has that name (ignoring case and spaces at the ends), the account kind is added in brackets, for example **My calendar (Google)** and **My calendar (Samsung account)**. The words are Google, Samsung account, Outlook and Exchange, and **Phone** for a calendar that is only on the phone. The other groups add no word. If the name still clashes with a source, a number follows, as in **My calendar (Google) 2**. Calendars added together never share a name, and choosing another calendar for a source later keeps its name.
      - The layout and the rules are in `docs/superpowers/specs/2026-11-13-calendar-grouping-design.md` §4 and §6.
    - **Paste a calendar link.** Show a hint with a small illustration of where to find it: Outlook → Settings → Calendar → Shared calendars → Publish → ICS. The app validates the link and shows "Found 23 events this week".
 3. **Permissions**, one per step, each with a one-line reason and an Allow button:
@@ -129,6 +131,11 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
   - default profile
 - ICS URLs are always shown masked: `outlook.office365.com/…/calendar.ics`.
 - Source detail: rename, colour, default profile, "Sync now", remove, and the last error with an explanation (e.g. "Link no longer works (HTTP 404). It may have been reset in Outlook.").
+- **A phone calendar that is not syncing.** When the phone's own sync is off for the calendar (a setting in the phone's account settings), the source turns red and its status line reads "This calendar is no longer synced on this phone."
+  - Its source detail opens with a problem card: the title "Calendar is not syncing", a sync-off icon, and the text "Turn on sync for this calendar in your phone's account settings, or choose another calendar."
+  - The card shows a "Last worked" line when there was a good sync, and a **Choose calendar** button (the same button as for a calendar that was removed).
+  - The meetings already cached stay, so their alarms keep ringing from the last good data.
+  - One Feed broken notification says "<name>: calendar is not syncing". It is withdrawn when the calendar syncs again. Health's sync log shows the run as "The calendar stopped syncing".
 - An "Add source" FAB that uses the same flow as onboarding.
 
 ### 6. Health tab
@@ -159,7 +166,9 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
 - Default profile
 - Theme: System / Dark / Light
 - Export / import settings (sources are exported without their links)
-- About & privacy: "Your calendar never leaves your phone."
+- **About & privacy:** a card with a lock and "Your calendar never leaves your phone.", and under it "No account, no servers, no analytics. Calendars are read directly from your calendar provider and stored only on this device."
+  - Below that, the T-Minus mark with the app's name and version, then two buttons: **Privacy policy**, which opens the policy page (https://fifothehein.github.io/tminus/privacy/) in the browser, and **Licences**, which opens Flutter's licence page. The two buttons sit together under the name and wrap on a narrow phone.
+  - If no app can open the policy link, a snackbar says "Could not open the privacy policy."
 
 ### 9. Alarm screen (full-screen, over the lock screen)
 
@@ -181,7 +190,7 @@ This screen will be built natively, so keep it simple and self-contained.
 | **Ringing** (alongside the full-screen screen) | Actions Stop · Snooze · Join · Dismiss all |
 | **Missed** | "Missed: Sprint planning (10:00)", with action Open |
 | **Feed stale** | "Calendar hasn't synced for 1 h. Alarms may be outdated", with action Sync now |
-| **Feed broken** | "Outlook feed link stopped working", with action Fix |
+| **Feed broken** | "Outlook feed link stopped working" (for a phone calendar, for example "Work: calendar is not syncing"), with action Fix |
 
 ## Sample data for mockups
 

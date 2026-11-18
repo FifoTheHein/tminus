@@ -24,8 +24,10 @@ flutter test                                      # app tests under test/ only (
 flutter test test/core/sync/sync_service_test.dart
 flutter test test/core/rules/rules_engine_test.dart --plain-name "some test name"
 flutter build apk --debug
+flutter build appbundle --release                 # the bundle for Play (flutter build apk --release for adb); needs android/key.properties for Play, else it is debug-signed (see "Release builds" below)
 dart run build_runner build                       # drift codegen; --delete-conflicting-outputs no longer exists in build_runner 2.16
 python tool/gen_launcher_icon.py                  # redraws the legacy launcher PNGs and docs/play/icon-512.png (needs Pillow; rerun after editing the icon vectors)
+python tool/gen_feature_graphic.py                # redraws docs/play/feature-graphic.png from the icon's geometry (needs Pillow; rerun after the icon changes)
 ```
 
 `ics_core` (pure Dart, run inside `packages/ics_core`):
@@ -48,27 +50,38 @@ Kotlin (Robolectric unit tests, run inside `android/`):
 
 Use `.\gradlew.bat` in PowerShell. `gradlew`, `gradlew.bat`, `local.properties` and `gradle/wrapper/gradle-wrapper.jar` are git-ignored, so a new worktree has to copy them from the main checkout's `android/`. Robolectric is pinned to SDK 34 (`android/app/src/test/resources/robolectric.properties`), so the tests run the same way on JDK 17 and 21. Run only one Gradle build at a time.
 
-Drift schema changes: bump `schemaVersion` in `lib/core/storage/app_database.dart` and add a new `if (from < N)` step in `onUpgrade`. Never edit a step that has shipped. Dump the **old** schema before you touch `tables.dart`, then dump the new one and regenerate the migration test helpers:
+Release builds: they are signed with the upload key that `android/key.properties` names. The file is git-ignored and holds `storeFile` (an absolute path, with each backslash doubled), `storePassword`, `keyAlias` and `keyPassword`. The keystore itself lives outside the repo. Without the file, the release build is signed with the debug key, Gradle prints a warning, and Play refuses the bundle. Never commit the file or a keystore: `test/no_signing_material_test.dart` fails if git tracks one. The version is `version: <name>+<code>` in `pubspec.yaml`. Every upload to any Play track raises the code by one, and the name follows semver. `docs/play/release.md` has the upload steps and the checks to run on a build (signature, merged manifest, 16 KB pages).
+
+Drift schema changes: the app has two databases (see Architecture, item 3), and each has its own `schemaVersion`, schema dumps and migration test helpers. Bump `schemaVersion` in the file of the database you change, `lib/core/storage/app_database.dart` (`tminus.sqlite`) or `lib/core/storage/cache_database.dart` (`tminus_cache.sqlite`), and add a new `if (from < N)` step in its `onUpgrade`. The cache database has no `onUpgrade` yet, so its first change adds one. Never edit a step that has shipped. Dump the **old** schema before you touch `tables.dart` or `cache_tables.dart`, then dump the new one and regenerate the migration test helpers. For `tminus.sqlite`:
 
 ```bash
 dart run drift_dev schema dump lib/core/storage/app_database.dart drift_schemas/
 dart run drift_dev schema generate drift_schemas/ test/generated_migrations/
 ```
 
-Generated `*.g.dart` files are committed, so schema changes show up in review.
+For `tminus_cache.sqlite`:
+
+```bash
+dart run drift_dev schema dump lib/core/storage/cache_database.dart drift_schemas/cache/
+dart run drift_dev schema generate drift_schemas/cache/ test/generated_migrations/cache/
+```
+
+Generated `*.g.dart` files are committed, so schema changes show up in review. So is `lib/core/storage/schema_versions.dart` (`dart run drift_dev schema steps drift_schemas/ lib/core/storage/schema_versions.dart`): the `from < 2` step of `tminus.sqlite` reads its `Schema2`. Never edit it by hand.
 
 ## Rules that are easy to break
 
 - `lib/core/model/alert.dart` and `lib/core/model/planned_alert.dart` are the Dart↔Kotlin contract from roadmap §3, byte for byte. **Never edit them and never `dart format` them**, because formatting rewraps their lines. `test/core/model/planned_alert_contract_test.dart` checks them. So run `dart format` on the files you changed, never on `lib/` as a whole.
 - **Never log error messages, URLs or event content.** Log `e.runtimeType`, or a `PlatformException`'s code, only. Feed links carry secret tokens (iCloud puts them in the path), and error messages can quote a link or a row's values. The one exception is `IcsFeedSource._logFailure`: it compares a `ClientException`'s message with a fixed list of known dart:io texts and logs only its own label for the match, never the message. `IcsUrl.mask` is the only way to show a link.
 - ICS links live in `flutter_secure_storage` (`SourceSecrets`), never in the drift database.
+- **Meeting text stays out of `tminus.sqlite`.** That database is backed up, and `tminus_cache.sqlite` never is. A new table, or a `settings` row, that holds a title, a location, a join link or any other content of a meeting belongs in the cache database (`cache_tables.dart`; `cache_values` for a single value, as `sync.missedSystemExpected` does). The backup rule files (`android/app/src/main/res/xml/backup_rules.xml` and `data_extraction_rules.xml`) list only the database files `tminus.sqlite` and `tminus.sqlite-wal`, and every other file is left out by default. Do not list the cache file, a folder or another file. Keep `requireFlags="clientSideEncryption"` on each include in `backup_rules.xml` and `disableIfNoEncryptionCapabilities="true"` on `cloud-backup` in `data_extraction_rules.xml`: together they back the database up only when the backup is encrypted end to end. `BackupRulesTest` pins the rules and both flags, and `docs/privacy.md` says what is backed up, so change them together.
 - Load `package:timezone`'s `latest_all` data, not `latest`. CLDR maps some Windows zones to old link names such as `Asia/Calcutta`.
 - Colour tokens are duplicated in `android/app/src/main/res/values/tminus_colors.xml` for the native alarm screen. `test/native_tokens_test.dart` fails if they drift apart from `lib/app/theme/`.
+- GitHub Pages publishes only `docs/index.md`, `docs/privacy.md` and `docs/play/demo.ics`. `docs/_config.yml` keeps every other file under `docs/` out of the site with its `exclude:` list, so a new file under `docs/` needs an entry there (or, if it is meant to be public, a place in `_publicPages` in the test). `test/app/pages_config_test.dart` fails when a file under `docs/` is neither public nor excluded.
 - Real calendar feeds stay out of git. Commit only scrubbed fixtures (see `scrub_feed.dart`); raw feeds belong in the git-ignored `packages/ics_core/test/fixtures/private/`.
 - URL input fields need autocorrect and suggestions turned off. The Android keyboard otherwise rewrites `http://` to `https://`.
 - App text never uses em dashes (U+2014): use a colon, a comma, a full stop or parentheses instead. This covers Dart strings, Kotlin strings and Android resources. `test/no_em_dash_test.dart` fails if one comes back.
 - The app draws edge to edge (targetSdk 36). If a screen outside the shell (Settings, Developer tools) gives its scroll view an explicit `padding`, that padding replaces the safe-area inset. Add `MediaQuery.paddingOf(context).bottom` to the bottom value, or the last item sits under the navigation bar. Screens inside the shell can skip this, because the shell's `NavigationBar` takes the inset.
-- The launcher icon (`android/app/src/main/res/drawable/ic_launcher_*.xml`), `tool/gen_launcher_icon.py` and `TMinusMark` (`lib/features/common/tminus_mark.dart`) share one geometry. Change all three together. `test/launcher_icon_test.dart` pins the vectors and PNGs, and the generator refuses to run if the vectors have drifted.
+- The launcher icon (`android/app/src/main/res/drawable/ic_launcher_*.xml`), `tool/gen_launcher_icon.py` and `TMinusMark` (`lib/features/common/tminus_mark.dart`) share one geometry. Change all three together, then rerun `tool/gen_feature_graphic.py` (it draws the Play feature graphic, `docs/play/feature-graphic.png`, from the same geometry) and commit the PNG. `test/launcher_icon_test.dart` pins the vectors and PNGs, and the generator refuses to run if the vectors have drifted.
 
 ## Architecture
 
@@ -76,12 +89,16 @@ The pipeline is: sources → occurrence cache → rules → planner → native e
 
 1. **`packages/ics_core`** is pure Dart with no Flutter. `expandIcs(text, window, deviceZone)` parses a feed and expands RRULE, EXDATE and overrides into `IcsOccurrence`s inside a time window. It maps Windows TZIDs to IANA zones and isolates errors per VEVENT: a bad event becomes an `IcsIssue` and the rest of the feed still parses.
 2. **`lib/core/sources/`**: each `CalendarSource` (`IcsFeedSource` or `DeviceCalendarSource`) fetches into a `SourceResult`. `IcsFeedSource` does a conditional GET and caches the last good body (`FeedBodyCache`). The device calendar is read natively by `DeviceCalendarReader.kt` over the `alarm_engine` channel. The picker that chooses a calendar groups the list with the pure `groupCalendars` (`lib/features/sources/calendar_groups.dart`; rules in `specs/2026-11-13-calendar-grouping-design.md`). `fast_alarms.dart` is a debug-only source that creates meetings 1–2 minutes ahead.
-3. **`lib/core/storage/`**: a drift database (`tables.dart`, `app_database.dart`) behind one repository class per table. `RuleSetLoader` assembles profiles, keyword rules, overrides and settings into a `RuleSet`.
+3. **`lib/core/storage/`**: two drift databases behind one repository class per table.
+   - `AppDatabase` (`tminus.sqlite`; `tables.dart`, `app_database.dart`) holds sources, profiles, rules, overrides, quiet state, settings and meeting links. It is backed up.
+   - `CacheDatabase` (`tminus_cache.sqlite`; `cache_tables.dart`, `cache_database.dart`) holds `occurrences`, `alert_history`, `sync_log` and `cache_values`. It is never backed up. Its first open copies the rows that an older build left in `tminus.sqlite` (`LegacyCacheMove`).
+   - No query joins across the two. A change that writes both must be ordered so that a crash between the two writes is harmless (see `SourceAdmin` and `RestoreGuard`).
+   - `RuleSetLoader` assembles profiles, keyword rules, overrides and settings into a `RuleSet`.
 4. **`lib/core/rules/`**: `RulesEngine` resolves each occurrence to an alert profile (spec §6 resolution order), applies quiet modes and produces the explanation text.
 5. **`lib/core/planner/`**: `MeetingMerger` folds copies of the same meeting from different sources into one (spec §13; `meeting_links` keeps the keys sticky). `EmptyFeedGuard` stops a suddenly empty feed from wiping alarms. `buildPlan` turns the result into `PlannedAlert`s with stable ids.
 6. **`lib/core/engine/alarm_engine.dart`** is the Dart client for the `alarm_engine` method and event channels: `applyPlan` and the engine events (fired, dismissed, snoozed, missed, and so on).
 7. **Kotlin, `android/app/src/main/kotlin/io/github/fifothehein/tminus/`**:
-   - `engine/`: `PlanStore` persists the plan as JSON in device-protected storage, so alarms work before the first unlock. `AlarmScheduler` diffs the stored plan against the new one and arms AlarmManager (`setAlarmClock` for alarms). `AlarmReceiver` starts `RingingService` (the foreground service), which shows `AlarmActivity` (Compose). `EngineReducer` is the pure state machine. `EventQueue` buffers engine events until Dart drains them. `BootReceiver` and `TimeChangeReceiver` re-arm from `PlanStore`.
+   - `engine/`: `PlanStore` persists the plan as JSON in device-protected storage, so alarms work before the first unlock. `AlarmScheduler` diffs the stored plan against the new one and arms AlarmManager (`setAlarmClock` for alarms). `AlarmReceiver` starts `RingingService` (the foreground service, type `systemExempted`; spec §7 has the `mediaPlayback` fallback), which shows `AlarmActivity` (Compose). `EngineReducer` is the pure state machine. `EventQueue` buffers engine events until Dart drains them. `BootReceiver` and `TimeChangeReceiver` re-arm from `PlanStore`.
    - `sync/`: `SyncWorker` (WorkManager) runs `HeadlessFlutterRunner`, which starts a headless Flutter engine at `syncMain`. `SyncChannel` is the `tminus_sync` channel (lock, notices, configure, finished). `PreSyncScheduler` schedules a sync shortly before each alarm.
 
 **`SyncService.run(trigger)`** (`lib/core/sync/sync_service.dart`) ties it together. It takes the sync lock, reads the device zone, drains engine events into alert history (`EngineEventRecorder`), fetches all enabled sources in parallel and records each one's outcome, then plans, detects missed (system) alerts and calls `applyPlan`. It runs in two isolates:
@@ -90,7 +107,7 @@ The pipeline is: sources → occurrence cache → rules → planner → native e
 
 If `applyPlan` fails, Kotlin keeps its previous plan and the run reports `retry`.
 
-**DI** (`lib/app/di.dart`) is get_it, and everything is lazy. Tests call `configureDependencies(openDatabase: ...)` with an in-memory database (`test/core/storage/test_database.dart`), and `getIt.reset()` closes it. `RulesEngine` is registered as a factory because it captures `tz.local` when it is created.
+**DI** (`lib/app/di.dart`) is get_it, and everything is lazy. Tests call `configureDependencies(openDatabase: ...)` with an in-memory database (`test/core/storage/test_database.dart`). A test that does not also pass `openCacheDatabase` gets an in-memory cache database. `getIt.reset()` closes both. `RulesEngine` is registered as a factory because it captures `tz.local` when it is created.
 
 Kotlin code is written to be testable without a device. Pure logic such as `EngineReducer`, `PlanDiff`, `Countdown` and `SnoozeOptions` is separate from the Android glue, and the Robolectric tests cover the receivers, services and channels.
 

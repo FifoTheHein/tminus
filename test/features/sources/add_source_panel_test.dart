@@ -1,3 +1,5 @@
+import 'dart:ui' show CheckedState;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +62,50 @@ bool _chosen(String card) {
     reason: '$card has one radio mark',
   );
   return filled.evaluate().isNotEmpty;
+}
+
+/// The visible title of each of the panel's two cards, by its key.
+const _cardTitles = {
+  'choice-phone': 'Use a calendar on this phone',
+  'choice-ics': 'Paste a calendar link',
+};
+
+/// Asserts what a screen reader is told of the panel's two cards.
+///
+/// The node that announces a card by its title has to be checkable and in a
+/// mutually exclusive group (a radio button to TalkBack), and checked exactly
+/// when [phoneChecked] or [linkChecked] says so. Needs semantics on: see
+/// `watchSemantics`.
+void _expectAnnounced(
+  WidgetTester t, {
+  required bool phoneChecked,
+  required bool linkChecked,
+}) {
+  final checked = {'choice-phone': phoneChecked, 'choice-ics': linkChecked};
+  for (final MapEntry(key: card, value: title) in _cardTitles.entries) {
+    final flags = t
+        .getSemantics(
+          find.descendant(
+            of: find.byKey(Key(card)),
+            matching: find.text(title),
+          ),
+        )
+        .getSemanticsData()
+        .flagsCollection;
+    expect(
+      flags.isInMutuallyExclusiveGroup,
+      isTrue,
+      reason: '$card is one of a mutually exclusive group',
+    );
+    // Both states are spelled out, so that a card that said nothing about being
+    // checked does not pass for one that is not checked.
+    final want = checked[card]!;
+    expect(
+      flags.isChecked,
+      want ? CheckedState.isTrue : CheckedState.isFalse,
+      reason: '$card is announced as ${want ? 'checked' : 'not checked'}',
+    );
+  }
 }
 
 Checkbox _boxOf(WidgetTester t, String calendarId) => t.widget<Checkbox>(
@@ -331,6 +377,35 @@ void main() {
     expect(_chosen('choice-ics'), isFalse);
     expect(find.byKey(const Key('calendar-1')), findsOneWidget);
     expect(_linkField(), findsNothing);
+    await h.dispose(t);
+  });
+
+  testWidgets('the two ways are announced as a mutually exclusive pair, and '
+      'the tapped one as checked', (t) async {
+    tallScreen(t);
+    final stopSemantics = watchSemantics(t);
+    final h = await pumpApp(
+      t,
+      location: '/sources/add',
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+
+    // Neither is chosen at first, so neither is announced as checked. Both are
+    // announced as checkable all the same: not checked, which is not the same
+    // as saying nothing about it.
+    _expectAnnounced(t, phoneChecked: false, linkChecked: false);
+
+    // A tap checks the card that was tapped, and not the other.
+    await choosePhoneCard(t);
+    _expectAnnounced(t, phoneChecked: true, linkChecked: false);
+
+    // The other tap swaps them, and a tap on the first swaps them back.
+    await choosePasteCard(t);
+    _expectAnnounced(t, phoneChecked: false, linkChecked: true);
+    await choosePhoneCard(t);
+    _expectAnnounced(t, phoneChecked: true, linkChecked: false);
+
+    stopSemantics();
     await h.dispose(t);
   });
 

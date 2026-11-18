@@ -37,6 +37,7 @@ The PNGs and the Claude Design project still show the original designs. The app 
 
 - **Logo** (1a, 5a, 5f): the app shows the launcher icon's countdown mark (`TMinusMark`): a slate disc, a light-blue arc and a "T-" mark. It replaces the "T−" ring in the Agenda app bar, on the Welcome step and on the About card. The Play listing icon is [../play/icon-512.png](../play/icon-512.png).
 - **Agenda switch** (the Agenda mockups): a meeting that has started has no on/off switch.
+- **Add source** (5b, and Sources → Add source): the two ways are listed with **Use a calendar on this phone** first and **Paste a calendar link** second. Neither is selected or open when the panel first shows, and a tap opens only that way (a tap on the other switches to it). The phone's calendars, and the request for the Calendar permission, appear only after **Use a calendar on this phone** is tapped. The 5b mockup still lists **Paste an Outlook ICS link** first, selected and open.
 - **Phone calendar picker** (5b, and Sources → Add source): the calendars are grouped under account headings, with **Shared with you**, **Holidays and birthdays** and **On this phone only** groups and greyed **Not synced** rows. There is no mockup. The layout sketch is in `docs/superpowers/specs/2026-11-13-calendar-grouping-design.md` §6.
 - **Settings** (5f) and Developer tools: the list ends above the system navigation bar.
 

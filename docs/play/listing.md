@@ -32,8 +32,8 @@ Limit 4000 characters. This text has 3384. It is plain text, with line breaks an
 T-Minus turns the meetings in your calendars into alarms on your Android phone. It is for people who spend much of the day in meetings.
 
 ADD YOUR CALENDARS
-- Paste a calendar link. Outlook, Google Calendar and any other ICS link work, and T-Minus checks a link before it adds it.
-- Or choose a calendar that is already on your phone, for example one from a Google, Samsung, Outlook or Exchange account. T-Minus asks for the Calendar permission only for this.
+- Choose a calendar that is already on your phone, for example one from a Google, Samsung, Outlook or Exchange account. T-Minus asks for the Calendar permission only for this.
+- Or paste a calendar link. Outlook, Google Calendar and any other ICS link work, and T-Minus checks a link before it adds it.
 - Teams meetings come in through your Outlook calendar. When a meeting has a Teams link, a Join button opens it.
 - T-Minus checks your calendars about every 15 minutes, and again shortly before each alarm.
 

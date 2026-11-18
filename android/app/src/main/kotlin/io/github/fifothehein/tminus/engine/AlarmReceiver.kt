@@ -18,10 +18,11 @@ class AlarmReceiver : BroadcastReceiver() {
 
     /**
      * The retry after a refused ringing start: the alerts that are still presented ring again (their
-     * heads-up is withdrawn). The service is told it is a retry, so a second refusal is not retried.
+     * heads-up is withdrawn). The service is told it is a retry, and the presenter does not retry a
+     * refusal either, so a second refusal is not retried.
      */
     private fun retryRinging(context: Context, alertIds: List<String>) {
-        val presenter = AndroidAlertPresenter(context, startRinging = { ctx, ids -> RingingService.start(ctx, ids, retry = true) })
+        val presenter = AndroidAlertPresenter(context, retryRefusedStart = false, startRinging = startRetry)
         PlanStore(context).read().presented.filter { it.id in alertIds }
             .groupBy { it.coalesceGroup }.values
             .forEach { presenter.present(it.sortedWith(EngineReducer.displayOrder)) }
@@ -33,6 +34,11 @@ class AlarmReceiver : BroadcastReceiver() {
         const val ACTION_RETRY_RINGING = "io.github.fifothehein.tminus.action.RETRY_RINGING"
         const val EXTRA_ALERT_IDS = "alertIds"
         const val EXTRA_ALERT_ID = "alertId"
+
+        internal val DEFAULT_START_RETRY: (Context, List<String>) -> Unit = { ctx, ids -> RingingService.start(ctx, ids, retry = true) }
+
+        /** The ringing start of a retry; tests make it throw as Android may, or put [DEFAULT_START_RETRY] back. */
+        internal var startRetry: (Context, List<String>) -> Unit = DEFAULT_START_RETRY
 
         fun recoverIntent(context: Context): Intent = Intent(context, AlarmReceiver::class.java).setAction(ACTION_RECOVER)
 

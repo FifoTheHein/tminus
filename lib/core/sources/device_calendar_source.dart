@@ -52,6 +52,10 @@ class DeviceCalendarSource implements CalendarSource {
           SyncOutcome.calendarMissing,
           'This calendar was removed from the phone.',
         ),
+        DeviceCalendarApi.calendarNotSynced => const SourceFailed(
+          SyncOutcome.calendarNotSynced,
+          'This calendar is no longer synced on this phone.',
+        ),
         _ => SourceFailed(
           SyncOutcome.otherError,
           'Could not read the phone calendar (${e.code}).',

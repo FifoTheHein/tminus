@@ -1,6 +1,7 @@
 package io.github.fifothehein.tminus.engine
 
 import android.content.Context
+import io.github.fifothehein.tminus.LoggedErrors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadows.ShadowLog
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -77,6 +79,19 @@ class PlanStoreTest {
         store.stateFile.writeText("not json at all")
         assertEquals(EngineState.EMPTY, store.read())
         assertTrue(File(store.stateFile.parentFile, "state.json.corrupt").exists())
+    }
+
+    @Test
+    fun `an unreadable state logs the exception's class and not its message or trace`() {
+        val text = "{\"version\":1,\"plan\":[{\"id\":\"${LoggedErrors.SECRET}" // torn: the parse error quotes all of it
+        assertTrue("the parse error quotes the text", LoggedErrors.SECRET in LoggedErrors.jsonParseError(text))
+        store.stateFile.parentFile!!.mkdirs()
+        store.stateFile.writeText(text)
+        ShadowLog.clear()
+
+        assertEquals(EngineState.EMPTY, store.read())
+
+        LoggedErrors.assertClassOnly("Engine state unreadable", "JSONException")
     }
 
     @Test

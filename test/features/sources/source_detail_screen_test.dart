@@ -822,6 +822,64 @@ void main() {
     await h.dispose(t);
   });
 
+  testWidgets('a phone calendar whose sync is off says what to do and offers '
+      'Choose calendar', (t) async {
+    tallScreen(t);
+    const explanation =
+        "Turn on sync for this calendar in your phone's account settings, or "
+        'choose another calendar.';
+    final h = await pumpApp(
+      t,
+      location: '/sources/device-1',
+      seed: (h) async {
+        h.deviceCalendars = [
+          phoneCalendar('4', 'Personal', syncEvents: false),
+          phoneCalendar('5', 'Holidays'),
+        ];
+        final sources = getIt<SourceRepository>();
+        await sources.save(phoneSource()); // reads calendar 4
+        await sources.updateSyncState(
+          'device-1',
+          SourceSyncState(
+            lastSuccessUtc: DateTime.utc(2026, 10, 5, 16, 2),
+            lastError: 'This calendar is no longer synced on this phone.',
+          ),
+        );
+        await getIt<SyncLogRepository>().add(
+          SyncLogEntry(
+            sourceId: 'device-1',
+            atUtc: DateTime.utc(2026, 10, 6, 7, 20),
+            outcome: SyncOutcome.calendarNotSynced,
+            message: 'This calendar is no longer synced on this phone.',
+          ),
+        );
+      },
+    );
+
+    // The card names the problem, says what to do and shows its own icon.
+    final card = find.byKey(const Key('problemCard'));
+    Finder inCard(Finder finder) => find.descendant(of: card, matching: finder);
+    expect(inCard(find.text('Calendar is not syncing')), findsOneWidget);
+    expect(inCard(find.text(explanation)), findsOneWidget);
+    expect(inCard(find.byIcon(Icons.sync_disabled)), findsOneWidget);
+    // Choose calendar is the way out. The actions for a lost permission are
+    // not offered.
+    expect(inCard(find.byKey(const Key('chooseCalendar'))), findsOneWidget);
+    expect(find.byKey(const Key('allowAccess')), findsNothing);
+    expect(find.byKey(const Key('openSettings')), findsNothing);
+
+    await t.tap(find.byKey(const Key('chooseCalendar')));
+    await t.pumpAndSettle();
+    expect(find.text('Choose a calendar'), findsOneWidget);
+    await t.tap(find.byKey(const Key('calendar-5')));
+    await t.pumpAndSettle();
+
+    final source = (await getIt<SourceRepository>().byId('device-1'))!;
+    expect(source.deviceCalendarId, '5');
+    expect(h.syncs, [SyncTrigger.manual]);
+    await h.dispose(t);
+  });
+
   testWidgets('removing a source asks first, deletes it and asks for a '
       're-plan', (t) async {
     tallScreen(t);
@@ -895,6 +953,33 @@ void main() {
 
     expect(find.byKey(const Key('sourceGone')), findsOneWidget);
     expect(find.text('This source was removed.'), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('a sync-log row written while the detail is open updates its '
+      'problem card', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      location: '/sources/ics-1',
+      seed: (h) => _seedFailing(icsSource(), outcome: SyncOutcome.httpError),
+    );
+    expect(find.text('Link no longer works'), findsOneWidget);
+
+    // The sync log is in the cache database (Plan 6 decision 4), so a sync's
+    // row reaches the open screen through that database's own updates.
+    await getIt<SyncLogRepository>().add(
+      SyncLogEntry(
+        sourceId: 'ics-1',
+        atUtc: DateTime.utc(2026, 10, 6, 7, 25),
+        outcome: SyncOutcome.networkError,
+        message: 'Could not reach the calendar.',
+      ),
+    );
+    await t.pumpAndSettle();
+
+    expect(find.text("Can't reach the calendar"), findsOneWidget);
+    expect(find.text('Link no longer works'), findsNothing);
     await h.dispose(t);
   });
 

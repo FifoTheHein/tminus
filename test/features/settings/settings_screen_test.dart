@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:tminus/app/di.dart';
+import 'package:tminus/app/links.dart';
 import 'package:tminus/app/theme_mode_controller.dart';
 import 'package:tminus/core/model/alert.dart';
 import 'package:tminus/core/model/alert_profile.dart';
@@ -215,6 +216,16 @@ Future<void> _settle(WidgetTester t) async {
   await t.pump(const Duration(milliseconds: 1));
 }
 
+/// Waits out the snack bar that is up (they show one at a time, so one that is
+/// queued behind it shows only now), so that "nothing else was said" can be
+/// asked of what is on the screen afterwards.
+Future<void> _waitOutSnackBar(WidgetTester t) async {
+  // Let it finish sliding in first: its time on screen starts then.
+  await t.pumpAndSettle();
+  await t.pump(const Duration(seconds: 5));
+  await t.pumpAndSettle();
+}
+
 Future<String?> _stored(WidgetTester t, String key) async =>
     await t.runAsync<String?>(() => getIt<SettingsRepository>().getString(key));
 
@@ -246,6 +257,12 @@ ListTile _tile(WidgetTester t, String title) =>
 
 int _calls(Harness h, String method) =>
     h.uiCalls.where((c) => c.method == method).length;
+
+/// The links the screen asked `tminus_ui` to open, in order.
+List<Object?> _openedUrls(Harness h) => [
+  for (final c in h.uiCalls)
+    if (c.method == 'openUrl') (c.arguments as Map)['url'],
+];
 
 void main() {
   final mergeSwitch = find.byKey(const Key('mergeSwitch'));
@@ -645,14 +662,70 @@ void main() {
       'Import settings',
       "You'll paste links again after import",
       'Your calendar never leaves your phone.',
-      'No account, no servers, no analytics. Feeds are fetched directly from '
-          'Outlook and stored only on this device.',
+      'No account, no servers, no analytics. Calendars are read directly from '
+          'your calendar provider and stored only on this device.',
       'T-Minus',
+      'Privacy policy',
       'Licences',
     ]) {
       expect(find.text(text), findsOneWidget, reason: text);
     }
     await h.dispose(t);
+  });
+
+  testWidgets('About opens the privacy policy', (t) async {
+    final h = await _pumpSettings(
+      t,
+      seed: (harness) async {
+        harness.ui['openUrl'] = (_) => true;
+      },
+    );
+
+    await t.tap(find.byKey(const Key('privacyPolicyButton')));
+    await _settle(t);
+
+    expect(_openedUrls(h), [privacyPolicyUrl]);
+    expect(find.byType(SnackBar), findsNothing);
+    await h.dispose(t);
+  });
+
+  testWidgets('a failed open shows the snackbar', (t) async {
+    // The harness answers `openUrl` with nothing, which is "no app took it".
+    final h = await _pumpSettings(t);
+
+    await t.tap(find.byKey(const Key('privacyPolicyButton')));
+    await _settle(t);
+
+    expect(_openedUrls(h), [privacyPolicyUrl]);
+    expect(find.text('Could not open the privacy policy.'), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('an open that throws shows the same snackbar and logs only the '
+      'code', (t) async {
+    await _logging((logged) async {
+      final h = await _pumpSettings(
+        t,
+        seed: (harness) async {
+          harness.ui['openUrl'] = (_) => throw PlatformException(
+            code: 'no_activity',
+            message: 'LEAK $privacyPolicyUrl',
+          );
+        },
+      );
+
+      await t.tap(find.byKey(const Key('privacyPolicyButton')));
+      await _settle(t);
+
+      expect(find.text('Could not open the privacy policy.'), findsOneWidget);
+      await _waitOutSnackBar(t);
+      // Nothing else was said, in this or any other text.
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('LEAK'), findsNothing);
+      expect(logged.join('\n'), contains('no_activity'));
+      expect(logged.join('\n'), isNot(contains('LEAK')));
+      await h.dispose(t);
+    });
   });
 
   testWidgets('the merge switch starts from the stored setting', (t) async {

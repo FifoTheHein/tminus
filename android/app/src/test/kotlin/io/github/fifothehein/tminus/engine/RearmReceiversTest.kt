@@ -76,7 +76,8 @@ class RearmReceiversTest {
     /**
      * The one alarm AlarmManager holds. It fires soon, but after the boot broadcast's 20 s FGS
      * allow-list: until that expires Android 15+ attributes any FGS start to BOOT_COMPLETED and
-     * refuses mediaPlayback (seen on the API 36 emulator), even from an alarm. Delivers it to AlarmReceiver.
+     * refused the previous mediaPlayback type (seen on the API 36 emulator), even from an alarm. The delay
+     * stays as a guard for systemExempted. Delivers it to AlarmReceiver.
      */
     private fun deliverTheRecoveryAlarm(action: String) {
         val alarm = shadowOf(alarmManager).scheduledAlarms.single()
@@ -127,7 +128,7 @@ class RearmReceiversTest {
 
     @Test
     fun `after a reboot an overdue alarm fires through AlarmManager once the boot allow-list ends, not from the receiver`() {
-        // Android 15+ forbids starting a mediaPlayback foreground service from the boot broadcasts.
+        // Android 15+ refused the previous mediaPlayback type from the boot broadcasts; the delay stays as a guard.
         for (action in BootReceiver.BOOT_ACTIONS) {
             resetFor(action)
             val due = alert("due", now - MINUTE_MS) // the phone was off when it was due; the event runs until now + 30 min
@@ -177,7 +178,7 @@ class RearmReceiversTest {
 
     @Test
     fun `after a reboot an alert due inside the boot window rings when the window ends, not on time`() {
-        // Inside the boot broadcast's 20 s FGS allow-list Android refuses the ringing service.
+        // Inside the boot broadcast's 20 s FGS allow-list Android 15+ refused the previous mediaPlayback type.
         for (action in BootReceiver.BOOT_ACTIONS) {
             resetFor(action)
             AlarmScheduler(context, store).cancel("soon")

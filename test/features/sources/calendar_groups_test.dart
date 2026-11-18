@@ -67,6 +67,33 @@ List<String> outline(List<CalendarGroup> groups) => [
         '${g.calendars.map((c) => c.id).join(' ')}',
 ];
 
+/// What the source of [c] is called when the phone holds [phone] ([c] among
+/// them) and the sources are already called [existing].
+String named(
+  DeviceCalendar c, {
+  required List<DeviceCalendar> phone,
+  List<String> existing = const [],
+}) =>
+    defaultSourceName(c, phoneCalendars: phone, existingSourceNames: existing);
+
+/// What the sources of [picked] are called when they are added together: one
+/// after the other, each name counting as taken for the next, as the panel
+/// does it.
+List<String> namedTogether(
+  List<DeviceCalendar> picked, {
+  required List<DeviceCalendar> phone,
+  List<String> existing = const [],
+}) {
+  final taken = [...existing];
+  final names = <String>[];
+  for (final c in picked) {
+    final name = named(c, phone: phone, existing: taken);
+    taken.add(name);
+    names.add(name);
+  }
+  return names;
+}
+
 void main() {
   group('kinds', () {
     test('each account type lands in its kind, with its account name', () {
@@ -761,6 +788,286 @@ void main() {
       final groups = groupCalendars(input);
       expect(groups, hasLength(2));
       expect(input.map((c) => c.id), ['2', '1', '3']);
+    });
+  });
+
+  // Beyond the plan's list: the words of the first step, pinned.
+  group('kindLabel', () {
+    test('every kind has its word, except the mixed and unknown ones', () {
+      // Every kind is listed, so a new kind has to be decided here.
+      expect(
+        {for (final k in CalendarGroupKind.values) k: kindLabel(k)},
+        {
+          CalendarGroupKind.google: 'Google',
+          CalendarGroupKind.samsung: 'Samsung account',
+          CalendarGroupKind.outlook: 'Outlook',
+          CalendarGroupKind.exchange: 'Exchange',
+          CalendarGroupKind.other: null,
+          CalendarGroupKind.shared: null,
+          CalendarGroupKind.holidays: null,
+          CalendarGroupKind.phoneOnly: 'Phone',
+        },
+      );
+    });
+  });
+
+  group('defaultSourceName', () {
+    test('a unique name is kept', () {
+      final work = cal('1', name: 'Work');
+      final family = cal('2', name: 'family', type: _samsung);
+      final phone = [work, family];
+      // The calendar's own spelling, whatever else is on the phone or in the
+      // list of sources.
+      expect(named(work, phone: phone), 'Work');
+      expect(named(family, phone: phone), 'family');
+      expect(
+        named(work, phone: phone, existing: const ['Personal', 'Notes']),
+        'Work',
+      );
+    });
+
+    test(
+      'two My calendars, Google and Samsung, become My calendar (Google) and '
+      'My calendar (Samsung account)',
+      () {
+        // The incident: one address, two accounts, two calendars of one name.
+        final google = cal('g', name: 'My calendar');
+        final samsung = cal('s', name: 'My calendar', type: _samsung);
+        final phone = [samsung, google];
+
+        expect(named(google, phone: phone), 'My calendar (Google)');
+        expect(named(samsung, phone: phone), 'My calendar (Samsung account)');
+        // Neither has to be added with the other: it is enough that the other
+        // is on the phone.
+        expect(namedTogether([samsung], phone: phone), [
+          'My calendar (Samsung account)',
+        ]);
+      },
+    );
+
+    test('a clash with an existing source adds the kind', () {
+      final work = cal('1', name: 'Work');
+      final other = cal('2', name: 'Family');
+      expect(
+        named(work, phone: [work, other], existing: const ['Work']),
+        'Work (Google)',
+      );
+      // With no other calendar of the name on the phone, the source alone is the
+      // clash.
+      expect(
+        named(work, phone: [work], existing: const ['Personal', 'Work']),
+        'Work (Google)',
+      );
+    });
+
+    test('a clash that remains adds 2, 3 and so on', () {
+      final work = cal('1', name: 'Work');
+      expect(
+        named(work, phone: [work], existing: const ['Work', 'Work (Google)']),
+        'Work (Google) 2',
+      );
+      expect(
+        named(
+          work,
+          phone: [work],
+          existing: const ['Work', 'Work (Google)', 'Work (Google) 2'],
+        ),
+        'Work (Google) 3',
+      );
+    });
+
+    test('calendars added together get names of their own', () {
+      // Two Google accounts each have a Family calendar, and so does a third.
+      final mine = cal('a', name: 'Family');
+      final partner = cal('b', name: 'Family', account: _work);
+      final cousin = cal('c', name: 'Family', account: 'kim@example.com');
+      final phone = [mine, partner, cousin];
+
+      final names = namedTogether([mine, partner, cousin], phone: phone);
+      expect(names, [
+        'Family (Google)',
+        'Family (Google) 2',
+        'Family (Google) 3',
+      ]);
+      expect(names.toSet(), hasLength(3));
+      // A source of the first name is already there: the next one is taken.
+      expect(
+        namedTogether(
+          [mine, partner],
+          phone: phone,
+          existing: const ['Family (Google)'],
+        ),
+        ['Family (Google) 2', 'Family (Google) 3'],
+      );
+    });
+
+    test('a blank name becomes Phone calendar', () {
+      for (final blank in const ['', '   ', '\t\n']) {
+        final c = cal('1', name: blank);
+        expect(named(c, phone: [c]), 'Phone calendar', reason: 'name "$blank"');
+      }
+      // It is a name like any other, so it can clash like one: with a source
+      // of that name, and with another blank calendar on the phone.
+      final c = cal('1', name: ' ');
+      final d = cal('2', name: '', type: _samsung);
+      expect(
+        named(c, phone: [c], existing: const ['Phone calendar']),
+        'Phone calendar (Google)',
+      );
+      expect(named(c, phone: [c, d]), 'Phone calendar (Google)');
+      expect(named(d, phone: [c, d]), 'Phone calendar (Samsung account)');
+    });
+
+    test('an other kind gets no label but still a 2 if needed', () {
+      for (final type in const [_unknownType, null]) {
+        final notes = cal('1', name: 'Notes', type: type, account: _person);
+        final twin = cal('2', name: 'Notes', type: _samsung);
+        final phone = [notes, twin];
+        // Another calendar of the name is no reason for a number, only a source
+        // with the name is.
+        expect(named(notes, phone: phone), 'Notes', reason: '$type');
+        expect(
+          named(notes, phone: phone, existing: const ['Notes']),
+          'Notes 2',
+          reason: '$type',
+        );
+        expect(
+          named(notes, phone: phone, existing: const ['Notes', 'Notes 2']),
+          'Notes 3',
+          reason: '$type',
+        );
+      }
+    });
+
+    // Beyond the plan's list from here on.
+
+    test('a calendar is named by the kind of its account', () {
+      // Each type with the word its calendars carry. The twin is a calendar of
+      // another account with the same name, so the name clashes everywhere.
+      const labels = <String?, String?>{
+        _google: 'Google',
+        _samsung: 'Samsung account',
+        _outlook: 'Outlook',
+        _exchange: 'Exchange',
+        'com.google.android.gm.exchange': 'Exchange',
+        'com.samsung.android.exchange': 'Exchange',
+        _local: 'Phone',
+        _unknownType: null,
+        null: null,
+      };
+      final twin = cal(
+        'twin',
+        name: 'work',
+        type: _unknownType,
+        account: _work,
+      );
+      for (final MapEntry(key: type, value: label) in labels.entries) {
+        final c = cal(
+          '1',
+          name: 'Work',
+          type: type,
+          account: type == _local ? 'My calendar' : _alex,
+        );
+        expect(
+          named(c, phone: [c, twin]),
+          label == null ? 'Work' : 'Work ($label)',
+          reason: '$type',
+        );
+      }
+    });
+
+    test('a shared or holiday calendar gets no label', () {
+      final shared = cal('s', name: 'Sam Lee', owner: _person, access: 200);
+      final holiday = cal(
+        'h',
+        name: 'Holidays',
+        owner: _holidayOwner,
+        access: 200,
+      );
+      final birthdays = cal(
+        'b',
+        name: 'Holidays',
+        type: _local,
+        account: _birthdayAccount,
+      );
+      final twin = cal('g', name: 'Sam Lee', account: _work);
+      final phone = [shared, holiday, birthdays, twin];
+
+      expect(kindOf(shared), CalendarGroupKind.shared);
+      expect(kindOf(holiday), CalendarGroupKind.holidays);
+      expect(kindOf(birthdays), CalendarGroupKind.holidays);
+      // A clash with another calendar changes nothing, as no source has the
+      // name. A clash with a source adds a number, and no kind.
+      expect(named(shared, phone: phone), 'Sam Lee');
+      expect(
+        named(shared, phone: phone, existing: const ['Sam Lee']),
+        'Sam Lee 2',
+      );
+      expect(
+        named(holiday, phone: phone, existing: const ['Holidays']),
+        'Holidays 2',
+      );
+      expect(
+        named(birthdays, phone: phone, existing: const ['Holidays']),
+        'Holidays 2',
+      );
+    });
+
+    test('names are compared trimmed and without regard to case', () {
+      final work = cal('1', name: 'Work');
+      // A source that differs in case and has spaces around it.
+      expect(
+        named(work, phone: [work], existing: const ['  wORK ']),
+        'Work (Google)',
+      );
+      // So does another calendar on the phone.
+      final shout = cal('2', name: ' WORK ', type: _samsung);
+      expect(named(work, phone: [work, shout]), 'Work (Google)');
+      // And the name with the kind, when a number is looked for.
+      expect(
+        named(work, phone: [work], existing: const ['Work', ' work (GOOGLE) ']),
+        'Work (Google) 2',
+      );
+    });
+
+    test('the name is trimmed', () {
+      final padded = cal('1', name: '  Work  ');
+      final twin = cal('2', name: 'work', type: _samsung);
+      expect(named(padded, phone: [padded]), 'Work');
+      expect(named(padded, phone: [padded, twin]), 'Work (Google)');
+    });
+
+    test('a calendar is not another calendar of its own name', () {
+      final work = cal('1', name: 'Work');
+      expect(named(work, phone: [work]), 'Work');
+      expect(named(work, phone: [work], existing: const ['Family']), 'Work');
+    });
+
+    test('the kind is found among every calendar on the phone', () {
+      // Alex's main calendar, and a calendar of the work account that Alex
+      // owns. Seen through the work account it is still Alex's own, so it is a
+      // Google calendar, and its twin makes the name clash.
+      final main = cal('main', name: 'Alex', owner: _alex);
+      final seen = cal(
+        'seen',
+        name: 'Family',
+        account: _work,
+        owner: _alex,
+        access: 700,
+      );
+      final twin = cal('twin', name: 'Family', account: _work, owner: _work);
+
+      expect(named(seen, phone: [main, seen, twin]), 'Family (Google)');
+      // Without Alex's own account on the list its owner is a stranger, so the
+      // calendar is shared, and a shared calendar has no kind to name.
+      expect(named(seen, phone: [seen, twin]), 'Family');
+    });
+
+    test('a calendar the list leaves out is named all the same', () {
+      final google = cal('g', name: 'My calendar');
+      final samsung = cal('s', name: 'My calendar', type: _samsung);
+      expect(named(google, phone: [samsung]), 'My calendar (Google)');
+      expect(named(google, phone: const []), 'My calendar');
     });
   });
 }

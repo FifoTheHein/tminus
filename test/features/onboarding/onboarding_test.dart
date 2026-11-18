@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tminus/app/di.dart';
+import 'package:tminus/app/links.dart';
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/source_config.dart';
@@ -21,6 +22,8 @@ import 'package:tminus/features/sources/add_source_panel.dart';
 
 import '../../core/fixtures.dart' show blue, occ;
 import '../harness.dart';
+import '../sources/source_test_support.dart'
+    show choosePasteCard, choosePhoneCard, phoneCalendar;
 
 const _ics = SourceConfig(
   id: 'ics-1',
@@ -231,6 +234,12 @@ Future<void> _logging(Future<void> Function(List<String> logged) body) async {
 Finder _snack(String text) =>
     find.descendant(of: find.byType(SnackBar), matching: find.text(text));
 
+/// The links the screen asked `tminus_ui` to open, in order.
+List<Object?> _openedUrls(Harness h) => [
+  for (final c in h.uiCalls)
+    if (c.method == 'openUrl') (c.arguments as Map)['url'],
+];
+
 /// Waits out the snack bar that is up (they show one at a time, so one that is
 /// queued behind it shows only now), so that "nothing else was said" can be
 /// asked of what is on the screen afterwards.
@@ -356,6 +365,54 @@ void main() {
     await h.dispose(t);
   });
 
+  testWidgets('onboarding opens the privacy policy', (t) async {
+    final h = await _boot(t, seed: (h) async => h.ui['openUrl'] = (_) => true);
+
+    await _tap(t, 'onboardingPrivacyPolicy');
+
+    expect(_openedUrls(h), [privacyPolicyUrl]);
+    expect(find.byType(SnackBar), findsNothing);
+    // The page opens in the browser and the step stays where it was.
+    expect(find.byKey(const Key('step-welcome')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('a failed open shows the snackbar', (t) async {
+    // The harness answers `openUrl` with nothing, which is "no app took it".
+    final h = await _boot(t);
+
+    await _tap(t, 'onboardingPrivacyPolicy');
+
+    expect(_openedUrls(h), [privacyPolicyUrl]);
+    expect(_snack('Could not open the privacy policy.'), findsOneWidget);
+    expect(find.byKey(const Key('step-welcome')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('an open that throws shows the same snackbar and logs only the '
+      'code', (t) async {
+    await _logging((logged) async {
+      final h = await _boot(
+        t,
+        seed: (h) async => h.ui['openUrl'] = (_) => throw PlatformException(
+          code: 'no_activity',
+          message: 'LEAK $privacyPolicyUrl',
+        ),
+      );
+
+      await _tap(t, 'onboardingPrivacyPolicy');
+
+      expect(_snack('Could not open the privacy policy.'), findsOneWidget);
+      await _waitOutSnackBar(t);
+      // Nothing else was said, in this or any other text.
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('LEAK'), findsNothing);
+      expect(logged.join('\n'), contains('no_activity'));
+      expect(logged.join('\n'), isNot(contains('LEAK')));
+      await h.dispose(t);
+    });
+  });
+
   testWidgets('Continue on Add your calendar waits for a source, and Skip '
       'moves on', (t) async {
     final h = await _boot(t);
@@ -381,6 +438,72 @@ void main() {
     expect(_canPress(t, 'continue'), isTrue);
 
     await _tap(t, 'continue');
+    expect(find.byKey(const Key('step-permissions')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('Add your calendar lists the phone first and opens neither way', (
+    t,
+  ) async {
+    final h = await _boot(
+      t,
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+    await _tap(t, 'getStarted');
+
+    // The phone is the first of the two ways.
+    expect(
+      t.getTopLeft(find.text('Use a calendar on this phone')).dy,
+      lessThan(t.getTopLeft(find.text('Paste a calendar link')).dy),
+    );
+    // Neither is chosen, so neither is open, and nothing has asked for
+    // calendar access.
+    expect(find.byIcon(Icons.radio_button_checked), findsNothing);
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
+    expect(find.byKey(const Key('calendar-1')), findsNothing);
+    expect(find.byKey(const Key('icsLinkField')), findsNothing);
+    expect(h.uiCalls.where((c) => c.method == 'requestPermission'), isEmpty);
+    // Nothing to continue with, but Skip is there and moves on.
+    expect(_canPress(t, 'continue'), isFalse);
+    expect(_canPress(t, 'skip'), isTrue);
+    await _tap(t, 'skip');
+    expect(find.byKey(const Key('step-permissions')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('on Add your calendar a tap opens only that way, the other tap '
+      'switches to it, and Continue waits for a source', (t) async {
+    final h = await _boot(
+      t,
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+    await _tap(t, 'getStarted');
+
+    // The phone: its calendars list, after one ask for calendar access.
+    await choosePhoneCard(t);
+    expect(find.byKey(const Key('calendar-1')), findsOneWidget);
+    expect(find.byKey(const Key('icsLinkField')), findsNothing);
+    expect(_canPress(t, 'addSelected'), isFalse);
+    expect(_canPress(t, 'continue'), isFalse);
+    expect(
+      h.uiCalls
+          .where((c) => c.method == 'requestPermission')
+          .map((c) => c.arguments),
+      [
+        {'kind': 'calendar'},
+      ],
+    );
+
+    // The link: its form opens and the list closes. Nothing can be added
+    // before the link has checked out.
+    await choosePasteCard(t);
+    expect(find.byKey(const Key('icsLinkField')), findsOneWidget);
+    expect(find.byKey(const Key('calendar-1')), findsNothing);
+    expect(_canPress(t, 'addCalendar'), isFalse);
+    expect(_canPress(t, 'continue'), isFalse);
+
+    // Skip still moves on, whichever way is open.
+    await _tap(t, 'skip');
     expect(find.byKey(const Key('step-permissions')), findsOneWidget);
     await h.dispose(t);
   });
@@ -1201,6 +1324,17 @@ void main() {
     }
 
     expectOnScreen('getStarted');
+    expectOnScreen('onboardingPrivacyPolicy');
+    // The buttons sit at the foot of the screen, so one that takes too much
+    // room is not pushed off it but up into the page: the page must still hold
+    // its heading.
+    expect(
+      t.getRect(find.text("Meetings you can't miss")).bottom,
+      lessThanOrEqualTo(
+        t.getRect(find.byKey(const Key('step-welcome'))).bottom,
+      ),
+      reason: 'the welcome buttons leave no room for the heading',
+    );
     await _tap(t, 'getStarted');
     await _settle(t);
     expectOnScreen('continue');
@@ -1228,6 +1362,7 @@ void main() {
         feeds: MockClient((_) async => http.Response(_feed, 200)),
       );
       await _tap(t, 'getStarted');
+      await choosePasteCard(t);
 
       await t.enterText(find.byKey(const Key('icsLinkField')), _link);
       await t.pump();

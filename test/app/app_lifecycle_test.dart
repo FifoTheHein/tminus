@@ -34,11 +34,13 @@ void main() {
     var before = 0;
     await t.runAsync(() async {
       final db = openTestDatabase();
+      final cache = openTestCacheDatabase();
       // tableUpdates fires on every markTablesUpdated; a watch query may skip
       // an emission whose rows did not change.
       final sub = db.tableUpdates().listen(seen.add);
       final lifecycle = AppLifecycle(
         db: db,
+        cache: cache,
         platform: SyncPlatform(),
         replan: ReplanScheduler(replan: () async => null),
       )..start();
@@ -60,15 +62,18 @@ void main() {
       lifecycle.dispose();
       await sub.cancel();
       await db.close();
+      await cache.close();
     });
     expect(seen.length, greaterThan(before));
   });
 
   test('onPause flushes a pending re-plan and checkpoints', () async {
     final db = openTestDatabase();
+    final cache = openTestCacheDatabase();
     var runs = 0;
     final lifecycle = AppLifecycle(
       db: db,
+      cache: cache,
       platform: SyncPlatform(),
       replan: ReplanScheduler(
         replan: () async => runs++,
@@ -80,6 +85,7 @@ void main() {
     await lifecycle.onPause();
     expect(runs, 1);
     await db.close();
+    await cache.close();
   });
 
   // Beyond the plan's list.
@@ -96,12 +102,15 @@ void main() {
     () async {
       final db = openTestDatabase();
       addTearDown(db.close);
+      final cache = openTestCacheDatabase();
+      addTearDown(cache.close);
       final seen = <Object?>[];
       final sub = db.tableUpdates().listen(seen.add);
       addTearDown(sub.cancel);
       var runs = 0;
       final lifecycle = AppLifecycle(
         db: db,
+        cache: cache,
         platform: SyncPlatform(),
         replan: ReplanScheduler(
           replan: () async => runs++,
@@ -166,14 +175,63 @@ void main() {
       isNull,
       reason: 'the write is in the log',
     );
+    // The log is backed up as well as the file, so a pause empties it: its old
+    // frames would keep what has been deleted.
+    final log = File('${main.path}-wal');
+    expect(log.lengthSync(), greaterThan(0));
 
+    final cache = openTestCacheDatabase();
+    addTearDown(cache.close);
     final lifecycle = AppLifecycle(
       db: db,
+      cache: cache,
       platform: SyncPlatform(),
       replan: ReplanScheduler(replan: () async => null),
     );
     await lifecycle.onPause();
 
     expect(markerInMainFile('after'), 'kept');
+    expect(log.lengthSync(), 0, reason: 'the log is emptied');
+  });
+
+  test('a resume refreshes the watchers of both databases', () async {
+    // Each database tells its watchers only about its own writes in this
+    // isolate, so a resume (and a finished background sync) has to mark the
+    // tables of both: the cache's meetings, history and log are in the second.
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    final cache = openTestCacheDatabase();
+    addTearDown(cache.close);
+    final seenInMain = <Object?>[];
+    final seenInCache = <Object?>[];
+    final mainSub = db.tableUpdates().listen(seenInMain.add);
+    addTearDown(mainSub.cancel);
+    final cacheSub = cache.tableUpdates().listen(seenInCache.add);
+    addTearDown(cacheSub.cancel);
+    final lifecycle = AppLifecycle(
+      db: db,
+      cache: cache,
+      platform: SyncPlatform(),
+      replan: ReplanScheduler(replan: () async => null),
+    )..start();
+    addTearDown(lifecycle.dispose);
+    walk([
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]);
+    await pumpEventQueue();
+    final mainBefore = seenInMain.length;
+    final cacheBefore = seenInCache.length;
+
+    walk([
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]);
+    await pumpEventQueue();
+
+    expect(seenInMain.length, greaterThan(mainBefore));
+    expect(seenInCache.length, greaterThan(cacheBefore));
   });
 }

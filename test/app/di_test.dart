@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:drift/native.dart' show NativeDatabase;
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,10 +22,13 @@ import 'package:tminus/core/planner/meeting_planner.dart';
 import 'package:tminus/core/planner/plan_builder.dart';
 import 'package:tminus/core/platform/ui_platform.dart';
 import 'package:tminus/core/rules/rules_engine.dart';
+import 'package:tminus/core/sources/fast_alarms.dart';
 import 'package:tminus/core/sources/ics_link_probe.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
+import 'package:tminus/core/storage/cache_value_repository.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/rule_repository.dart';
@@ -41,6 +47,7 @@ import 'package:tminus/features/agenda/agenda_model.dart';
 
 import '../core/fixtures.dart';
 import '../core/storage/test_database.dart';
+import '../generated_migrations/schema.dart' as main_schemas;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -99,6 +106,132 @@ void main() {
     getIt<SourceRepository>();
     expect(opened, 1);
   });
+
+  test('the cache is a second database, opened only when asked for', () async {
+    var mainOpened = 0;
+    var cacheOpened = 0;
+    final cache = openTestCacheDatabase();
+    configureDependencies(
+      openDatabase: () {
+        mainOpened++;
+        return openTestDatabase();
+      },
+      openCacheDatabase: () {
+        cacheOpened++;
+        return cache;
+      },
+    );
+    expect((mainOpened, cacheOpened), (0, 0));
+
+    getIt<SourceRepository>();
+    expect((mainOpened, cacheOpened), (1, 0));
+    getIt<OccurrenceRepository>();
+    expect((mainOpened, cacheOpened), (1, 1));
+
+    // What is cached is written to the cache database, and the services that
+    // clear or refresh it are given that one.
+    final one = occ(sourceId: 'work');
+    await getIt<OccurrenceRepository>().replaceForSource('work', [one]);
+    expect(getIt<CacheDatabase>(), same(cache));
+    expect(await cache.select(cache.occurrences).get(), hasLength(1));
+    expect(getIt<RestoreGuard>().cache, same(cache));
+    expect(getIt<AppLifecycle>().cache, same(cache));
+    // The expected alerts the sync keeps carry meeting titles: they go to the
+    // cache database too.
+    expect(
+      getIt<SyncService>().cacheValues,
+      same(getIt<CacheValueRepository>()),
+    );
+    expect(getIt<FastAlarms>().cache, same(getIt<OccurrenceRepository>()));
+    expect(
+      getIt<SourceAdmin>().occurrences,
+      same(getIt<OccurrenceRepository>()),
+    );
+  });
+
+  test(
+    'a test that passes only the main database gets an in-memory cache',
+    () async {
+      configureDependencies(openDatabase: openTestDatabase);
+
+      expect(getIt<CacheDatabase>().legacy, isNull);
+      await getIt<OccurrenceRepository>().replaceForSource('work', [
+        occ(sourceId: 'work'),
+      ]);
+      expect(await getIt<OccurrenceRepository>().countForSource('work'), 1);
+    },
+  );
+
+  test(
+    'the app moves a Plan 5 phone\'s cache through its real databases',
+    () async {
+      // The documents directory, as path_provider answers for it: the app's two
+      // database files are made there.
+      final dir = Directory.systemTemp.createTempSync('tminus_app_');
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        (call) async => dir.path,
+      );
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
+      });
+
+      // What a Plan 5 build left in `tminus.sqlite`.
+      final fixture = Schema2Cache(titlePrefix: 'Zephyr programme review');
+      final old = main_schemas.GeneratedHelper().databaseForVersion(
+        NativeDatabase(File('${dir.path}/tminus.sqlite')),
+        2,
+      );
+      await fixture.insertInto((sql, args) => old.customStatement(sql, args));
+      await old.close();
+
+      configureDependencies();
+      try {
+        // The first read of the cache moves them.
+        expect(
+          await getIt<OccurrenceRepository>().between(
+            DateTime.utc(2000),
+            DateTime.utc(2100),
+          ),
+          fixture.meetings,
+        );
+        expect(
+          await getIt<CacheValueRepository>().getString(
+            SyncService.expectedKey,
+          ),
+          fixture.expectedAlertsJson,
+        );
+
+        // Two files, and nothing of the cache is left in the one that is backed
+        // up: not in a table, and not in the bytes of the file or of its log
+        // (the move compacted it).
+        expect(File('${dir.path}/tminus_cache.sqlite').existsSync(), isTrue);
+        final title = fixture.meetings.first.title;
+        expect(await tablesHolding(getIt<AppDatabase>(), title), isEmpty);
+        expect(
+          await getIt<SettingsRepository>().getString(
+            LegacyCacheMove.compactedKey,
+          ),
+          '1',
+        );
+        final probes = [title, fixture.expectedAlertsJson];
+        expect(
+          bytesHolding(File('${dir.path}/tminus.sqlite'), probes),
+          isEmpty,
+        );
+        expect(
+          bytesHolding(File('${dir.path}/tminus.sqlite-wal'), probes),
+          isEmpty,
+        );
+      } finally {
+        await getIt.reset();
+        dir.deleteSync(recursive: true);
+      }
+    },
+  );
 
   test('configureDependencies registers one AlarmEngine', () {
     configureDependencies(openDatabase: openTestDatabase);

@@ -192,6 +192,30 @@ void main() {
     );
   });
 
+  test(
+    'a calendar whose sync is off is reported in words that name nothing',
+    () async {
+      // The native text and details are not passed on: the message is fixed, so
+      // it cannot carry a calendar's name or account into the log or a notice.
+      answer(
+        (_) => throw PlatformException(
+          code: 'calendar_not_synced',
+          message: 'Work calendar of me@example.com is not synced',
+          details: 'me@example.com',
+        ),
+      );
+
+      final failed = await source().fetch(window) as SourceFailed;
+
+      expect(failed.outcome, SyncOutcome.calendarNotSynced);
+      expect(
+        failed.message,
+        'This calendar is no longer synced on this phone.',
+      );
+      expect(calls.single.method, 'queryInstances');
+    },
+  );
+
   test('a source without a calendar id fails without a call', () async {
     answer((_) => []);
     final r = await source(

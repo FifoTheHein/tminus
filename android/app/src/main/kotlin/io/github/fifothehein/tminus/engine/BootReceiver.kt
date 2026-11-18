@@ -11,8 +11,9 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            // Android 15+ forbids starting the mediaPlayback service from a boot broadcast: whatever
-            // should ring now fires through AlarmManager once the boot allow-list has ended (RECOVERY_DELAY_MS).
+            // Android 15+ refused the previous mediaPlayback type from a boot broadcast, and the delay stays
+            // as a guard (Plan 6 decision 9): whatever should ring now fires through AlarmManager once the
+            // boot allow-list has ended (RECOVERY_DELAY_MS).
             in BOOT_ACTIONS -> EngineActions.create(context).recoverAfterBoot()
             // An update may start it (checked on API 36): show again what was on screen, then re-arm.
             Intent.ACTION_MY_PACKAGE_REPLACED -> EngineActions.create(context).run {

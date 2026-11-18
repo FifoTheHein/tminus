@@ -16,6 +16,7 @@ import 'package:tminus/core/rules/rules_engine.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
@@ -107,6 +108,7 @@ void main() {
   );
 
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late OccurrenceRepository cache;
   late OverrideRepository overrides;
@@ -142,6 +144,7 @@ void main() {
     final c = AgendaController(
       loader: use ?? loader,
       db: db,
+      cache: cacheDb,
       overrides: overrides,
       settings: settings,
       rulesEngine: rulesEngine,
@@ -163,8 +166,9 @@ void main() {
   setUp(() {
     initZones();
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
-    cache = OccurrenceRepository(db);
+    cache = OccurrenceRepository(cacheDb);
     overrides = OverrideRepository(db);
     settings = SettingsRepository(db);
     final appSettings = AppSettings(settings);
@@ -180,14 +184,14 @@ void main() {
         sources: sources,
         occurrences: cache,
         links: MeetingLinkRepository(db),
-        history: AlertHistoryRepository(db),
+        history: AlertHistoryRepository(cacheDb),
         settings: settings,
         ruleSets: ruleSets,
         rulesEngine: rulesEngine,
       ),
       statuses: SourceStatusLoader(
         sources: sources,
-        syncLog: SyncLogRepository(db),
+        syncLog: SyncLogRepository(cacheDb),
         appSettings: appSettings,
         clock: () => now,
       ),
@@ -208,6 +212,7 @@ void main() {
   tearDown(() async {
     replan.dispose();
     await db.close();
+    await cacheDb.close();
   });
 
   test('toggling a meeting off writes enabled false on the meeting key and '
@@ -377,6 +382,23 @@ void main() {
     await waitUntil(() => onlyItem(c).on == false);
   });
 
+  test('a write to the cache database reloads the snapshot', () async {
+    // The meetings are in their own database (Plan 6 decision 4), so a sync's
+    // writes to them reach the Agenda through that database's updates.
+    final sprint = feedOcc('sprint', local(6, 10));
+    await seed(feed, [sprint]);
+    final c = controllerFor()..start();
+    await waitUntil(() => c.snapshot != null);
+    expect(c.snapshot!.days.single.items, hasLength(1));
+
+    await cache.replaceForSource('feed', [
+      sprint,
+      feedOcc('retro', local(6, 14)),
+    ]);
+
+    await waitUntil(() => c.snapshot!.days.single.items.length == 2);
+  });
+
   // Tests beyond the plan's list start here.
 
   test('pulling to refresh runs a pullToRefresh sync and returns its line, '
@@ -499,6 +521,7 @@ void main() {
     final c = AgendaController(
       loader: loader,
       db: db,
+      cache: cacheDb,
       overrides: _FailingOverrides(db),
       settings: settings,
       rulesEngine: rulesEngine,

@@ -8,6 +8,8 @@ class AndroidAlertPresenter(
     context: Context,
     private val store: PlanStore = PlanStore(context),
     private val notifications: NotificationFactory = NotificationFactory(context),
+    /** False for the retry of a refused start: it is not retried again (RingingService does the same). */
+    private val retryRefusedStart: Boolean = true,
     private val startRinging: (Context, List<String>) -> Unit = { ctx, ids -> RingingService.start(ctx, ids) },
 ) : AlertPresenter {
     private val appContext: Context = context.applicationContext
@@ -26,7 +28,7 @@ class AndroidAlertPresenter(
                     startRinging(appContext, joining.map { it.id })
                 } catch (e: IllegalStateException) {
                     // The alert is in the session already; only the timeout restart is lost.
-                    Log.w(TAG, "Ringing service refused the joining heads-up's restart", e)
+                    Log.w(TAG, "Ringing service refused the joining heads-up's restart: ${e.javaClass.simpleName}")
                 }
             }
             postHeadsUps(own)
@@ -45,9 +47,15 @@ class AndroidAlertPresenter(
             startRinging(appContext, session.map { it.id })
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (Android 12+) is an IllegalStateException.
-            Log.w(TAG, "Ringing service refused to start; showing a heads-up instead", e)
+            Log.w(TAG, "Ringing service refused to start; showing a heads-up instead: ${e.javaClass.simpleName}")
             RingingSession.remove(session.map { it.id })
             postHeadsUps(alerts)
+            // Their own alarm is spent, whatever fired them (the alarm, a sync, an app start or a clock change), so
+            // nothing else would ring them. An alarm-clock alarm may start the service: they ring again through
+            // AlarmReceiver after RECOVERY_DELAY_MS, once, as when RingingService refuses its own start.
+            if (retryRefusedStart) {
+                AlarmScheduler(appContext, store).armRingingRetry(session.map { it.id }, System.currentTimeMillis() + EngineActions.RECOVERY_DELAY_MS)
+            }
             return
         }
         notifications.cancelHeadsUpNotifications(groups.map(NotificationFactory::headsUpId))

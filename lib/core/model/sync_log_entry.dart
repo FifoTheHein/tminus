@@ -25,6 +25,9 @@ enum SyncOutcome {
 
   /// A run that never got the sync lock and changed nothing (Plan 4).
   skipped,
+
+  /// The Android calendar's sync is off (device sources, Plan 6 decision 18).
+  calendarNotSynced,
 }
 
 class SyncLogEntry {

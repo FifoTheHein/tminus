@@ -68,7 +68,7 @@ class EventQueue(context: Context) {
         try {
             EngineJson.eventFromJson(JSONObject(line))
         } catch (e: Exception) {
-            Log.w(TAG, "Skipping an unreadable queued event", e)
+            Log.w(TAG, "Skipping an unreadable queued event: ${e.javaClass.simpleName}")
             null
         }
     }

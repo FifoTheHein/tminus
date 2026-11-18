@@ -18,6 +18,8 @@ import '../rules/rules_engine.dart';
 import '../sources/calendar_source.dart';
 import '../sources/ics_feed_source.dart';
 import '../storage/alert_history_repository.dart';
+import '../storage/cache_tables.dart' show CacheValues;
+import '../storage/cache_value_repository.dart';
 import '../storage/meeting_link_repository.dart';
 import '../storage/occurrence_repository.dart';
 import '../storage/rule_set_loader.dart';
@@ -145,6 +147,7 @@ class SyncService {
     required this.links,
     required this.history,
     required this.syncLog,
+    required this.cacheValues,
     required this.settings,
     required this.ruleSets,
     required this.rulesEngine,
@@ -166,6 +169,9 @@ class SyncService {
   final MeetingLinkRepository links;
   final AlertHistoryRepository history;
   final SyncLogRepository syncLog;
+
+  /// Where the alerts the last plan expects to ring are kept ([expectedKey]).
+  final CacheValueRepository cacheValues;
   final SettingsRepository settings;
   final RuleSetLoader ruleSets;
 
@@ -186,7 +192,12 @@ class SyncService {
   /// run in parallel); a lock left by a killed engine runs out by itself.
   static const lockLease = Duration(minutes: 5);
   static const lastFinishedKey = 'sync.lastFinishedUtcMs';
-  static const expectedKey = 'sync.missedSystemExpected';
+
+  /// The key of the alerts the last plan expects to ring, for the missed
+  /// (system) check. They carry meeting titles, so they are a cache value
+  /// ([cacheValues]) and not a setting: the backed-up file must hold no event
+  /// content (Plan 6 decision 4).
+  static const expectedKey = CacheValues.expectedAlertsKey;
   static const historyRetention = Duration(days: 30);
   static const syncLogRetention = Duration(days: 7);
   static const occurrenceRetention = Duration(days: 1);
@@ -330,7 +341,7 @@ class SyncService {
     } on MissingPluginException {
       applyError = 'no alarm engine';
     }
-    await settings.setString(
+    await cacheValues.setString(
       expectedKey,
       MissedSystemDetector.encode(
         applied == null
@@ -560,6 +571,8 @@ class SyncService {
         SyncOutcome.calendarAccessDenied =>
           '${config.name}: calendar access was turned off',
         SyncOutcome.calendarMissing => '${config.name}: calendar was removed',
+        SyncOutcome.calendarNotSynced =>
+          '${config.name}: calendar is not syncing',
         _ => '${config.name} feed link stopped working',
       };
 
@@ -661,7 +674,7 @@ class SyncService {
     DateTime now,
   ) async {
     final expected = MissedSystemDetector.decode(
-      await settings.getString(expectedKey),
+      await cacheValues.getString(expectedKey),
     );
     if (expected.isEmpty) return (pending: expected, recorded: 0);
     final oldest = expected

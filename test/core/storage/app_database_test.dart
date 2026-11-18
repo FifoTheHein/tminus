@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:drift/drift.dart' hide isNull;
+import 'package:drift/native.dart';
 import 'package:drift_dev/api/migrations_native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
@@ -9,10 +12,12 @@ import 'package:tminus/core/model/meeting_link.dart';
 import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
 import 'package:tminus/core/storage/profile_mapping.dart';
+import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
 
 import '../../generated_migrations/schema.dart';
@@ -31,27 +36,40 @@ void main() {
     expect(row.read<String>('v'), matches(RegExp(r'^3\.\d+\.\d+$')));
   });
 
-  test('every table from spec §5 exists', () async {
-    final rows = await db
-        .customSelect(
-          "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
-        )
-        .get();
-    expect(
-      rows.map((r) => r.read<String>('name')),
-      containsAll([
-        'alert_history',
-        'occurrences',
-        'overrides',
-        'profiles',
-        'quiet_state',
-        'rules',
-        'settings',
-        'sources',
-        'sync_log',
-      ]),
-    );
-  });
+  test(
+    'every table of the main database exists, and not the cache tables',
+    () async {
+      final rows = await db
+          .customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+          )
+          .get();
+      final names = rows.map((r) => r.read<String>('name')).toList();
+      expect(
+        names,
+        containsAll([
+          'meeting_links',
+          'overrides',
+          'profiles',
+          'quiet_state',
+          'rules',
+          'settings',
+          'sources',
+        ]),
+      );
+      // The occurrence cache, the alert history and the sync log are in the
+      // cache database, which the backup rules leave out (Plan 6 decision 4).
+      expect(
+        names.where(
+          (n) =>
+              n.contains('occurrences') ||
+              n.contains('alert_history') ||
+              n.contains('sync_log'),
+        ),
+        isEmpty,
+      );
+    },
+  );
 
   test('built-in profiles are seeded in order', () async {
     final rows = await (db.select(
@@ -71,41 +89,38 @@ void main() {
     expect(meeting.name, 'Work meeting');
   });
 
-  test(
-    'foreign keys are on: deleting a source deletes its occurrences',
-    () async {
-      await db
-          .into(db.sources)
-          .insert(
-            SourcesCompanion.insert(
-              id: 'work',
-              name: 'Work',
-              color: 0xFF6AA0F5,
-              kind: SourceKind.ics,
-            ),
-          );
-      await db
-          .into(db.occurrences)
-          .insert(
-            OccurrencesCompanion.insert(
-              occurrenceKey: 'work|a|2026-10-06T08:00:00.000Z',
-              sourceId: 'work',
-              uid: 'a',
-              originalStartUtcMs: 0,
-              title: 'x',
-              startUtcMs: 0,
-              endUtcMs: 1,
-              allDay: false,
-              busyStatus: BusyStatus.busy,
-              declined: false,
-              cancelled: false,
-              calendarColor: 0,
-            ),
-          );
-      await (db.delete(db.sources)..where((s) => s.id.equals('work'))).go();
-      expect(await db.select(db.occurrences).get(), isEmpty);
-    },
-  );
+  test('foreign keys are on', () async {
+    // No table has a foreign key since the occurrences moved to the cache
+    // database, which has none to sources, but the pragma stays for the next
+    // table that needs one.
+    final row = await db.customSelect('PRAGMA foreign_keys').getSingle();
+    expect(row.read<int>('foreign_keys'), 1);
+  });
+
+  test('a deleted row leaves no bytes behind in the file', () async {
+    // The file is backed up, and a delete that only frees the page leaves what
+    // the row held in it. The connection zeroes it (`secure_delete`).
+    final dir = Directory.systemTemp.createTempSync('tminus_secure_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/tminus.sqlite');
+    final database = AppDatabase(
+      NativeDatabase(file, setup: AppDatabase.configureConnection),
+    );
+    addTearDown(database.close);
+    const secret = 'Quarterly results rehearsal for the Zephyr programme';
+    await SettingsRepository(database).setString('probe', secret);
+    await database.checkpoint();
+    expect(bytesHolding(file, [secret]), [
+      secret,
+    ], reason: 'the row is in the file before');
+
+    await (database.delete(
+      database.settings,
+    )..where((s) => s.name.equals('probe'))).go();
+    await database.checkpoint();
+
+    expect(bytesHolding(file, [secret]), isEmpty);
+  });
 
   test('sources table has no column that could hold a URL', () async {
     final cols = await db.customSelect('PRAGMA table_info(sources)').get();
@@ -114,9 +129,15 @@ void main() {
     expect(names.where((n) => n.contains('url')), isEmpty);
   });
 
-  group('schema 2', () {
+  group('schema 3', () {
     final verifier = SchemaVerifier(GeneratedHelper());
     const strict = ValidationOptions(validateDropped: true);
+
+    // Straight after the upgrade the cache's old tables are still there, set
+    // aside as `legacy_*` until the cache database has moved their rows, so
+    // only what the schema has is checked. Once they are gone the check is
+    // strict.
+    const afterUpgrade = ValidationOptions(validateDropped: false);
 
     // The migrated database and the one from setUp are both an AppDatabase.
     setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
@@ -124,10 +145,21 @@ void main() {
       () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false,
     );
 
-    test('a fresh database is schema 2', () async {
-      expect(db.schemaVersion, 2);
-      final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 2);
+    DatabaseConnection memory() => DatabaseConnection(
+      NativeDatabase.memory(),
+      closeStreamsSynchronously: true,
+    );
+
+    Future<int> storedVersion(AppDatabase database) async {
+      final version = await database
+          .customSelect('PRAGMA user_version')
+          .getSingle();
+      return version.read<int>('user_version');
+    }
+
+    test('a fresh database is schema 3', () async {
+      expect(db.schemaVersion, 3);
+      expect(await storedVersion(db), 3);
 
       final entities = await db
           .customSelect('SELECT name FROM sqlite_master')
@@ -140,10 +172,6 @@ void main() {
           'meeting_links_meeting_key',
         ]),
       );
-      final columns = await db
-          .customSelect('PRAGMA table_info(occurrences)')
-          .get();
-      expect(columns.map((c) => c.read<String>('name')), contains('ical_uid'));
 
       // Links hold no reference to sources, so they outlive a deleted source.
       final keys = await db
@@ -153,10 +181,30 @@ void main() {
 
       // Created from scratch, it is exactly the schema dumped in
       // drift_schemas/, so a change to tables.dart needs a new version.
-      await verifier.migrateAndValidate(db, 2, options: strict);
+      await verifier.migrateAndValidate(db, 3, options: strict);
     });
 
-    test('schema 1 upgrades to 2 keeping sources, occurrences, overrides and '
+    test('v1 to v3 and v2 to v3 migrate and validate', () async {
+      for (final from in [1, 2]) {
+        final schema = await verifier.schemaAt(from);
+        addTearDown(schema.close);
+        final migrated = AppDatabase(schema.newConnection());
+        addTearDown(migrated.close);
+
+        // Straight after the upgrade the cache's tables are set aside.
+        await verifier.migrateAndValidate(migrated, 3, options: afterUpgrade);
+        expect(await storedVersion(migrated), 3, reason: 'from schema $from');
+
+        // The cache database moves their rows and drops them, and then nothing
+        // but schema 3 is left.
+        final cache = CacheDatabase(memory(), legacy: migrated);
+        addTearDown(cache.close);
+        await cache.customSelect('SELECT 1').get();
+        await verifier.migrateAndValidate(migrated, 3, options: strict);
+      }
+    });
+
+    test('schema 1 upgrades to 3 keeping sources, occurrences, overrides and '
         'history', () async {
       final schema = await verifier.schemaAt(1);
       addTearDown(schema.close);
@@ -296,25 +344,31 @@ void main() {
 
       final migrated = AppDatabase(schema.newConnection());
       addTearDown(migrated.close);
-      await verifier.migrateAndValidate(migrated, 2, options: strict);
+      await verifier.migrateAndValidate(migrated, 3, options: afterUpgrade);
+      expect(await storedVersion(migrated), 3);
 
-      final version = await migrated
-          .customSelect('PRAGMA user_version')
-          .getSingle();
-      expect(version.read<int>('user_version'), 2);
+      // The schema 2 step ran before the schema 3 one: the cached copy that
+      // was set aside has the column schema 2 added, with no value yet.
+      expect(columnsOf('legacy_occurrences'), contains('ical_uid'));
+
+      // The cache database moves the cached rows, and nothing but schema 3 is
+      // left in the main database.
+      final cacheDb = CacheDatabase(memory(), legacy: migrated);
+      addTearDown(cacheDb.close);
+      final cache = OccurrenceRepository(cacheDb);
+      expect(await cache.countForSource('work'), 1);
+      await verifier.migrateAndValidate(migrated, 3, options: strict);
 
       // Everything installed before the upgrade is still there.
       final sources = SourceRepository(migrated);
       expect(await sources.all(), [work]);
       expect(await sources.syncState('work'), syncState);
-      final cache = OccurrenceRepository(migrated);
-      expect(await cache.countForSource('work'), 1);
       expect(await cache.byKey(copy.key), copy);
       expect(
         await OverrideRepository(migrated).all(),
         unorderedEquals([occurrenceOverride, seriesOverride]),
       );
-      expect(await AlertHistoryRepository(migrated).recent(), [dismissed]);
+      expect(await AlertHistoryRepository(cacheDb).recent(), [dismissed]);
 
       // The cached copy has no iCal UID yet. The new column and table work.
       expect((await cache.byKey(copy.key))!.icalUid, isNull);
@@ -340,28 +394,105 @@ void main() {
       'the upgrade to schema 2 can run again on a database that already has it',
       () async {
         // What a run that stopped just before drift stored the new version
-        // leaves behind, and what a second connection finds.
+        // leaves behind, and what a second connection finds. This build goes on
+        // to schema 3 from there.
         final schema = await verifier.schemaAt(2);
         addTearDown(schema.close);
         schema.rawDatabase.execute('PRAGMA user_version = 1');
 
         final migrated = AppDatabase(schema.newConnection());
         addTearDown(migrated.close);
-        await verifier.migrateAndValidate(migrated, 2, options: strict);
+        await verifier.migrateAndValidate(migrated, 3, options: afterUpgrade);
 
-        final version = await migrated
-            .customSelect('PRAGMA user_version')
-            .getSingle();
-        expect(version.read<int>('user_version'), 2);
+        expect(await storedVersion(migrated), 3);
       },
     );
 
-    test('a downgrade is refused and leaves the stored version', () async {
-      // A schema 3 file, opened by a build that only knows schema 2.
+    test('a schema 1 file whose schema 3 step already ran opens', () async {
+      // What a second isolate finds when two open a schema 1 file at once and
+      // the first has been through both steps, and what every run finds after
+      // a crash between the commit of the schema 3 step and drift storing the
+      // version: the shape of schema 3 with the version of schema 1. The column
+      // that the schema 2 step adds has no table to go to.
+      final schema = await verifier.schemaAt(3);
+      addTearDown(schema.close);
+      schema.rawDatabase.execute('PRAGMA user_version = 1');
+
+      final migrated = AppDatabase(schema.newConnection());
+      addTearDown(migrated.close);
+      await verifier.migrateAndValidate(migrated, 3, options: strict);
+
+      expect(await storedVersion(migrated), 3);
+    });
+
+    test('running the schema 3 step twice changes nothing', () async {
+      // The second-isolate case of the schema 2 step, repeated for this one: a
+      // run that stopped just before drift stored the new version, or a second
+      // connection that opened the file at the same time, finds the step done
+      // and the stored version still 2.
       final schema = await verifier.schemaAt(2);
       addTearDown(schema.close);
       final raw = schema.rawDatabase;
-      raw.execute('PRAGMA user_version = 3');
+      final fixture = Schema2Cache();
+      await fixture.insertInto((sql, args) => raw.execute(sql, args));
+
+      /// The tables, indexes and rows of the main file, as a comparable value.
+      List<Object?> snapshot() => [
+        for (final r in raw.select(
+          'SELECT type, name FROM sqlite_master '
+          "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+        ))
+          '${r['type']} ${r['name']}',
+        for (final table in [
+          'legacy_occurrences',
+          'legacy_alert_history',
+          'legacy_sync_log',
+        ])
+          if (raw
+              .select("SELECT 1 FROM sqlite_master WHERE name = '$table'")
+              .isNotEmpty)
+            raw.select('SELECT * FROM $table ORDER BY rowid').toList(),
+      ];
+
+      final first = AppDatabase(schema.newConnection());
+      await first.customSelect('SELECT 1').get();
+      await first.close();
+      final done = snapshot();
+      expect(done, contains('table legacy_occurrences'));
+      expect(done, isNot(contains('table occurrences')));
+      expect(raw.select('SELECT * FROM legacy_occurrences').length, 6);
+
+      raw.execute('PRAGMA user_version = 2');
+      final second = AppDatabase(schema.newConnection());
+      addTearDown(second.close);
+      await second.customSelect('SELECT 1').get();
+
+      expect(snapshot(), done);
+      expect(await storedVersion(second), 3);
+
+      // And after the cache database has moved the rows and dropped the
+      // legacy tables there is nothing left to set aside, and nothing fails.
+      final cache = CacheDatabase(memory(), legacy: second);
+      addTearDown(cache.close);
+      await cache.customSelect('SELECT 1').get();
+      final moved = snapshot();
+      expect(moved, isNot(contains('table legacy_occurrences')));
+      raw.execute('PRAGMA user_version = 2');
+      await second.close();
+      final third = AppDatabase(schema.newConnection());
+      addTearDown(third.close);
+      await third.customSelect('SELECT 1').get();
+
+      expect(snapshot(), moved);
+      expect(await storedVersion(third), 3);
+    });
+
+    test('a downgrade is refused and leaves the stored version', () async {
+      // A schema 4 file, opened by a build that only knows schema 3.
+      final schema = await verifier.schemaAt(3);
+      addTearDown(schema.close);
+      final raw = schema.rawDatabase;
+      raw.execute('PRAGMA user_version = 4');
 
       final opened = AppDatabase(schema.newConnection());
       addTearDown(opened.close);
@@ -369,14 +500,14 @@ void main() {
         opened.customSelect('SELECT 1').get(),
         throwsA(
           predicate<Object>(
-            (e) => '$e'.contains('Downgrade from schema 3 to 2'),
+            (e) => '$e'.contains('Downgrade from schema 4 to 3'),
             'the refusal of the downgrade',
           ),
         ),
       );
 
       // Drift stores its own version after the upgrade callback returns.
-      expect(raw.select('PRAGMA user_version').single['user_version'], 3);
+      expect(raw.select('PRAGMA user_version').single['user_version'], 4);
     });
   });
 }

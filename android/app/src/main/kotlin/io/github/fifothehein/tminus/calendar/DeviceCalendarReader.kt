@@ -57,15 +57,21 @@ class DeviceCalendarReader(
 
     /**
      * Instances of [calendarIds] overlapping [fromUtcMs, toUtcMs), by start. Throws
-     * [CALENDAR_MISSING] if any calendar no longer exists, so the source turns red instead of
-     * looking empty.
+     * [CALENDAR_MISSING] if any calendar no longer exists, and [CALENDAR_NOT_SYNCED] if any asked
+     * calendar has its sync turned off, so the source turns red instead of looking empty. A
+     * calendar that is not asked for does not count, whatever its sync.
      */
     fun instances(calendarIds: List<String>, fromUtcMs: Long, toUtcMs: Long): List<Map<String, Any?>> {
         requirePermission()
         require(calendarIds.isNotEmpty()) { "calendarIds is empty" }
-        val existing = calendars().map { it["id"] }.toSet()
+        val existing = calendars().associateBy { it["id"] }
         val missing = calendarIds.filterNot { it in existing }
         if (missing.isNotEmpty()) throw DeviceCalendarException(CALENDAR_MISSING, "Calendar ${missing.joinToString()} no longer exists")
+        // A calendar whose sync is off has no events on the phone, so reading it would answer an empty
+        // list and the app would cancel the meetings it last read. The text names no calendar.
+        if (calendarIds.any { existing[it]?.get("syncEvents") == false }) {
+            throw DeviceCalendarException(CALENDAR_NOT_SYNCED, "A calendar is not synced")
+        }
 
         val uri = Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, fromUtcMs)
@@ -113,6 +119,7 @@ class DeviceCalendarReader(
     companion object {
         const val PERMISSION_DENIED = "permission_denied"
         const val CALENDAR_MISSING = "calendar_missing"
+        const val CALENDAR_NOT_SYNCED = "calendar_not_synced"
 
         val CALENDAR_COLUMNS = arrayOf(
             Calendars._ID,

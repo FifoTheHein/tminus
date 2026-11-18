@@ -54,12 +54,15 @@ class SourceAdmin {
   final SettingsRepository settings;
 
   /// [updateDeviceCalendar] empties the old calendar's cached events through
-  /// it. Required, so a re-pointed source can never keep them.
+  /// it, and [delete] a removed source's. Required, so a re-pointed or removed
+  /// source can never keep them. The cache is a second database (Plan 6
+  /// decision 4), with no foreign key to [sources]: nothing cascades into it.
   final OccurrenceRepository occurrences;
 
-  /// The database that [sources], [occurrences] and [settings] write to.
-  /// [updateIcsUrl] and [updateDeviceCalendar] change several of its tables
-  /// and do it in one transaction on it.
+  /// The database that [sources] and [settings] write to. [updateIcsUrl] and
+  /// [updateDeviceCalendar] change several of its tables and do it in one
+  /// transaction on it. [occurrences] is in another database and takes no part
+  /// in those transactions.
   final AppDatabase db;
   final Random _random;
   late final AppSettings _app = AppSettings(settings);
@@ -140,9 +143,10 @@ class SourceAdmin {
 
   /// Points a phone-calendar source at a calendar on this phone (after a
   /// restore or import, Plan 5 decision 4) and enables it. Throws
-  /// [ArgumentError] for a source that is not a phone one. All of it happens
-  /// in one transaction, so a failure leaves the source as it was, never
-  /// enabled with its setup marker still set.
+  /// [ArgumentError] for a source that is not a phone one. The old calendar's
+  /// cached events go first. Then all of the source's changes happen in one
+  /// transaction, so a failure leaves the source as it was, never enabled with
+  /// its setup marker still set.
   Future<void> updateDeviceCalendar(
     String sourceId,
     DeviceCalendar calendar,
@@ -151,10 +155,15 @@ class SourceAdmin {
     if (source == null || source.kind != SourceKind.device) {
       throw ArgumentError.value(sourceId, 'sourceId', 'not a phone source');
     }
+    // The old calendar's events must not survive as this source's cache: the
+    // empty-feed guard would keep them if the new calendar is empty. Before the
+    // transaction and not in it. The cache is another database, so it cannot
+    // join the transaction, and opening it can read [db], which would then wait
+    // for that transaction to finish. A crash in between leaves the source with
+    // an empty cache, which plans nothing for it until the next fetch refills
+    // it, as for a new source.
+    await occurrences.deleteForSource(sourceId);
     await db.transaction(() async {
-      // The old calendar's events must not survive as this source's cache: the
-      // empty-feed guard would keep them if the new calendar is empty.
-      await occurrences.replaceForSource(sourceId, const []);
       final state = await sources.syncState(sourceId);
       await sources.updateSyncState(
         sourceId,
@@ -223,12 +232,21 @@ class SourceAdmin {
     return source;
   }
 
-  /// Removes the source, its cached occurrences, its link, its stored feed
-  /// body, the sync and setup markers kept for it and its Feed stale and Feed
-  /// broken notices (a Fix that opens a removed source would lead nowhere).
+  /// Removes the source, its link, its stored feed body, the sync and setup
+  /// markers kept for it, its Feed stale and Feed broken notices (a Fix that
+  /// opens a removed source would lead nowhere) and its cached occurrences.
   /// Once the row is gone each of the rest is tried on its own, so a step that
-  /// fails (a Keystore error, say) is logged and leaves the others done.
-  Future<void> delete(String sourceId) async {
+  /// fails (a Keystore error, say) is logged and leaves the others done. The
+  /// cached occurrences go last: the link is what must not outlive the source,
+  /// and the cache's first query opens its database, which can fail in ways
+  /// the others cannot. A crash or a failure before they go leaves rows for a
+  /// source that no longer exists. They plan nothing, because the planner reads
+  /// only enabled sources' copies, and `deleteEndedBefore` prunes them.
+  ///
+  /// [clearCache] false leaves the cached occurrences alone, for the caller
+  /// that clears the whole cache itself (`RestoreGuard`, which must not open
+  /// the cache database before its transaction).
+  Future<void> delete(String sourceId, {bool clearCache = true}) async {
     final source = await sources.byId(sourceId);
     await sources.delete(sourceId);
     final key = source?.secureStorageKey;
@@ -249,15 +267,22 @@ class SourceAdmin {
       'setup marker',
       () => _clearSetting(AppSettings.sourceSetupKey(sourceId)),
     );
+    if (clearCache) {
+      await _cleanUp(
+        'cached events',
+        () async => occurrences.deleteForSource(sourceId),
+      );
+    }
   }
 
-  /// Runs one cleanup step of [delete]. A failure is logged by type only (an
+  /// Runs one cleanup step of [delete]. A failure of any kind (an `Error` such
+  /// as a [StateError] too, not only an `Exception`) is logged by type only (an
   /// exception's message can name the link) and does not stop the steps after
   /// it.
   Future<void> _cleanUp(String step, Future<void> Function() run) async {
     try {
       await run();
-    } on Exception catch (e) {
+    } catch (e) {
       debugPrint('Removing a source: $step failed (${e.runtimeType})');
     }
   }

@@ -10,6 +10,7 @@ import '../../core/model/alert_profile.dart';
 import '../../core/model/source_config.dart';
 import '../../core/storage/app_database.dart';
 import '../../core/storage/app_settings.dart';
+import '../../core/storage/cache_database.dart';
 import '../../core/storage/profile_repository.dart';
 import '../../core/storage/settings_repository.dart';
 import '../../core/sync/source_status.dart';
@@ -28,12 +29,14 @@ class SourceListItem {
   final String profileName;
 }
 
-/// Loads the list, and again whenever anything in the database changes (a sync
-/// finished, a source was edited, the app came back from a background sync).
+/// Loads the list, and again whenever anything in either database changes (a
+/// sync finished, a source was edited, the app came back from a background
+/// sync).
 /// Clears the restore marker once no source waits for its link or calendar.
 class SourcesController extends ChangeNotifier {
   SourcesController({
     required this.db,
+    required this.cache,
     required this.statuses,
     required this.appSettings,
     required this.profiles,
@@ -42,6 +45,10 @@ class SourcesController extends ChangeNotifier {
   });
 
   final AppDatabase db;
+
+  /// The sync log is in the cache database: its writes reach this controller
+  /// only through that database's own updates.
+  final CacheDatabase cache;
   final SourceStatusLoader statuses;
   final AppSettings appSettings;
   final ProfileRepository profiles;
@@ -57,6 +64,7 @@ class SourcesController extends ChangeNotifier {
   bool _loading = false;
   bool _again = false;
   StreamSubscription<Object?>? _updates;
+  StreamSubscription<Object?>? _cacheUpdates;
 
   /// Null until the first load has finished.
   List<SourceListItem>? get items => _items;
@@ -69,6 +77,7 @@ class SourcesController extends ChangeNotifier {
 
   void start() {
     _updates ??= db.tableUpdates().listen((_) => unawaited(reload()));
+    _cacheUpdates ??= cache.tableUpdates().listen((_) => unawaited(reload()));
     unawaited(reload());
   }
 
@@ -131,6 +140,8 @@ class SourcesController extends ChangeNotifier {
     _disposed = true;
     unawaited(_updates?.cancel());
     _updates = null;
+    unawaited(_cacheUpdates?.cancel());
+    _cacheUpdates = null;
     super.dispose();
   }
 }
@@ -152,6 +163,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
     super.initState();
     _controller = SourcesController(
       db: getIt(),
+      cache: getIt(),
       statuses: getIt(),
       appSettings: getIt(),
       profiles: getIt(),

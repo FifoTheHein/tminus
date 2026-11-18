@@ -19,7 +19,7 @@ internal object CrashSilencer {
             try {
                 silence?.invoke()
             } catch (t: Throwable) {
-                runCatching { Log.e(TAG, "Could not silence the alarm while crashing", t) }
+                runCatching { Log.e(TAG, "Could not silence the alarm while crashing: ${t.javaClass.simpleName}") }
             }
             previous?.uncaughtException(thread, error)
         }

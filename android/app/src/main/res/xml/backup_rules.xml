@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 11 and below. Same rule as data_extraction_rules.xml: only the database. -->
+<!-- Android 11 and below. Same rule as data_extraction_rules.xml: only the database, and only when
+     the backup is encrypted end to end (Plan 6 decision 20). Android 9 to 11 enforce the flag below
+     and Android 8 ignores it, so a backup there may not be encrypted. The cache database
+     (tminus_cache.sqlite) is not listed, so it is never backed up. -->
 <full-backup-content>
-    <include domain="root" path="app_flutter/tminus.sqlite" />
-    <include domain="root" path="app_flutter/tminus.sqlite-wal" />
+    <include domain="root" path="app_flutter/tminus.sqlite" requireFlags="clientSideEncryption" />
+    <include domain="root" path="app_flutter/tminus.sqlite-wal" requireFlags="clientSideEncryption" />
 </full-backup-content>

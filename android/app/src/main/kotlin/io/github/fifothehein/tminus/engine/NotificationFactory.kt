@@ -237,7 +237,7 @@ class NotificationFactory(
         try {
             manager.notify(id, notification)
         } catch (e: SecurityException) {
-            Log.w(TAG, "POST_NOTIFICATIONS not granted; Health reports this", e)
+            Log.w(TAG, "POST_NOTIFICATIONS not granted; Health reports this: ${e.javaClass.simpleName}")
         }
     }
 

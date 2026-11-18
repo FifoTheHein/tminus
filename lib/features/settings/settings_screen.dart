@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../app/di.dart';
+import '../../app/links.dart';
 import '../../app/replan_scheduler.dart';
 import '../../app/theme/tminus_theme.dart';
 import '../../app/theme_mode_controller.dart';
@@ -29,6 +30,7 @@ const _exportFailed = 'Could not export the settings.';
 const _importFailed = 'Could not import the settings.';
 const _settingFailed = 'Could not change this setting.';
 const _defaultProfileFailed = 'Could not change the default profile.';
+const _policyFailed = 'Could not open the privacy policy.';
 
 /// The sentence in the dialog that asks before an import replaces anything.
 /// The counts are the file's: its profiles (built-in ones included), its
@@ -346,7 +348,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               SectionCard(
                 title: 'About & privacy',
-                children: [_AboutCard(version: _controller.version)],
+                children: [
+                  _AboutCard(
+                    version: _controller.version,
+                    onOpenPrivacyPolicy: () => unawaited(_openPrivacyPolicy()),
+                  ),
+                ],
               ),
               if (kDebugMode)
                 SectionCard(
@@ -565,6 +572,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ),
   );
 
+  /// Opens the privacy policy in the browser. A call that throws is said by
+  /// [guarded]; `false` means no app took the link, which is said here.
+  Future<void> _openPrivacyPolicy() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final opened = await guarded<bool>(
+      context,
+      () => getIt<UiPlatform>().openUrl(privacyPolicyUrl),
+      failure: _policyFailed,
+    );
+    if (opened == false) {
+      messenger?.showSnackBar(const SnackBar(content: Text(_policyFailed)));
+    }
+  }
+
   Future<void> _openDeveloperTools() async {
     await context.push<void>('/settings/developer');
     // The debug panels can change the merge switch behind this screen.
@@ -621,11 +642,13 @@ class _ThemeChoice extends StatelessWidget {
   }
 }
 
-/// The privacy promise, then the app's name and version with the licences.
+/// The privacy promise, then the app's name and version with the privacy
+/// policy and the licences.
 class _AboutCard extends StatelessWidget {
-  const _AboutCard({required this.version});
+  const _AboutCard({required this.version, required this.onOpenPrivacyPolicy});
 
   final String? version;
+  final VoidCallback onOpenPrivacyPolicy;
 
   @override
   Widget build(BuildContext context) {
@@ -655,9 +678,9 @@ class _AboutCard extends StatelessWidget {
                     ),
                     const SizedBox(height: TMinusSpacing.xxs),
                     Text(
-                      'No account, no servers, no analytics. Feeds are '
-                      'fetched directly from Outlook and stored only on this '
-                      'device.',
+                      'No account, no servers, no analytics. Calendars are read '
+                      'directly from your calendar provider and stored only on '
+                      'this device.',
                       style: textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -676,7 +699,12 @@ class _AboutCard extends StatelessWidget {
           color: scheme.outlineVariant,
         ),
         Padding(
-          padding: const EdgeInsets.all(TMinusSpacing.md),
+          padding: const EdgeInsets.fromLTRB(
+            TMinusSpacing.md,
+            TMinusSpacing.md,
+            TMinusSpacing.md,
+            0,
+          ),
           child: Row(
             children: [
               const TMinusMark(size: 32),
@@ -696,6 +724,26 @@ class _AboutCard extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
+            ],
+          ),
+        ),
+        // The two buttons do not fit beside the name on a narrow phone, so
+        // they sit together under it, and wrap if even that is too narrow.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            TMinusSpacing.xs,
+            0,
+            TMinusSpacing.xs,
+            TMinusSpacing.xs,
+          ),
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            children: [
+              TextButton(
+                key: const Key('privacyPolicyButton'),
+                onPressed: onOpenPrivacyPolicy,
+                child: const Text('Privacy policy'),
               ),
               TextButton(
                 key: const Key('licencesButton'),

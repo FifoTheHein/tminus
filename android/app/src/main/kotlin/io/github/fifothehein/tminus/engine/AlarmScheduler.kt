@@ -66,8 +66,9 @@ class AlarmScheduler(
 
     /**
      * Boot recovery: an alarm that was ringing at reboot rings again through AlarmReceiver at [at],
-     * which calls EngineActions.recoverPresented (Android 15+ forbids starting the mediaPlayback
-     * service from the boot broadcasts; an exact alarm may).
+     * which calls EngineActions.recoverPresented (Android 15+ refused the previous mediaPlayback type
+     * from the boot broadcasts, though an exact alarm could start it; the delay stays as a guard,
+     * Plan 6 decision 9).
      */
     fun armRecovery(at: Long) {
         set(recoveryOperation(PendingIntent.FLAG_UPDATE_CURRENT)!!, at, alarmClock = true, label = "boot recovery")
@@ -102,7 +103,7 @@ class AlarmScheduler(
                 else -> alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
             }
         } catch (e: SecurityException) {
-            Log.w(TAG, "Exact alarm refused for $label; using an inexact alarm", e)
+            Log.w(TAG, "Exact alarm refused for $label; using an inexact alarm: ${e.javaClass.simpleName}")
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
         }
     }

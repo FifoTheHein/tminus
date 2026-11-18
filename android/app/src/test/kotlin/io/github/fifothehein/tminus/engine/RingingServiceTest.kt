@@ -1,16 +1,22 @@
 package io.github.fifothehein.tminus.engine
 
+import android.Manifest
 import android.app.Application
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.os.Build
 import android.os.Looper
 import android.os.Vibrator
 import android.provider.Settings
+import android.util.Log
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -25,6 +31,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowMediaPlayer
 import org.robolectric.shadows.ShadowPowerManager
 import org.robolectric.shadows.util.DataSource
@@ -225,6 +233,17 @@ class RingingServiceTest {
     }
 
     @Test
+    fun `a broken custom tone is logged by position, not by its uri`() {
+        ShadowLog.clear()
+
+        startWith(alert("a", NOW, toneUri = "content://missing/tone"))
+
+        val line = ShadowLog.getLogs().single { it.msg.orEmpty().startsWith("Tone ") }
+        assertTrue("the line names positions: ${line.msg}", Regex("Tone 0 failed; using candidate \\d+").matches(line.msg))
+        assertTrue("no uri is logged", ShadowLog.getLogs().none { "content://" in it.msg.orEmpty() || "missing/tone" in it.msg.orEmpty() })
+    }
+
+    @Test
     fun `Stop silences even when the alert is no longer presented`() {
         val service = startWith(alert("a", NOW)).get()
         assertTrue(service.isSounding)
@@ -359,7 +378,8 @@ class RingingServiceTest {
 
     @Test
     fun `a refused foreground start falls back to a heads-up and stays presented`() {
-        // Android 15+: "FGS type mediaPlayback not allowed to start from BOOT_COMPLETED!" from startForeground.
+        // What Android 15+ said to the previous mediaPlayback type, from startForeground. The message is
+        // kept as the older builds saw it: the service reacts to the exception class, not to its text.
         RingingService.startForeground = { _, _, _, _ ->
             throw ForegroundServiceStartNotAllowedException("FGS type mediaPlayback not allowed to start from BOOT_COMPLETED!")
         }
@@ -481,5 +501,125 @@ class RingingServiceTest {
         old.destroy()
 
         assertEquals(listOf("b"), RingingSession.alerts.map { it.id })
+    }
+
+    /** Swaps the foreground-start seam for one that records each type it is given, then starts as usual. */
+    private fun recordForegroundTypes(): List<Int> {
+        val types = mutableListOf<Int>()
+        RingingService.startForeground = { service, id, notification, type ->
+            types += type
+            RingingService.DEFAULT_START_FOREGROUND(service, id, notification, type)
+        }
+        return types
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun `the service starts as systemExempted on Android 14 and later`() {
+        assertEquals("the test runs on Android 14", Build.VERSION_CODES.UPSIDE_DOWN_CAKE, Build.VERSION.SDK_INT)
+        val types = recordForegroundTypes()
+        try {
+            val service = startWith(alert("a", NOW)).get()
+
+            assertEquals(listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED), types)
+            assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED, service.foregroundServiceType) // what reached the platform
+            assertTrue(service.isSounding)
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
+    }
+
+    @Test
+    @Config(sdk = [33])
+    fun `below Android 14 the service starts with the manifest's type`() {
+        assertEquals("the test runs on Android 13", Build.VERSION_CODES.TIRAMISU, Build.VERSION.SDK_INT)
+        val types = recordForegroundTypes()
+        try {
+            val service = startWith(alert("a", NOW)).get()
+
+            assertEquals(listOf(RingingService.NO_TYPE), types)
+            // The two-argument startForeground ran, so a device takes the manifest's type. Robolectric shows
+            // that as 0 (no type); a start that handed Android 13 any type, even NO_TYPE itself, would not.
+            assertEquals(0, service.foregroundServiceType)
+            assertTrue(service.isSounding)
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
+    }
+
+    @Test
+    fun `the manifest declares systemExempted and its permission`() {
+        val pm = context.packageManager
+        val service = pm.getServiceInfo(ComponentName(context, RingingService::class.java), 0)
+        assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED, service.foregroundServiceType)
+
+        val requested = pm.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toSet()
+        assertTrue("FOREGROUND_SERVICE_SYSTEM_EXEMPTED", Manifest.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED in requested)
+        assertTrue("USE_EXACT_ALARM, which lets an app start the type", Manifest.permission.USE_EXACT_ALARM in requested)
+        assertFalse("FOREGROUND_SERVICE_MEDIA_PLAYBACK is gone", Manifest.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK in requested)
+    }
+
+    /**
+     * The foreground start throws [refusal]: nothing rings, the alert shows as a heads-up and stays
+     * presented, and one retry is armed. The service must not crash on any of them.
+     */
+    private fun assertRefusalFallsBackToHeadsUp(refusal: Exception) {
+        assertEquals("the test runs on Android 14", Build.VERSION_CODES.UPSIDE_DOWN_CAKE, Build.VERSION.SDK_INT)
+        RingingService.startForeground = { _, _, _, _ -> throw refusal }
+        try {
+            val a = alert("a", NOW, group = "G")
+            RingingSession.add(listOf(a)) // AndroidAlertPresenter.present put it in the session already
+
+            val service = startWith(a).get() // must not crash the app
+
+            assertFalse(service.isSounding)
+            assertFalse(vibrating())
+            assertTrue(shadowOf(service).isStoppedBySelf)
+            assertTrue(RingingSession.alerts.isEmpty())
+            val n = shadowOf(manager).getNotification(NotificationFactory.headsUpId("G"))
+            assertNotNull("heads-up posted", n)
+            assertEquals(NotificationFactory.CHANNEL_HEADS_UP, n.channelId)
+            assertEquals(listOf("Snooze", "Dismiss all"), n.actionTitles())
+            assertEquals(listOf("a"), PlanStore(context).read().presented.map { it.id })
+            val retry = retryAlarms().single()
+            assertEquals(arrayListOf("a"), shadowOf(retry.operation).savedIntent.getStringArrayListExtra(AlarmReceiver.EXTRA_ALERT_IDS))
+            assertTrue(retry.triggerAtMs >= System.currentTimeMillis() + EngineActions.RECOVERY_DELAY_MS - 1_000)
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun `a refused type permission falls back to a heads-up and stays presented`() {
+        assertRefusalFallsBackToHeadsUp(SecurityException("Starting FGS with type systemExempted requires permissions"))
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun `a type the manifest does not declare falls back to a heads-up`() {
+        // What Android says to a type the manifest lacks, as a half-done revert of the type would meet it.
+        assertRefusalFallsBackToHeadsUp(
+            IllegalArgumentException("foregroundServiceType 0x00000400 is not a subset of foregroundServiceType attribute 0x00000002 in service element of manifest file"),
+        )
+    }
+
+    @Test
+    fun `a refused foreground start logs the exception's class and not its message or trace`() {
+        val secret = "Sprint planning at https://teams.example/l/meetup-join/abc123" // what an exception message could quote
+        RingingService.startForeground = { _, _, _, _ -> throw ForegroundServiceStartNotAllowedException(secret) }
+        ShadowLog.clear()
+        try {
+            startWith(alert("a", NOW, group = "G"))
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
+
+        val logs = ShadowLog.getLogs()
+        val line = logs.single { it.msg.orEmpty().contains("refused the foreground") } // the phrase the logcat checks look for
+        assertEquals(Log.WARN, line.type)
+        assertTrue("the class is logged: ${line.msg}", line.msg.contains("ForegroundServiceStartNotAllowedException"))
+        assertNull("no trace is logged", line.throwable)
+        assertTrue("the message is never logged", logs.none { secret in it.msg.orEmpty() || it.throwable?.toString()?.contains(secret) == true })
     }
 }

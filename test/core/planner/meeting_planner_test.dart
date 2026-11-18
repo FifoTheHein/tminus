@@ -4,6 +4,7 @@ import 'package:tminus/core/planner/meeting_planner.dart';
 import 'package:tminus/core/rules/rules_engine.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/meeting_link_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/override_repository.dart';
@@ -19,6 +20,7 @@ import '../storage/test_database.dart';
 
 void main() {
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late OccurrenceRepository cache;
   late SettingsRepository settings;
@@ -49,14 +51,15 @@ void main() {
   setUp(() async {
     initZones();
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
-    cache = OccurrenceRepository(db);
+    cache = OccurrenceRepository(cacheDb);
     settings = SettingsRepository(db);
     planner = MeetingPlanner(
       sources: sources,
       occurrences: cache,
       links: MeetingLinkRepository(db),
-      history: AlertHistoryRepository(db),
+      history: AlertHistoryRepository(cacheDb),
       settings: settings,
       ruleSets: RuleSetLoader(
         profiles: ProfileRepository(db),
@@ -73,7 +76,10 @@ void main() {
     await cache.replaceForSource('phone', [occ(sourceId: 'phone', uid: '42')]);
   });
 
-  tearDown(() => db.close());
+  tearDown(() async {
+    await db.close();
+    await cacheDb.close();
+  });
 
   test('one resolved entry per meeting, in merge order', () async {
     final p = await load();

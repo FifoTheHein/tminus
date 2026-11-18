@@ -12,6 +12,7 @@ import '../../app/theme/tminus_theme.dart';
 import '../../core/model/local_date.dart';
 import '../../core/rules/rules_engine.dart';
 import '../../core/storage/app_database.dart';
+import '../../core/storage/cache_database.dart';
 import '../../core/storage/override_repository.dart';
 import '../../core/storage/settings_repository.dart';
 import '../../core/sync/source_status.dart';
@@ -43,6 +44,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     _controller = AgendaController(
       loader: getIt<AgendaLoader>(),
       db: getIt<AppDatabase>(),
+      cache: getIt<CacheDatabase>(),
       overrides: getIt<OverrideRepository>(),
       settings: getIt<SettingsRepository>(),
       rulesEngine: () => getIt<RulesEngine>(),

@@ -1,16 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
-import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/sync_log_repository.dart';
 
 import 'test_database.dart';
 
 void main() {
-  late AppDatabase db;
+  late CacheDatabase db;
   late SyncLogRepository syncLog;
 
   setUp(() {
-    db = openTestDatabase();
+    db = openTestCacheDatabase();
     syncLog = SyncLogRepository(db);
   });
   tearDown(() => db.close());

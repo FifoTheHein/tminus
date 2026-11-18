@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
 import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
+import 'package:tminus/core/storage/cache_value_repository.dart';
 import 'package:tminus/core/storage/occurrence_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
 
@@ -10,6 +12,7 @@ import 'test_database.dart';
 
 void main() {
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late OccurrenceRepository cache;
 
@@ -31,12 +34,16 @@ void main() {
 
   setUp(() async {
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
-    cache = OccurrenceRepository(db);
+    cache = OccurrenceRepository(cacheDb);
     await sources.save(work);
     await sources.save(phone);
   });
-  tearDown(() => db.close());
+  tearDown(() async {
+    await db.close();
+    await cacheDb.close();
+  });
 
   group('SourceRepository', () {
     test('round trip, sorted by name', () async {
@@ -62,11 +69,27 @@ void main() {
       expect(await sources.syncState('personal'), SourceSyncState());
     });
 
-    test('delete removes the source and its occurrences', () async {
+    test('delete removes the source row, not the cached meetings', () async {
+      // They are in another database, so no foreign key reaches them: the
+      // removal of a source clears them with deleteForSource.
       await cache.replaceForSource('work', [occ(sourceId: 'work')]);
       await sources.delete('work');
       expect(await sources.byId('work'), isNull);
-      expect(await cache.countForSource('work'), 0);
+      expect(await cache.countForSource('work'), 1);
+    });
+  });
+
+  group('CacheValueRepository', () {
+    test('a value round trips, and a new one replaces it', () async {
+      final values = CacheValueRepository(cacheDb);
+      expect(await values.getString('a'), isNull);
+
+      await values.setString('a', '1');
+      await values.setString('b', '2');
+      await values.setString('a', '3');
+
+      expect(await values.getString('a'), '3');
+      expect(await values.getString('b'), '2');
     });
   });
 
@@ -165,6 +188,25 @@ void main() {
       final got = await cache.between(at(6), at(10));
       expect(got.map((o) => o.uid), ['running', 'early', 'late']);
     });
+
+    test(
+      'deleteForSource removes one source\'s meetings and counts them',
+      () async {
+        await cache.replaceForSource('work', [
+          occ(sourceId: 'work', uid: 'a'),
+          occ(sourceId: 'work', uid: 'b'),
+        ]);
+        await cache.replaceForSource('personal', [
+          occ(sourceId: 'personal', uid: 'p'),
+        ]);
+
+        expect(await cache.deleteForSource('work'), 2);
+
+        expect(await cache.countForSource('work'), 0);
+        expect(await cache.countForSource('personal'), 1);
+        expect(await cache.deleteForSource('work'), 0);
+      },
+    );
 
     test('deleteEndedBefore prunes old occurrences', () async {
       await cache.replaceForSource('work', [

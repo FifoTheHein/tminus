@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../model/event_occurrence.dart';
 import '../model/source_config.dart';
+import '../storage/occurrence_repository.dart';
 import '../storage/settings_repository.dart';
 import '../storage/source_repository.dart';
 import 'calendar_source.dart';
@@ -14,7 +15,11 @@ import 'calendar_source.dart';
 /// at +1 min) and one with a Teams link starts at +12 min (heads-up at +2 min,
 /// alarm at +11 min).
 class FastAlarms {
-  FastAlarms({required this.sources, required this.settings});
+  FastAlarms({
+    required this.sources,
+    required this.settings,
+    required this.cache,
+  });
 
   static const sourceId = 'debug-fast-alarms';
   static const settingsKey = 'debug.fastAlarms';
@@ -24,6 +29,10 @@ class FastAlarms {
 
   final SourceRepository sources;
   final SettingsRepository settings;
+
+  /// The cache the source's events are removed from with it. A source's
+  /// removal does not cascade into the cache database.
+  final OccurrenceRepository cache;
 
   /// Replaces any earlier fast alarms with three new events relative to [now].
   Future<void> create(DateTime now) async {
@@ -55,9 +64,10 @@ class FastAlarms {
     await settings.setString(settingsKey, jsonEncode(events));
   }
 
-  /// Removes the source; its cached occurrences go with it.
+  /// Removes the source and its cached occurrences.
   Future<void> clear() async {
     await sources.delete(sourceId);
+    await cache.deleteForSource(sourceId);
     await settings.setString(settingsKey, '[]');
   }
 

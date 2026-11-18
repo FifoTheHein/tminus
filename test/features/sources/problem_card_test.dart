@@ -23,12 +23,14 @@ Widget _host(Widget child) => MaterialApp(
 void main() {
   final now = DateTime.utc(2026, 10, 6, 7, 27);
 
-  /// An ICS source whose latest sync ended in [outcome] (null: no log row).
+  /// A source (an ICS one unless [config] says otherwise) whose latest sync
+  /// ended in [outcome] (null: no log row).
   SourceStatus failing(
     SyncOutcome? outcome, {
     SourceSetup setup = SourceSetup.ready,
+    SourceConfig? config,
   }) => sourceStatusOf(
-    config: icsSource(),
+    config: config ?? icsSource(),
     state: SourceSyncState(lastError: 'The calendar could not be read.'),
     latest: outcome == null
         ? null
@@ -46,6 +48,7 @@ void main() {
       SyncOutcome.serverError: "Can't reach the calendar",
       SyncOutcome.calendarAccessDenied: 'Calendar access is off',
       SyncOutcome.calendarMissing: 'Calendar was removed',
+      SyncOutcome.calendarNotSynced: 'Calendar is not syncing',
       SyncOutcome.otherError: 'Something went wrong',
     };
     for (final MapEntry(key: outcome, value: title) in titles.entries) {
@@ -53,6 +56,67 @@ void main() {
     }
     // An error that has no log row (a restore clears the log).
     expect(problemTitle(failing(null)), 'Something went wrong');
+  });
+
+  test('a phone calendar that stopped syncing has an icon of its own', () {
+    final phone = phoneSource();
+    expect(
+      problemIcon(failing(SyncOutcome.calendarNotSynced, config: phone)),
+      Icons.sync_disabled,
+    );
+    // Not its neighbours' icons: a removed calendar, and the fallback.
+    expect(
+      problemIcon(failing(SyncOutcome.calendarMissing, config: phone)),
+      Icons.event_busy,
+    );
+    expect(
+      problemIcon(failing(SyncOutcome.otherError, config: phone)),
+      Icons.error_outline,
+    );
+    // A source that waits for its calendar says that first, as the title does.
+    expect(
+      problemIcon(
+        failing(
+          SyncOutcome.calendarNotSynced,
+          config: phone,
+          setup: SourceSetup.needsCalendar,
+        ),
+      ),
+      Icons.event_busy,
+    );
+  });
+
+  test('a phone calendar that stopped syncing is told what to do', () {
+    final phone = phoneSource();
+    expect(
+      problemBody(failing(SyncOutcome.calendarNotSynced, config: phone)),
+      "Turn on sync for this calendar in your phone's account settings, or "
+      'choose another calendar.',
+    );
+    // Every other card keeps the status line, which says what happened.
+    for (final outcome in [
+      SyncOutcome.calendarMissing,
+      SyncOutcome.calendarAccessDenied,
+      SyncOutcome.otherError,
+      null,
+    ]) {
+      expect(
+        problemBody(failing(outcome, config: phone)),
+        'The calendar could not be read.',
+        reason: '${outcome?.name}',
+      );
+    }
+    // A source that waits for its calendar says that first, as the title does.
+    expect(
+      problemBody(
+        failing(
+          SyncOutcome.calendarNotSynced,
+          config: phone,
+          setup: SourceSetup.needsCalendar,
+        ),
+      ),
+      'Choose its calendar on this phone',
+    );
   });
 
   test('a source that waits for its link or calendar says what to do', () {
@@ -148,6 +212,23 @@ void main() {
           'ics-1',
         ),
         'This calendar could not be read.',
+      );
+    });
+
+    test('a calendar that stopped syncing is reported in its own words', () {
+      // A red outcome is not "Synced.", whatever the plan did.
+      expect(
+        sourceSyncMessage(
+          report(const [
+            SourceSyncResult(
+              'phone-1',
+              SyncOutcome.calendarNotSynced,
+              'This calendar is no longer synced on this phone.',
+            ),
+          ]),
+          'phone-1',
+        ),
+        'This calendar is no longer synced on this phone.',
       );
     });
 

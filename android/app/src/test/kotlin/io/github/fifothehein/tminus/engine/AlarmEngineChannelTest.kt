@@ -10,6 +10,7 @@ import android.provider.Settings
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.github.fifothehein.tminus.LoggedErrors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -21,6 +22,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
 class AlarmEngineChannelTest {
@@ -31,9 +33,13 @@ class AlarmEngineChannelTest {
     private class Recorded : MethodChannel.Result {
         var value: Any? = null
         var errorCode: String? = null
+        var errorMessage: String? = null
         var notImplemented = false
         override fun success(result: Any?) { value = result }
-        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) { this.errorCode = errorCode }
+        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+            this.errorCode = errorCode
+            this.errorMessage = errorMessage
+        }
         override fun notImplemented() { notImplemented = true }
     }
 
@@ -197,5 +203,62 @@ class AlarmEngineChannelTest {
     @Test
     fun `unknown methods are not implemented`() {
         assertTrue(call("noSuchMethod").notImplemented)
+    }
+
+    /**
+     * Nothing fails by itself here: an alert that comes due fires at once, and this channel's presenter throws
+     * the planted secret. The plan is applied once to arm the alert, the clock moves past it, and the answer to
+     * the second application is returned, with the log cleared just before it.
+     */
+    private fun failingApplyPlan(): Recorded {
+        val failingPresenter = object : AlertPresenter {
+            override fun present(alerts: List<PlannedAlert>) {
+                throw IllegalStateException(LoggedErrors.SECRET)
+            }
+            override fun withdraw(alerts: List<PlannedAlert>) = Unit
+            override fun missed(alerts: List<PlannedAlert>) = Unit
+            override fun isShowing(alert: PlannedAlert) = false
+            override fun silence(alertIds: Collection<String>) = Unit
+        }
+        var now = NOW
+        val failing = AlarmEngineChannel(app, store, AlarmScheduler(app, store) { now }, presenter = failingPresenter) { now }
+        val plan = mapOf("version" to 1, "alerts" to listOf(dartAlert("a", NOW + MINUTE_MS)))
+        assertNull(Recorded().also { failing.onMethodCall(MethodCall("applyPlan", plan), it) }.errorCode)
+        now = NOW + MINUTE_MS + 10_000 // the alarm is late and the next plan comes first
+        ShadowLog.clear()
+        return Recorded().also { failing.onMethodCall(MethodCall("applyPlan", plan), it) }
+    }
+
+    @Test
+    fun `an unexpected failure logs the exception's class and not its message or trace`() {
+        val result = failingApplyPlan()
+
+        assertEquals("engine_error", result.errorCode)
+        LoggedErrors.assertClassOnly("alarm_engine.applyPlan failed", "IllegalStateException")
+    }
+
+    @Test
+    fun `an unexpected failure is answered as engine_error without the exception's message`() {
+        val result = failingApplyPlan()
+
+        assertEquals("engine_error", result.errorCode) // Dart relies on the code
+        assertNull("the exception's message travels to Dart", result.errorMessage)
+    }
+
+    @Test
+    fun `bad arguments are answered as bad_args without quoting them`() {
+        // Each of these throws an exception whose message quotes what it was given (a cast quotes class names).
+        fun badAlert(key: String) = dartAlert("a", NOW + HOUR) + (key to LoggedErrors.SECRET)
+        val answers = mapOf(
+            "an unknown strength (IllegalArgumentException)" to
+                call("applyPlan", mapOf("version" to 1, "alerts" to listOf(badAlert("strength")))),
+            "a time that is no number (JSONException)" to
+                call("applyPlan", mapOf("version" to 1, "alerts" to listOf(badAlert("fireAtUtcMs")))),
+            "a calendar id that is no string (ClassCastException)" to
+                call("queryInstances", mapOf("calendarIds" to listOf(1), "fromUtcMs" to 0L, "toUtcMs" to 1L)),
+        )
+
+        assertEquals("answers that are not bad_args", emptyList<String>(), answers.filterValues { it.errorCode != "bad_args" }.keys.toList())
+        assertEquals("answers that carry a message", emptyList<String>(), answers.filterValues { it.errorMessage != null }.keys.toList())
     }
 }

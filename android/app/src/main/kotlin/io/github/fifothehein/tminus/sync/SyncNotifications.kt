@@ -86,7 +86,7 @@ class SyncNotifications(context: Context) {
         try {
             manager.notify(id, notification)
         } catch (e: SecurityException) {
-            Log.w(TAG, "Notifications are blocked", e)
+            Log.w(TAG, "Notifications are blocked: ${e.javaClass.simpleName}")
         }
     }
 

@@ -22,6 +22,7 @@ String outcomeText(SyncOutcome o) => switch (o) {
   SyncOutcome.calendarMissing => 'The calendar was removed',
   SyncOutcome.linkMissing => 'The link is missing',
   SyncOutcome.skipped => 'Skipped: another sync was running',
+  SyncOutcome.calendarNotSynced => 'The calendar stopped syncing',
 };
 
 /// A skipped run changed nothing, so it is neutral grey rather than green.

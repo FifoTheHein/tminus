@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show DatabaseConnection;
+import 'package:drift/native.dart' show NativeDatabase;
 import 'package:get_it/get_it.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -20,6 +22,8 @@ import '../core/sources/source_secrets.dart';
 import '../core/storage/alert_history_repository.dart';
 import '../core/storage/app_database.dart';
 import '../core/storage/app_settings.dart';
+import '../core/storage/cache_database.dart';
+import '../core/storage/cache_value_repository.dart';
 import '../core/storage/meeting_link_repository.dart';
 import '../core/storage/occurrence_repository.dart';
 import '../core/storage/override_repository.dart';
@@ -48,12 +52,20 @@ final GetIt getIt = GetIt.instance;
 
 /// Registers app-wide services. Call once before [runApp].
 ///
-/// Everything is lazy, so nothing opens the database until something asks
-/// for it: widget tests that never touch storage need no database and no
+/// Everything is lazy, so nothing opens a database until something asks for
+/// it: widget tests that never touch storage need no database and no
 /// path_provider. Tests that do use storage pass [openDatabase], e.g. an
-/// in-memory `AppDatabase`. `getIt.reset()` closes the database if it was
+/// in-memory `AppDatabase`. `getIt.reset()` closes the databases if they were
 /// opened.
-void configureDependencies({AppDatabase Function()? openDatabase}) {
+///
+/// The cache (occurrences, alert history, sync log) is a second database,
+/// [CacheDatabase]. A test that needs to read it passes [openCacheDatabase].
+/// A test that passes [openDatabase] and not [openCacheDatabase] gets an
+/// in-memory one with no old database to move rows from.
+void configureDependencies({
+  AppDatabase Function()? openDatabase,
+  CacheDatabase Function()? openCacheDatabase,
+}) {
   if (!tz.timeZoneDatabase.isInitialized) tzdata.initializeTimeZones();
 
   // Given its settings, so the choice is stored (`ui.themeMode`) and `main`
@@ -67,6 +79,16 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
     openDatabase ?? AppDatabase.open,
     dispose: (db) => db.close(),
   );
+  // Opened on its first query, which moves the rows that the Plan 6 upgrade of
+  // `AppDatabase` set aside (decision 11) before anything can read the cache.
+  getIt.registerLazySingleton<CacheDatabase>(
+    () =>
+        openCacheDatabase?.call() ??
+        (openDatabase == null
+            ? CacheDatabase.open(legacy: getIt<AppDatabase>())
+            : _inMemoryCache()),
+    dispose: (db) => db.close(),
+  );
   getIt.registerLazySingleton(() => SourceRepository(getIt()));
   getIt.registerLazySingleton(() => OccurrenceRepository(getIt()));
   getIt.registerLazySingleton(() => MeetingLinkRepository(getIt()));
@@ -76,6 +98,7 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
   getIt.registerLazySingleton(() => SettingsRepository(getIt()));
   getIt.registerLazySingleton(() => AlertHistoryRepository(getIt()));
   getIt.registerLazySingleton(() => SyncLogRepository(getIt()));
+  getIt.registerLazySingleton(() => CacheValueRepository(getIt()));
   getIt.registerLazySingleton(
     () => RuleSetLoader(
       profiles: getIt(),
@@ -106,7 +129,7 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
   getIt.registerLazySingleton<DeviceCalendarApi>(DeviceCalendarApi.new);
   getIt.registerLazySingleton<SyncPlatform>(SyncPlatform.new);
   getIt.registerLazySingleton(
-    () => FastAlarms(sources: getIt(), settings: getIt()),
+    () => FastAlarms(sources: getIt(), settings: getIt(), cache: getIt()),
   );
   getIt.registerLazySingleton(
     () => SourceFactory(
@@ -143,6 +166,7 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
       links: getIt(),
       history: getIt(),
       syncLog: getIt(),
+      cacheValues: getIt(),
       settings: getIt(),
       ruleSets: getIt(),
       // A new RulesEngine per run: its factory reads `tz.local` when the run
@@ -198,12 +222,18 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
   // method-call handler, and a second platform that listened and then
   // cancelled would clear this one's.
   getIt.registerLazySingleton(
-    () => AppLifecycle(db: getIt(), platform: getIt(), replan: getIt()),
+    () => AppLifecycle(
+      db: getIt(),
+      cache: getIt(),
+      platform: getIt(),
+      replan: getIt(),
+    ),
     dispose: (l) => l.dispose(),
   );
   getIt.registerLazySingleton(
     () => RestoreGuard(
       db: getIt(),
+      cache: getIt(),
       platform: getIt(),
       appSettings: getIt(),
       sources: getIt(),
@@ -240,6 +270,12 @@ void configureDependencies({AppDatabase Function()? openDatabase}) {
     ),
   );
 }
+
+/// A cache database for tests that give no [CacheDatabase] of their own: in
+/// memory, with nothing to move.
+CacheDatabase _inMemoryCache() => CacheDatabase(
+  DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true),
+);
 
 /// The sync behind [SyncRunner] (pull-to-refresh, Sync now, after adding or
 /// re-linking a source) and behind the re-plan an edit asks for.

@@ -40,7 +40,7 @@ class PlanStore(context: Context) {
         return try {
             EngineJson.stateFromJson(JSONObject(stateFile.readText()))
         } catch (e: Exception) {
-            Log.e(TAG, "Engine state unreadable; starting from an empty plan", e)
+            Log.e(TAG, "Engine state unreadable; starting from an empty plan: ${e.javaClass.simpleName}")
             runCatching { stateFile.copyTo(File(dir, "$FILE_NAME.corrupt"), overwrite = true) }
             EngineState.EMPTY
         }

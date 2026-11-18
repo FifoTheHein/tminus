@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
 import 'package:tminus/core/storage/alert_history_repository.dart';
 import 'package:tminus/core/storage/app_database.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 
 import 'test_database.dart';
 
@@ -14,8 +15,10 @@ void main() {
     late Directory dir;
     late AppDatabase a;
     late AppDatabase b;
+    late CacheDatabase cacheA;
+    late CacheDatabase cacheB;
 
-    // Two AppDatabase instances on one file are the point of this group.
+    // Two instances of each database on one file are the point of this group.
     setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
     tearDownAll(
       () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false,
@@ -37,17 +40,34 @@ void main() {
           setup: AppDatabase.configureConnection,
         ),
       );
+      // The cache database is its own file (Plan 6 decision 4), which both
+      // connections create at the same moment here.
+      final cacheFile = File('${dir.path}/tminus_cache.sqlite');
+      cacheA = CacheDatabase(
+        NativeDatabase.createInBackground(
+          cacheFile,
+          setup: AppDatabase.configureConnection,
+        ),
+      );
+      cacheB = CacheDatabase(
+        NativeDatabase.createInBackground(
+          cacheFile,
+          setup: AppDatabase.configureConnection,
+        ),
+      );
     });
 
     tearDown(() async {
       await a.close();
       await b.close();
+      await cacheA.close();
+      await cacheB.close();
       dir.deleteSync(recursive: true);
     });
 
     test('concurrent record calls never throw; one inserts per pair', () async {
-      final historyA = AlertHistoryRepository(a);
-      final historyB = AlertHistoryRepository(b);
+      final historyA = AlertHistoryRepository(cacheA);
+      final historyB = AlertHistoryRepository(cacheB);
       for (var i = 0; i < 30; i++) {
         final e = AlertHistoryEntry(
           type: AlertEventType.fired,
@@ -66,7 +86,7 @@ void main() {
     });
 
     test('every connection uses WAL and a busy timeout', () async {
-      for (final db in [a, b]) {
+      for (final db in [a, b, cacheA, cacheB]) {
         final mode = await db.customSelect('PRAGMA journal_mode').getSingle();
         expect(mode.data.values.single, 'wal');
         final timeout = await db

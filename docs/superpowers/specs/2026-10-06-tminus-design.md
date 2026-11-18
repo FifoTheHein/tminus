@@ -1,7 +1,7 @@
 # T-Minus: Meeting Alarm — Design Spec
 
 - **Date:** 2026-10-06
-- **Status:** Approved, and built through Plan 5 (2026-11-13). Phase 1.5 (Play readiness, Plan 6) is next. Later changes that refine this spec: the calendar picker grouping (`2026-11-13-calendar-grouping-design.md`) and the list in the roadmap's "Changes merged after Plan 5".
+- **Status:** Approved, and built through Plan 6 (2026-11-18). Phase 1.5 (Play readiness, Plan 6) is built, and the app is on Google Play internal testing. Later changes that refine this spec: the calendar picker grouping (`2026-11-13-calendar-grouping-design.md`) and the list in the roadmap's "Changes merged after Plan 5".
 - **Store name:** T-Minus: Meeting Alarm · **Project/package:** `tminus` · **Application ID:** `io.github.fifothehein.tminus`
 - **Platform:** Android (Flutter UI + native Kotlin alarm engine). iOS is backlog.
 
@@ -156,6 +156,8 @@ The window is **now − 1 h to now + 7 days**.
 - `alert_history` (fired / snoozed / dismissed / joined / missed)
 - `sync_log`
 
+Since Plan 6, the cache tables (`occurrences`, `alert_history` and `sync_log`, plus a small `cache_values` table) are in a second drift database, `tminus_cache.sqlite`. The other tables stay in `tminus.sqlite` (§10).
+
 ## 6. Rules & alert profiles
 
 ### Alert profile
@@ -256,8 +258,10 @@ The snapshot lets an alarm ring and show its screen without Flutter.
 
 ### Firing
 
-1. `AlarmReceiver` starts `RingingService`, a foreground service of type `mediaPlayback`.
-   - We must check this type against the Play foreground-service policy during implementation. If it's rejected, use `specialUse` with a declaration.
+1. `AlarmReceiver` starts `RingingService`, a foreground service of type `systemExempted` (`FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED`, `0x400`).
+   - Android allows this type for apps that hold `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM`, and Play's foreground-service policy exempts it from the use-case criteria (Plan 6 decision 2).
+   - The type exists from Android 14 (API 34), and the service passes it only there. Below API 34 it starts the service with no type argument, so Android uses the type in the manifest (API 29 to 33) or has no service types (API 26 to 28) (Plan 6 decision 8).
+   - If Play review rejects `systemExempted`, the fallback is `mediaPlayback`: the manifest's type and type permission, and the type that `RingingService` passes, change back together (Plan 6 decision 2). `docs/play/declarations.md` has the steps and the Play Console text.
 2. The service:
    - plays audio with `AudioAttributes.USAGE_ALARM`, ramping volume up gradually
    - vibrates and holds a partial wake lock
@@ -296,7 +300,7 @@ These triggers reload `PlanStore` and re-schedule everything:
 | `SCHEDULE_EXACT_ALARM` (`android:maxSdkVersion="32"`) | Exact alarms on Android 12 and below, where `USE_EXACT_ALARM` doesn't exist; granted by default there. If exact scheduling is ever refused, fall back to an inexact alarm and show it in Health. |
 | `USE_FULL_SCREEN_INTENT` | Android 14+ grants it to alarm apps. Checked with `canUseFullScreenIntent()`. |
 | `POST_NOTIFICATIONS` | |
-| `FOREGROUND_SERVICE` + the type permission | |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SYSTEM_EXEMPTED` | For `RingingService`, whose type is `systemExempted` (see Firing). Normal permissions, granted at install. |
 | `RECEIVE_BOOT_COMPLETED`, `WAKE_LOCK`, `VIBRATE` | |
 | `READ_CALENDAR` | Requested at runtime, only for device sources. |
 
@@ -356,10 +360,20 @@ The rule: never lose an alarm because of bad data, and never fail silently.
 
 ## 10. Security & privacy
 
-- No backend, analytics, ads or third-party SDKs that collect data. All data stays on the device.
+- No backend, analytics, ads or third-party SDKs that collect data. All data stays on the device, apart from what Android's own backup copies (below).
 - ICS URLs are kept in secure storage. They are shown masked, redacted from logs, and excluded from JSON export.
 - Settings export/import is JSON with sources minus their URLs.
 - Release builds turn off verbose logging.
+- **Two databases, and only one is backed up (Plan 6 decisions 4 and 10).**
+  - `tminus.sqlite` holds sources (names, colours and kinds, no links), profiles, rules, overrides, quiet state, settings and meeting links. Android backs it up. Overrides and meeting links hold occurrence keys and iCal UIDs, which are opaque ids, not event content.
+  - `tminus_cache.sqlite` is a second drift database for the cache: `occurrences`, `alert_history` and `sync_log`, plus `cache_values`, a small table for values that carry meeting text (such as the titles of the alerts the last plan expects to ring). It is never backed up, so no meeting title, location, join link or alert history leaves the phone in an Android backup.
+  - It is a second database, not an `ATTACH`, because SQLite commits across attached files are not atomic in WAL mode. No query joins a cache table with another table.
+  - A phone that cached meetings before Plan 6 keeps them. The first open copies the old rows into the cache database before anything can read the cache, and drops them from `tminus.sqlite` only after the copy committed (Plan 6 decision 11). A sync that planned from an empty cache would send an empty plan, and an empty plan cancels every alarm.
+  - `tminus.sqlite` runs with `secure_delete` on, and an upgraded phone compacts it once after the move. So no old meeting text stays in the free pages or the write-ahead log of the file that is backed up.
+- **The backup rules list only the database.** `backup_rules.xml` (Android 11 and below) and `data_extraction_rules.xml` (Android 12 and later) include `tminus.sqlite` and its `-wal` file, and nothing else. Every other file stays out by default: the secure-storage preferences that hold the ICS links, the feed bodies, the plan and its acknowledgements, the event queue, the sync preferences and the cache database.
+  - The cloud backup includes the database only when it can be encrypted end to end. Android 12 and later check this with `disableIfNoEncryptionCapabilities`. On Android 9 to 11 the includes carry `requireFlags="clientSideEncryption"` (Plan 6 decision 20).
+  - Android 8 ignores that flag, so a backup there may not be encrypted. It holds no meetings and no links, only settings, rules and source names.
+- The public privacy policy is `docs/privacy.md`, published at https://fifothehein.github.io/tminus/privacy/.
 
 ## 11. Testing
 
@@ -399,7 +413,11 @@ The rule: never lose an alarm because of bad data, and never fail silently.
    - This decides the primary source but changes no code.
 2. **Published-feed latency:** measure how long Outlook takes to update the published ICS feed after a meeting change. This sets expectations for the pre-alarm sync.
 3. **Teams link in the feed:** confirm the "Can view all details" feed includes the Teams join URL in DESCRIPTION.
-4. **Foreground service type:** confirm `mediaPlayback` is acceptable for alarm ringing under the current Play policy; otherwise use `specialUse`. *Superseded (2026-11-02):* Plan 6 moves `RingingService` to `systemExempted`, with `mediaPlayback` as the fallback (roadmap, Plan 6 decision 2).
+4. **Foreground service type:** confirm `mediaPlayback` is acceptable for alarm ringing under the current Play policy; otherwise use `specialUse`. *Superseded (2026-11-02):* Plan 6 moves `RingingService` to `systemExempted`, with `mediaPlayback` as the fallback (roadmap, Plan 6 decision 2). **Done (2026-11-18):** `RingingService` is a `systemExempted` service, and it was checked on the release build in three ways.
+   - Release smoke test (Plan 6, Task 4): on an API 36 emulator the release build rang the test alarm full screen with the service in the foreground as `systemExempted` (`0x400`). The merged release manifest has one typed service, `RingingService`.
+   - Emulators on API 26, 30, 33, 35 and 36 (Task 11), with the 1.0.1 release APK: the alarm rang on every level, and stopped from the screen, from the notification and from a volume key. API 35 and 36 show `0x400`. On API 26, 30 and 33 the dump shows the service in the foreground. On API 35's first leg, Android showed "T-Minus isn't responding" and Dismiss on the alarm screen did not stop one alarm (the notification's Stop did). The traces show the alarm screen stuck in the emulator's software renderer, and the main thread blocked in an AlarmManager call, which is follow-up issue #26. On the third try Dismiss worked with no ANR.
+   - The user's phone, a Samsung S24 with the build from Play internal testing (Task 12): the user reports that every check passed.
+   - Play Console accepted the bundle and asked for no foreground service declaration for `systemExempted`. Play's review result is not in yet. If it rejects the type, the fallback in §7 applies.
 
 ## 13. Meetings in more than one source
 

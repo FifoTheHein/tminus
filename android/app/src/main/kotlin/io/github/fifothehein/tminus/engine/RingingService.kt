@@ -27,9 +27,9 @@ import androidx.core.content.ContextCompat
 
 /**
  * Rings RingingSession: alarm-stream audio with a volume ramp, vibration and a partial wake lock,
- * as a mediaPlayback foreground service (spec §7 Firing). It holds transient audio focus while it
- * rings, so other audio pauses and resumes afterwards. Stops when the session empties, or after
- * the lead alert's ring timeout, which logs `missed` and posts a Missed notification.
+ * as a systemExempted foreground service (spec §7 Firing; Plan 6 decision 2). It holds transient
+ * audio focus while it rings, so other audio pauses and resumes afterwards. Stops when the session
+ * empties, or after the lead alert's ring timeout, which logs `missed` and posts a Missed notification.
  */
 class RingingService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -85,11 +85,14 @@ class RingingService : Service() {
             // Must happen within seconds of startForegroundService, even if there is nothing to ring.
             notifications.ensureChannels()
             try {
-                startForeground(this, NotificationFactory.RINGING_NOTIFICATION_ID, notifications.ringing(session), foregroundType())
+                startForeground(this, NotificationFactory.RINGING_NOTIFICATION_ID, notifications.ringing(session), foregroundType() ?: NO_TYPE)
             } catch (e: IllegalStateException) { // ForegroundServiceStartNotAllowedException is one
                 refuseForeground(session, retry, e)
                 return START_NOT_STICKY
-            } catch (e: SecurityException) {
+            } catch (e: SecurityException) { // the type's permission is missing
+                refuseForeground(session, retry, e)
+                return START_NOT_STICKY
+            } catch (e: IllegalArgumentException) { // the type is not a subset of the manifest's (a half-done revert of the type)
                 refuseForeground(session, retry, e)
                 return START_NOT_STICKY
             }
@@ -120,13 +123,15 @@ class RingingService : Service() {
     }
 
     /**
-     * Android refused the foreground start (on Android 15+, for example, inside a boot broadcast's
-     * allow-list). Nothing may ring: the session's alerts show as heads-up notifications instead, with
-     * their normal actions, and stay presented. They ring again through AlarmManager after
+     * Android refused the foreground start (Android 15+ refused the previous mediaPlayback type inside a
+     * boot broadcast's allow-list; an OEM may refuse too; the type's permission may be missing, or the type
+     * may not be the manifest's). Nothing may ring: the session's alerts show as heads-up notifications
+     * instead, with their normal actions, and stay presented. They ring again through AlarmManager after
      * RECOVERY_DELAY_MS, once: a refused [retry] is not retried again.
      */
     private fun refuseForeground(session: List<PlannedAlert>, retry: Boolean, error: Exception) {
-        Log.w(TAG, "Ringing service refused the foreground; showing a heads-up instead (retry: $retry)", error)
+        // The class only: an exception's message or trace can quote a link or an event's text.
+        Log.w(TAG, "Ringing service refused the foreground; showing a heads-up instead (retry: $retry): ${error.javaClass.simpleName}")
         stopAlerting()
         AndroidAlertPresenter(this).fallBackToHeadsUp(session)
         if (!retry && session.isNotEmpty()) {
@@ -222,7 +227,7 @@ class RingingService : Service() {
             return
         }
         val (index, mp) = opened
-        if (index > 0) Log.w(TAG, "Tone ${candidates[0]} failed; using ${candidates[index]}")
+        if (index > 0) Log.w(TAG, "Tone 0 failed; using candidate $index") // positions only: a tone's uri can carry a file name
         volume = if (gradual) RAMP_START else 1f
         mp.setVolume(volume, volume)
         mp.setOnErrorListener { failed, _, _ ->
@@ -280,8 +285,9 @@ class RingingService : Service() {
         wakeLock = lock
     }
 
-    private fun foregroundType(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0
+    /** The type to pass to startForeground, or null to use the manifest's (API 26-33, Plan 6 decision 8). */
+    private fun foregroundType(): Int? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED else null
 
     companion object {
         const val EXTRA_ALERT_IDS = "alertIds"
@@ -297,9 +303,19 @@ class RingingService : Service() {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 
-        internal val DEFAULT_START_FOREGROUND: (Service, Int, Notification, Int) -> Unit = ServiceCompat::startForeground
+        /** What the start call is given when there is no type to pass. Never a real type (those are positive flags). */
+        internal const val NO_TYPE = -2
 
-        /** ServiceCompat.startForeground; tests make it throw as Android may. */
+        /**
+         * ServiceCompat.startForeground with the type, or the two-argument startForeground for [NO_TYPE]:
+         * the platform then uses the manifest's type (API 29-33) or has none (API 26-28). A type is never
+         * passed to a platform that predates it (Plan 6 decision 8).
+         */
+        internal val DEFAULT_START_FOREGROUND: (Service, Int, Notification, Int) -> Unit = { service, id, notification, type ->
+            if (type == NO_TYPE) service.startForeground(id, notification) else ServiceCompat.startForeground(service, id, notification, type)
+        }
+
+        /** The service's foreground start; tests make it throw as Android may, or record the type it is given. */
         internal var startForeground: (Service, Int, Notification, Int) -> Unit = DEFAULT_START_FOREGROUND
 
         fun start(context: Context, alertIds: List<String>, retry: Boolean = false) {

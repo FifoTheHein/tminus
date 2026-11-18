@@ -19,6 +19,7 @@ void main() {
         SyncOutcome.calendarMissing: OutcomeSeverity.error,
         SyncOutcome.linkMissing: OutcomeSeverity.error,
         SyncOutcome.skipped: OutcomeSeverity.ok,
+        SyncOutcome.calendarNotSynced: OutcomeSeverity.error,
       },
     );
   });
@@ -29,6 +30,7 @@ void main() {
       SyncOutcome.calendarAccessDenied,
       SyncOutcome.calendarMissing,
       SyncOutcome.linkMissing,
+      SyncOutcome.calendarNotSynced,
     });
   });
 

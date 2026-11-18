@@ -17,7 +17,9 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMethodCodec
+import io.github.fifothehein.tminus.LoggedErrors
 import io.github.fifothehein.tminus.MainActivity
+import io.github.fifothehein.tminus.RefusingNotificationsShadow
 import io.github.fifothehein.tminus.quiet.QuietStore
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -31,7 +33,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowLog
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -143,6 +147,16 @@ class SyncChannelTest {
         val fix = shadowOf(broken.actions.single().actionIntent).savedIntent
         assertEquals(MainActivity::class.java.name, fix.component!!.className)
         assertEquals("/sources/home", fix.getStringExtra(SyncNotifications.EXTRA_ROUTE))
+    }
+
+    @Test
+    @Config(shadows = [RefusingNotificationsShadow::class])
+    fun `a blocked source notice logs the exception's class and not its message or trace`() {
+        ShadowLog.clear()
+
+        call("postSourceNotice", mapOf("kind" to "stale", "sourceId" to "work", "title" to "t", "text" to "x"))
+
+        LoggedErrors.assertClassOnly("Notifications are blocked", "SecurityException")
     }
 
     @Test

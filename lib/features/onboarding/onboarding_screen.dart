@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/di.dart';
+import '../../app/links.dart';
 import '../../app/theme/tminus_theme.dart';
 import '../../core/engine/alarm_engine.dart' show PermissionKind;
+import '../../core/platform/ui_platform.dart';
 import '../common/guarded.dart';
 import '../common/notice_banner.dart';
 import '../common/section_card.dart';
@@ -22,6 +24,7 @@ const _permissionFailed = "Couldn't ask for the permission.";
 const _settingsFailed = "Couldn't open the settings.";
 const _testFailed = "Couldn't start the test alarm.";
 const _finishFailed = "Couldn't finish the setup.";
+const _policyFailed = 'Could not open the privacy policy.';
 
 /// The Add your calendar step after a restore: the calendars are in the
 /// database already and wait for their links. Grammar follows the number.
@@ -100,6 +103,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _ringTestAlarm() =>
       guarded<void>(context, _controller.ringTestAlarm, failure: _testFailed);
+
+  /// Opens the privacy policy in the browser. A call that throws is said by
+  /// [guarded]; `false` means no app took the link, which is said here.
+  Future<void> _openPrivacyPolicy() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final opened = await guarded<bool>(
+      context,
+      () => getIt<UiPlatform>().openUrl(privacyPolicyUrl),
+      failure: _policyFailed,
+    );
+    if (opened == false) {
+      messenger?.showSnackBar(const SnackBar(content: Text(_policyFailed)));
+    }
+  }
 
   /// Finishes onboarding. The Agenda exit needs nothing more: the gate sees the
   /// flag and the router moves. Health is another place, so it is gone to
@@ -400,7 +417,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               onPressed: () => _navigate(c.next),
             ),
             const SizedBox(height: TMinusSpacing.sm),
-            const _PrivacyNote(),
+            _PrivacyNote(onOpenPolicy: () => unawaited(_openPrivacyPolicy())),
           ],
         );
       case OnboardingStep.calendar:
@@ -704,26 +721,39 @@ class _Muted extends StatelessWidget {
   }
 }
 
-/// "Your calendar never leaves your phone." under the welcome button.
+/// "Your calendar never leaves your phone." under the welcome button, with a
+/// link to the privacy policy under it.
 class _PrivacyNote extends StatelessWidget {
-  const _PrivacyNote();
+  const _PrivacyNote({required this.onOpenPolicy});
+
+  final VoidCallback onOpenPolicy;
 
   @override
   Widget build(BuildContext context) {
     final muted = context.tminusColors.tertiaryText;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.lock_outline, size: 16, color: muted),
-        const SizedBox(width: TMinusSpacing.xxs),
-        // On a narrow screen at a large text size the line wraps.
-        Flexible(
-          child: Text(
-            'Your calendar never leaves your phone.',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: muted),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 16, color: muted),
+            const SizedBox(width: TMinusSpacing.xxs),
+            // On a narrow screen at a large text size the line wraps.
+            Flexible(
+              child: Text(
+                'Your calendar never leaves your phone.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: muted),
+              ),
+            ),
+          ],
+        ),
+        TextButton(
+          key: const Key('onboardingPrivacyPolicy'),
+          onPressed: onOpenPolicy,
+          child: const Text('Privacy policy'),
         ),
       ],
     );

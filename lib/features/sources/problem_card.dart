@@ -41,6 +41,12 @@ bool hasProblem(SourceHealth health) => switch (health) {
   SourceHealth.ok || SourceHealth.stale || SourceHealth.off => false,
 };
 
+/// What a phone calendar that stopped syncing is told to do (Plan 6 decision
+/// 18). Its status line says what happened; the card says what to do about it.
+const calendarNotSyncedText =
+    "Turn on sync for this calendar in your phone's account settings, "
+    'or choose another calendar.';
+
 /// The card's title: the setup that is missing, else the latest outcome.
 String problemTitle(SourceStatus status) {
   switch (status.setup) {
@@ -58,6 +64,7 @@ String problemTitle(SourceStatus status) {
     SyncOutcome.serverError => "Can't reach the calendar",
     SyncOutcome.calendarAccessDenied => 'Calendar access is off',
     SyncOutcome.calendarMissing => 'Calendar was removed',
+    SyncOutcome.calendarNotSynced => 'Calendar is not syncing',
     _ => 'Something went wrong',
   };
 }
@@ -72,9 +79,20 @@ IconData problemIcon(SourceStatus status) {
     SyncOutcome.networkError || SyncOutcome.serverError => Icons.cloud_off,
     SyncOutcome.calendarAccessDenied => Icons.lock_outline,
     SyncOutcome.calendarMissing => Icons.event_busy,
+    SyncOutcome.calendarNotSynced => Icons.sync_disabled,
     _ => Icons.error_outline,
   };
 }
+
+/// The card's explanation. A phone calendar that stopped syncing is told what
+/// to do ([calendarNotSyncedText]); every other card shows the status line,
+/// which never holds a link. As in [problemTitle], a setup that is missing
+/// comes first.
+String problemBody(SourceStatus status) =>
+    status.setup == SourceSetup.ready &&
+        status.latest?.outcome == SyncOutcome.calendarNotSynced
+    ? calendarNotSyncedText
+    : status.line;
 
 /// A button on a [ProblemCard]. The first one is the filled one.
 class ProblemAction {

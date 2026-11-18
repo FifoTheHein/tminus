@@ -85,6 +85,7 @@ void main() {
     ) async {
       tallScreen(t);
       final h = await pumpApp(t, location: '/sources/add');
+      await choosePasteCard(t);
 
       // Outlook first.
       expect(_shown(t), LinkProvider.outlook);
@@ -113,6 +114,7 @@ void main() {
     testWidgets('the default name follows the choice', (t) async {
       tallScreen(t);
       final h = await pumpApp(t, location: '/sources/add');
+      await choosePasteCard(t);
 
       expect(_name(t), 'Work Outlook');
       await _choose(t, LinkProvider.google);
@@ -138,6 +140,7 @@ void main() {
         location: '/sources/add',
         feeds: _recording([]),
       );
+      await choosePasteCard(t);
 
       await t.enterText(_linkField(), _googleLink);
       await t.pump();
@@ -158,6 +161,7 @@ void main() {
     testWidgets('a link from a known host switches the toggle', (t) async {
       tallScreen(t);
       final h = await pumpApp(t, location: '/sources/add');
+      await choosePasteCard(t);
 
       await t.enterText(_linkField(), _googleLink);
       await t.pump();
@@ -183,6 +187,7 @@ void main() {
     ) async {
       tallScreen(t);
       final h = await pumpApp(t, location: '/sources/add');
+      await choosePasteCard(t);
 
       await t.enterText(_linkField(), _googleLink);
       await t.pump();
@@ -204,6 +209,7 @@ void main() {
         location: '/sources/add',
         feeds: _recording(requested),
       );
+      await choosePasteCard(t);
       _mockClipboard(_googleLink);
 
       await t.tap(find.byTooltip('Paste'));

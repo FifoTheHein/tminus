@@ -8,6 +8,7 @@ import '../../core/model/event_override.dart';
 import '../../core/model/quiet_state.dart';
 import '../../core/rules/rules_engine.dart';
 import '../../core/storage/app_database.dart';
+import '../../core/storage/cache_database.dart';
 import '../../core/storage/override_repository.dart';
 import '../../core/storage/settings_repository.dart';
 import '../../core/sync/outcome_severity.dart';
@@ -35,6 +36,7 @@ class AgendaController extends ChangeNotifier {
   AgendaController({
     required this.loader,
     required this.db,
+    required this.cache,
     required this.overrides,
     required this.settings,
     required this.rulesEngine,
@@ -46,6 +48,10 @@ class AgendaController extends ChangeNotifier {
 
   final AgendaLoader loader;
   final AppDatabase db;
+
+  /// The occurrence cache lives in its own database, so a sync's writes to it
+  /// reach this controller only through its own updates.
+  final CacheDatabase cache;
   final OverrideRepository overrides;
   final SettingsRepository settings;
   final RulesEngine Function() rulesEngine;
@@ -64,6 +70,7 @@ class AgendaController extends ChangeNotifier {
   bool _failed = false;
   bool _disposed = false;
   StreamSubscription<Object?>? _updates;
+  StreamSubscription<Object?>? _cacheUpdates;
   Timer? _ticker;
   Timer? _debounce;
 
@@ -76,12 +83,13 @@ class AgendaController extends ChangeNotifier {
   /// The latest load threw: the screen offers **Try again**.
   bool get failed => _failed;
 
-  /// Reloads on any table write in this isolate (and on AppLifecycle's
-  /// refresh after a background sync), and every [tick] for the countdown,
-  /// the now line and quiet modes that end.
+  /// Reloads on any table write of either database in this isolate (and on
+  /// AppLifecycle's refresh after a background sync), and every [tick] for the
+  /// countdown, the now line and quiet modes that end.
   void start() {
     if (_disposed) return;
     _updates ??= db.tableUpdates().listen((_) => _soon());
+    _cacheUpdates ??= cache.tableUpdates().listen((_) => _soon());
     _ticker ??= Timer.periodic(tick, (_) => _soon());
     unawaited(reload());
   }
@@ -162,6 +170,7 @@ class AgendaController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     unawaited(_updates?.cancel());
+    unawaited(_cacheUpdates?.cancel());
     _ticker?.cancel();
     _debounce?.cancel();
     super.dispose();

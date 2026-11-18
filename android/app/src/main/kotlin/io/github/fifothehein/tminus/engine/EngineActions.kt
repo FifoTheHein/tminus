@@ -44,11 +44,12 @@ class EngineActions(
     fun rearmAll(): Int = scheduler.rearmAll().also { reconcile() }
 
     /**
-     * LOCKED_BOOT_COMPLETED / BOOT_COMPLETED. Android 15+ forbids starting the mediaPlayback service
-     * from the boot broadcasts, so nothing rings from here: what should ring now (an alarm that was
-     * ringing at reboot, an alert that came due while the phone was off, or one due within the window)
-     * fires through AlarmManager [RECOVERY_DELAY_MS] from now, and AlarmReceiver may start the service.
-     * Heads-ups that were on screen are posted again now.
+     * LOCKED_BOOT_COMPLETED / BOOT_COMPLETED. Android 15+ refused the previous mediaPlayback type from
+     * the boot broadcasts, and the delay stays as a guard (Plan 6 decision 9), so nothing rings from
+     * here: what should ring now (an alarm that was ringing at reboot, an alert that came due while
+     * the phone was off, or one due within the window) fires through AlarmManager [RECOVERY_DELAY_MS]
+     * from now, and AlarmReceiver may start the service. Heads-ups that were on screen are posted
+     * again now.
      */
     fun recoverAfterBoot() {
         recoverPresented(ringLater = true)
@@ -180,8 +181,9 @@ class EngineActions(
         /**
          * How far out boot recovery's alarms are set. A boot broadcast gives the app a 20 s FGS
          * allow-list, and while it lasts Android 15+ attributes any FGS start to BOOT_COMPLETED and
-         * refuses mediaPlayback, even from an alarm (ForegroundServiceStartNotAllowedException on the
-         * API 36 emulator with a 3 s delay). So the alarm fires just after that window.
+         * refused the previous mediaPlayback type, even from an alarm (ForegroundServiceStartNotAllowedException
+         * on the API 36 emulator with a 3 s delay). So the alarm fires just after that window. The delay
+         * stays as a guard for systemExempted (Plan 6 decision 9).
          */
         const val RECOVERY_DELAY_MS = 30_000L
 

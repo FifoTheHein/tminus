@@ -52,16 +52,17 @@ class AlarmEngineChannel internal constructor(
                 else -> result.notImplemented()
             }
         } catch (e: DeviceCalendarException) {
-            result.error(e.code, e.message, null)
+            result.error(e.code, e.message, null) // the app's own fixed text
         } catch (e: IllegalArgumentException) {
-            result.error("bad_args", e.message, null)
+            // The code only, here and below: an exception's message can quote a plan's event text or a link.
+            result.error("bad_args", null, null)
         } catch (e: JSONException) {
-            result.error("bad_args", e.message, null)
+            result.error("bad_args", null, null)
         } catch (e: ClassCastException) {
-            result.error("bad_args", e.message, null)
+            result.error("bad_args", null, null)
         } catch (e: Exception) {
-            Log.e(TAG, "alarm_engine.${call.method} failed", e)
-            result.error("engine_error", e.message, null)
+            Log.e(TAG, "alarm_engine.${call.method} failed: ${e.javaClass.simpleName}")
+            result.error("engine_error", null, null)
         }
     }
 

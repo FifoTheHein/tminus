@@ -3,6 +3,7 @@ import 'package:tminus/core/model/source_config.dart';
 import 'package:tminus/core/model/sync_log_entry.dart';
 import 'package:tminus/core/storage/app_database.dart';
 import 'package:tminus/core/storage/app_settings.dart';
+import 'package:tminus/core/storage/cache_database.dart';
 import 'package:tminus/core/storage/settings_repository.dart';
 import 'package:tminus/core/storage/source_repository.dart';
 import 'package:tminus/core/storage/sync_log_repository.dart';
@@ -28,6 +29,7 @@ void main() {
   );
 
   late AppDatabase db;
+  late CacheDatabase cacheDb;
   late SourceRepository sources;
   late SyncLogRepository syncLog;
   late AppSettings appSettings;
@@ -35,8 +37,9 @@ void main() {
 
   setUp(() {
     db = openTestDatabase();
+    cacheDb = openTestCacheDatabase();
     sources = SourceRepository(db);
-    syncLog = SyncLogRepository(db);
+    syncLog = SyncLogRepository(cacheDb);
     appSettings = AppSettings(SettingsRepository(db));
     loader = SourceStatusLoader(
       sources: sources,
@@ -45,7 +48,10 @@ void main() {
       clock: () => now,
     );
   });
-  tearDown(() => db.close());
+  tearDown(() async {
+    await db.close();
+    await cacheDb.close();
+  });
 
   test('the loader joins each source with its state, latest log row and '
       'setup', () async {

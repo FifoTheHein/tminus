@@ -2,12 +2,12 @@ import 'package:drift/drift.dart';
 
 import '../model/alert_history_entry.dart';
 import '../planner/acknowledgements.dart';
-import 'app_database.dart';
+import 'cache_database.dart';
 
 class AlertHistoryRepository {
   AlertHistoryRepository(this._db);
 
-  final AppDatabase _db;
+  final CacheDatabase _db;
 
   /// How long an acknowledgement matters after the occurrence's start; the
   /// same window Kotlin prunes its ack store with (roadmap §3).

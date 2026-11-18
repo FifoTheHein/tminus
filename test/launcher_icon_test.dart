@@ -22,6 +22,15 @@ const _pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 /// palette PNGs, type 3), and the store icon is saved in the same format.
 const _pngRgba = 6;
 
+/// PNG colour type 2 is RGB without an alpha channel. With [_pngBitsPerChannel]
+/// it is the 24-bit PNG that Play asks for as a feature graphic (a JPEG or a
+/// 24-bit PNG with no alpha), so the graphic is saved in this format and not in
+/// the store icon's.
+const _pngRgb = 2;
+
+/// Three channels of eight bits make a 24-bit PNG.
+const _pngBitsPerChannel = 8;
+
 /// What the adaptive icon points each of its layers at.
 const _layers = {
   'background': '@color/tminus_dark_primaryContainer',
@@ -132,8 +141,9 @@ List<Map<String, String>> _paths(String xml) => [
     _attributes(m.group(0)!),
 ];
 
-/// The width, height and colour type from the IHDR chunk of the PNG at [path].
-({int width, int height, int colorType}) _pngHeader(String path) {
+/// The width, height, bit depth and colour type from the IHDR chunk of the PNG
+/// at [path].
+({int width, int height, int bitDepth, int colorType}) _pngHeader(String path) {
   expect(File(path).existsSync(), isTrue, reason: '$path is missing');
   final bytes = File(path).readAsBytesSync();
   expect(bytes.length, greaterThanOrEqualTo(26), reason: '$path is too short');
@@ -150,7 +160,12 @@ List<Map<String, String>> _paths(String xml) => [
       (bytes[at + 1] << 16) |
       (bytes[at + 2] << 8) |
       bytes[at + 3];
-  return (width: uint32(16), height: uint32(20), colorType: bytes[25]);
+  return (
+    width: uint32(16),
+    height: uint32(20),
+    bitDepth: bytes[24],
+    colorType: bytes[25],
+  );
 }
 
 /// The launcher icon, pinned to the chosen design. The adaptive icon points a
@@ -159,9 +174,11 @@ List<Map<String, String>> _paths(String xml) => [
 /// attribute of every shape is pinned on its own element: its exact path data,
 /// colour, alpha, stroke width and line cap. The legacy PNGs and the Play Store
 /// icon, which tool/gen_launcher_icon.py draws from the same geometry, are
-/// checked for their size and format.
+/// checked for their size and format. So is the feature graphic, which
+/// tool/gen_feature_graphic.py draws with that script's geometry.
 ///
-/// To change the icon, change the vectors, these pins and the script together.
+/// To change the icon, change the vectors, these pins and the script together,
+/// then run both generators.
 void main() {
   test('the adaptive icon has a background, a foreground and a monochrome '
       'layer', () {
@@ -241,5 +258,24 @@ void main() {
     final png = _pngHeader('docs/play/icon-512.png');
     expect((png.width, png.height), (512, 512));
     expect(png.colorType, _pngRgba, reason: 'the store icon is an RGBA PNG');
+  });
+
+  test('the feature graphic is 1024 by 500', () {
+    final png = _pngHeader('docs/play/feature-graphic.png');
+    expect((png.width, png.height), (1024, 500));
+  });
+
+  test('the feature graphic is a 24-bit RGB PNG without an alpha channel', () {
+    final png = _pngHeader('docs/play/feature-graphic.png');
+    expect(
+      png.colorType,
+      _pngRgb,
+      reason: 'Play asks for a 24-bit PNG with no alpha channel',
+    );
+    expect(
+      png.bitDepth,
+      _pngBitsPerChannel,
+      reason: 'a 24-bit PNG has three channels of eight bits',
+    );
   });
 }

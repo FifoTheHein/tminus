@@ -26,46 +26,42 @@ Meeting alarms you can't miss, for Outlook, Teams and phone calendar meetings.
 
 ## Full description
 
-Limit 4000 characters. This text has 3384. It is plain text, with line breaks and hyphens for the lists.
+Limit 4000 characters. This text has 1914. It is plain text, with line breaks and bullets (•) for the lists.
 
 ```text
-T-Minus turns the meetings in your calendars into alarms on your Android phone. It is for people who spend much of the day in meetings.
+T-Minus turns your calendar meetings into alarms you can't miss, and can always stop.
 
 ADD YOUR CALENDARS
-- Choose a calendar that is already on your phone, for example one from a Google, Samsung, Outlook or Exchange account. T-Minus asks for the Calendar permission only for this.
-- Or paste a calendar link. Outlook, Google Calendar and any other ICS link work, and T-Minus checks a link before it adds it.
-- Teams meetings come in through your Outlook calendar. When a meeting has a Teams link, a Join button opens it.
-- T-Minus checks your calendars about every 15 minutes, and again shortly before each alarm.
+• Pick a calendar already on your phone, for example from a Google, Samsung, Outlook or Exchange account, or paste a calendar link (Outlook, Google Calendar or any ICS link).
+• Teams meetings come in through Outlook. A meeting with a Teams link gets a Join button.
+• Calendars are checked about every 15 minutes, and again shortly before each alarm.
 
 ALERTS THAT GET STRONGER
-- A heads-up is a notification before the meeting. It follows your phone's sound settings.
-- An alarm rings on the alarm volume and opens a full-screen alarm over the lock screen. It rings until you stop it, snooze it, or its ring timeout (2 minutes unless you change it) ends.
-- Out of the box, the Meeting profile gives a heads-up 10 minutes before a meeting and an alarm 1 minute before. Quick, Important and Silent profiles are built in, and you can make your own, with your own alert times, tone, vibration and volume ramp.
-- Keyword rules pick a profile by words in a meeting's title, location, organiser or description, or by whether it has a Teams link.
-- All-day, free, tentative, cancelled and declined meetings are skipped unless you switch that filter off. The declined filter works for phone calendars only.
-- Change the alerts of a single meeting, or of a whole series, from its details.
+• A heads-up notification first, then a full-screen alarm on the alarm volume.
+• Out of the box: a heads-up 10 minutes before, an alarm 1 minute before.
+• Meeting, Quick, Important and Silent profiles, or make your own.
+• Keyword rules pick a profile by a meeting's title, organiser and more.
+• All-day, free, tentative and cancelled meetings, and meetings you declined in a phone calendar, are skipped unless you change that.
 
 QUIET WHEN YOU NEED IT
-- Mute today silences alerts until 07:00 the next day. Pause silences them for 1, 2 or 4 hours, or until a time you pick. Vacation silences them for the dates you choose.
-- A meeting on a profile that rings in quiet mode (Important does) still rings during Mute today and Pause. During Vacation only meetings you switched on yourself ring.
-- A Mute today tile for quick settings turns it on and off.
+• Mute today, Pause or Vacation, plus a Mute today tile for quick settings.
+• Meetings on the Important profile still ring during Mute today and Pause.
 
 ALWAYS A WAY TO STOP
-- You can stop an alarm from its notification or from the full-screen alarm. While the full-screen alarm is showing, the volume keys stop it too.
-- Snooze for 1 or 5 minutes, until 1 minute before the meeting, or until it starts.
-- Alerts that fall in the same minute share one notification and one alarm screen. The alarm screen has a Dismiss button for each meeting, and a Join button for each one with a Teams link.
+• Stop from the notification or the alarm screen. On the alarm screen, the volume keys stop it too.
+• Snooze for 1 or 5 minutes, until 1 minute before, or until the meeting starts.
 
 KNOW WHY IT WILL OR WON'T RING
-- Every meeting in the Agenda shows its alerts and says why, for example that a rule matched, or that it is skipped because it is free.
-- A meeting found in two of your calendars rings once. You can switch this off in Settings.
-- The Health tab checks notifications, full-screen alarms, exact alarms, battery settings, the alarm volume and each calendar's sync, with a Fix button for each problem. It also lists your next alarms and keeps a history.
+• Every meeting shows its alerts and why.
+• A meeting found in two calendars rings once.
+• The Health tab checks permissions, battery settings and sync, and lists your next alarms.
 
 PRIVATE
-- No account, no ads and no analytics. Your calendar stays on your phone.
-- Calendar links are kept in encrypted storage and are never part of a backup.
-- T-Minus uses the internet only to fetch the calendar links you add.
+• No account, no ads, no analytics. Your calendar stays on your phone.
+• Calendar links are stored encrypted and never backed up.
+• T-Minus uses the internet only to fetch the calendar links you add.
 
-T-Minus needs Android 8 or later.
+Needs Android 8 or later.
 
 Outlook and Teams are trademarks of Microsoft. Google Calendar is a trademark of Google. T-Minus is an independent app and is not affiliated with or endorsed by either company.
 ```
@@ -137,5 +133,6 @@ Names are files and symbols, not line numbers, so the table stays true when code
 - The plan's short description is kept as written. The full description adds one sentence that says Teams meetings reach T-Minus through the Outlook calendar, because the app has no Teams connection of its own.
 - The last paragraph of the full description (the trademark and independence statement) is not in the plan. It is true, and it keeps the listing's use of the Outlook, Teams and Google Calendar names to a plain description of what the app reads.
 - The volume keys stop an alarm only while the full-screen alarm is showing, and the text says so. When the phone is unlocked and in use, Android may show the alarm as a notification instead; its Stop button works, and opening T-Minus goes to the alarm screen.
+- The full description was shortened in F6 (2026-11-18). The claims table (Where each claim comes from) is a superset of the text on purpose, so a row can name a claim the text no longer makes.
 - Re-count the three fields if any of them is edited. The limits are 30, 80 and 4000 characters.
 - The graphics sizes and formats in the table above are the plan's and Play's help as the plan read it. Check them in Play Console on the day, as for the Data safety answers.

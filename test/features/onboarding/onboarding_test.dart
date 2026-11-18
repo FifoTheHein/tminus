@@ -22,6 +22,8 @@ import 'package:tminus/features/sources/add_source_panel.dart';
 
 import '../../core/fixtures.dart' show blue, occ;
 import '../harness.dart';
+import '../sources/source_test_support.dart'
+    show choosePasteCard, choosePhoneCard, phoneCalendar;
 
 const _ics = SourceConfig(
   id: 'ics-1',
@@ -436,6 +438,72 @@ void main() {
     expect(_canPress(t, 'continue'), isTrue);
 
     await _tap(t, 'continue');
+    expect(find.byKey(const Key('step-permissions')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('Add your calendar lists the phone first and opens neither way', (
+    t,
+  ) async {
+    final h = await _boot(
+      t,
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+    await _tap(t, 'getStarted');
+
+    // The phone is the first of the two ways.
+    expect(
+      t.getTopLeft(find.text('Use a calendar on this phone')).dy,
+      lessThan(t.getTopLeft(find.text('Paste a calendar link')).dy),
+    );
+    // Neither is chosen, so neither is open, and nothing has asked for
+    // calendar access.
+    expect(find.byIcon(Icons.radio_button_checked), findsNothing);
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
+    expect(find.byKey(const Key('calendar-1')), findsNothing);
+    expect(find.byKey(const Key('icsLinkField')), findsNothing);
+    expect(h.uiCalls.where((c) => c.method == 'requestPermission'), isEmpty);
+    // Nothing to continue with, but Skip is there and moves on.
+    expect(_canPress(t, 'continue'), isFalse);
+    expect(_canPress(t, 'skip'), isTrue);
+    await _tap(t, 'skip');
+    expect(find.byKey(const Key('step-permissions')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('on Add your calendar a tap opens only that way, the other tap '
+      'switches to it, and Continue waits for a source', (t) async {
+    final h = await _boot(
+      t,
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+    await _tap(t, 'getStarted');
+
+    // The phone: its calendars list, after one ask for calendar access.
+    await choosePhoneCard(t);
+    expect(find.byKey(const Key('calendar-1')), findsOneWidget);
+    expect(find.byKey(const Key('icsLinkField')), findsNothing);
+    expect(_canPress(t, 'addSelected'), isFalse);
+    expect(_canPress(t, 'continue'), isFalse);
+    expect(
+      h.uiCalls
+          .where((c) => c.method == 'requestPermission')
+          .map((c) => c.arguments),
+      [
+        {'kind': 'calendar'},
+      ],
+    );
+
+    // The link: its form opens and the list closes. Nothing can be added
+    // before the link has checked out.
+    await choosePasteCard(t);
+    expect(find.byKey(const Key('icsLinkField')), findsOneWidget);
+    expect(find.byKey(const Key('calendar-1')), findsNothing);
+    expect(_canPress(t, 'addCalendar'), isFalse);
+    expect(_canPress(t, 'continue'), isFalse);
+
+    // Skip still moves on, whichever way is open.
+    await _tap(t, 'skip');
     expect(find.byKey(const Key('step-permissions')), findsOneWidget);
     await h.dispose(t);
   });
@@ -1294,6 +1362,7 @@ void main() {
         feeds: MockClient((_) async => http.Response(_feed, 200)),
       );
       await _tap(t, 'getStarted');
+      await choosePasteCard(t);
 
       await t.enterText(find.byKey(const Key('icsLinkField')), _link);
       await t.pump();

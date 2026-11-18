@@ -20,27 +20,28 @@ The page is `docs/privacy.md` (Jekyll permalink `/privacy/`), published from `ma
 
 **Instruction name:** Demo calendar. **Username and password:** leave empty, there is no sign-in.
 
-**Instructions** (the text to enter). It has 886 characters.
+**Instructions** (the text to enter). It has 918 characters.
 
 ```text
 No sign-in is needed. The app reads a calendar link, so please use this public demo calendar.
 1. Tap Get started.
-2. Paste https://fifothehein.github.io/tminus/play/demo.ics into the ICS link field, tap Check, then Add calendar, then Continue.
+2. Tap Paste a calendar link, then paste https://fifothehein.github.io/tminus/play/demo.ics into the ICS link field. Tap Check, then Add calendar, then Continue.
 3. On the permissions step, allow Notifications (and Full-screen alarms, if listed), then tap Continue.
 4. Tap Ring a test alarm. After 5 seconds an alarm rings full screen. Tap Dismiss, then It rang, then Go to Agenda.
 A demo meeting starts every 2 hours (at even hours UTC). With the default profile each one gives a heads-up 10 minutes before it and an alarm 1 minute before it. Health > Upcoming alarms lists the next five alerts. The 12:00 UTC meeting is marked free, so it is skipped on purpose.
 To stop the demo alarms, tap the moon button at the top of the Agenda and choose Mute today, or open the calendar in Sources and tap Remove.
 ```
 
-**A shorter form**, if the field limits the text (the reviewer checks the limit when entering it). It has 469 characters.
+**A shorter form**, if the field limits the text (the reviewer checks the limit when entering it). It has 497 characters.
 
 ```text
-No sign-in. Tap Get started. Paste https://fifothehein.github.io/tminus/play/demo.ics into the ICS link field, tap Check, Add calendar, Continue. Allow Notifications, tap Continue, then Ring a test alarm: an alarm rings in 5 seconds, tap Dismiss. A demo meeting starts every 2 hours (even hours UTC): heads-up 10 min before, alarm 1 min before. Health > Upcoming alarms lists the next alerts. Stop: moon button in Agenda > Mute today, or Remove the calendar in Sources.
+No sign-in. Tap Get started, then Paste a calendar link. Paste https://fifothehein.github.io/tminus/play/demo.ics into the ICS link field, tap Check, Add calendar, Continue. Allow Notifications, tap Continue, then Ring a test alarm: an alarm rings in 5 seconds, tap Dismiss. A demo meeting starts every 2 hours (even hours UTC): heads-up 10 min before, alarm 1 min before. Health > Upcoming alarms lists the next alerts. Stop: moon button in Agenda > Mute today, or Remove the calendar in Sources.
 ```
 
 How this text differs from the plan's draft, and why:
 
-- The plan said "choose Add a published link". The app has no such label. The add-calendar step shows two cards, "Paste a calendar link" (already selected) and "Use a calendar on this phone", and the link field is labelled "ICS link".
+- The plan said "choose Add a published link". The app has no such label. The add-calendar step shows two cards, "Use a calendar on this phone" and "Paste a calendar link", and neither is open when the step starts. The link field appears only after "Paste a calendar link" is tapped, so the text says to tap it first, and the field is labelled "ICS link". The text says nothing about calendar access, because pasting a link never asks for it: only the phone card does.
+- Version 1.0.0 opened the step with "Paste a calendar link" already selected. The text still works on that build, because tapping the selected card changes nothing. From version 1.0.1 neither card is open until one is tapped.
 - The plan stopped after Add calendar. The step needs Continue, the permissions step and the test alarm, which the text now gives.
 - The plan said "so the phone rings every two hours". That is not true of the demo feed. The meeting at 12:00 UTC ("Focus time") is marked free, and the default settings skip free meetings, so there is no alarm at that hour. The text now says so.
 - The plan said "Mute today (Agenda header or the quick-settings tile)". The button at the top of the Agenda is the moon icon, named Quiet modes, and it opens a sheet that holds Mute today. The quick-settings tile is also called Mute today, but a reviewer would have to add it to their quick settings first, so the text leaves it out.

@@ -27,7 +27,7 @@ http.Client _goodFeed() =>
 Finder _linkField() => find.byKey(const Key('icsLinkField'));
 
 /// Types [link] (the result of an earlier check is forgotten by that) and asks
-/// for the check.
+/// for the check. The link card must be open: see [choosePasteCard].
 Future<void> _check(WidgetTester t, String link) async {
   await t.enterText(_linkField(), link);
   await t.pump();
@@ -43,9 +43,23 @@ bool _canAddSelected(WidgetTester t) =>
     t.widget<FilledButton>(find.byKey(const Key('addSelected'))).onPressed !=
     null;
 
-Future<void> _choosePhoneCard(WidgetTester t) async {
-  await t.tap(find.text('Use a calendar on this phone'));
-  await t.pumpAndSettle();
+/// Whether the panel's card [card] (`choice-phone` or `choice-ics`) is the
+/// chosen one, which its filled radio mark says.
+bool _chosen(String card) {
+  final filled = find.descendant(
+    of: find.byKey(Key(card)),
+    matching: find.byIcon(Icons.radio_button_checked),
+  );
+  final empty = find.descendant(
+    of: find.byKey(Key(card)),
+    matching: find.byIcon(Icons.radio_button_unchecked),
+  );
+  expect(
+    filled.evaluate().length + empty.evaluate().length,
+    1,
+    reason: '$card has one radio mark',
+  );
+  return filled.evaluate().isNotEmpty;
 }
 
 Checkbox _boxOf(WidgetTester t, String calendarId) => t.widget<Checkbox>(
@@ -122,6 +136,7 @@ void main() {
   testWidgets('an http link shows the insecure warning', (t) async {
     tallScreen(t);
     final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+    await choosePasteCard(t);
 
     await _check(t, 'http://example.test/c.ics');
 
@@ -174,7 +189,7 @@ void main() {
     );
 
     // Choosing the phone asks for calendar access first.
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
     expect(
       h.uiCalls.singleWhere((c) => c.method == 'requestPermission').arguments,
       {'kind': 'calendar'},
@@ -219,7 +234,7 @@ void main() {
       },
     );
 
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     expect(
       find.text('Calendar access is off. Turn it on in Settings.'),
@@ -236,39 +251,149 @@ void main() {
 
   // Beyond the plan's list from here on.
 
-  testWidgets('the screen offers both ways and starts on the link', (t) async {
+  testWidgets('the screen offers both ways, the phone first, and opens '
+      'neither', (t) async {
     tallScreen(t);
-    final h = await pumpApp(t, location: '/sources/add');
+    final h = await pumpApp(
+      t,
+      location: '/sources/add',
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
 
     expect(find.text('Add a calendar'), findsOneWidget);
-    expect(find.text('Paste a calendar link'), findsOneWidget);
-    expect(
-      find.text('Outlook, Google Calendar or any ICS link'),
-      findsOneWidget,
-    );
     expect(find.text('Use a calendar on this phone'), findsOneWidget);
     expect(
       find.text('Google, Samsung, Outlook and other accounts'),
       findsOneWidget,
     );
-    // The link card is open, with Outlook's path to the link.
+    expect(find.text('Paste a calendar link'), findsOneWidget);
+    expect(
+      find.text('Outlook, Google Calendar or any ICS link'),
+      findsOneWidget,
+    );
+    // The phone is the first of the two.
+    expect(
+      t.getTopLeft(find.text('Use a calendar on this phone')).dy,
+      lessThan(t.getTopLeft(find.text('Paste a calendar link')).dy),
+    );
+    // Neither is chosen, so nothing of either is open: no list of calendars,
+    // no link field, and no button to add anything.
+    expect(_chosen('choice-phone'), isFalse);
+    expect(_chosen('choice-ics'), isFalse);
+    expect(find.byIcon(Icons.radio_button_checked), findsNothing);
+    expect(find.byKey(const Key('calendar-1')), findsNothing);
+    expect(find.byKey(const Key('addSelected')), findsNothing);
+    expect(_linkField(), findsNothing);
+    expect(find.byKey(const Key('checkLink')), findsNothing);
+    expect(find.byKey(const Key('addCalendar')), findsNothing);
+    // Calendar access is asked for when the phone is chosen, not before.
+    expect(h.uiCalls.where((c) => c.method == 'requestPermission'), isEmpty);
+    await h.dispose(t);
+  });
+
+  testWidgets('a tap opens only the way that was tapped, and the other tap '
+      'switches to it', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      location: '/sources/add',
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+
+    // The phone: its list opens, after asking for calendar access.
+    await choosePhoneCard(t);
+    expect(_chosen('choice-phone'), isTrue);
+    expect(_chosen('choice-ics'), isFalse);
+    expect(find.byKey(const Key('calendar-1')), findsOneWidget);
+    expect(_linkField(), findsNothing);
+    expect(
+      h.uiCalls.singleWhere((c) => c.method == 'requestPermission').arguments,
+      {'kind': 'calendar'},
+    );
+
+    // The link: its form opens, with Outlook's path to the link, and the list
+    // closes.
+    await choosePasteCard(t);
+    expect(_chosen('choice-phone'), isFalse);
+    expect(_chosen('choice-ics'), isTrue);
+    expect(_linkField(), findsOneWidget);
     expect(
       find.text(
         'Outlook → Settings → Calendar → Shared calendars → Publish → ICS',
       ),
       findsOneWidget,
     );
-    expect(_linkField(), findsOneWidget);
-    expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+    expect(find.byKey(const Key('calendar-1')), findsNothing);
 
-    // Choosing the other card closes this one.
-    await _choosePhoneCard(t);
+    // And back to the phone.
+    await choosePhoneCard(t);
+    expect(_chosen('choice-phone'), isTrue);
+    expect(_chosen('choice-ics'), isFalse);
+    expect(find.byKey(const Key('calendar-1')), findsOneWidget);
     expect(_linkField(), findsNothing);
-    expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
-    expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
-    await t.tap(find.text('Paste a calendar link'));
-    await t.pumpAndSettle();
-    expect(_linkField(), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('Paste a calendar link opens the link form, and Check works as '
+      'it did', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+    expect(_linkField(), findsNothing);
+
+    await choosePasteCard(t);
+
+    // The form: the same URL field, Check off while it is empty, and Add off
+    // until a link has checked out.
+    final field = t.widget<TextField>(_linkField());
+    expect(field.keyboardType, TextInputType.url);
+    expect(field.autocorrect, isFalse);
+    expect(field.enableSuggestions, isFalse);
+    expect(
+      t.widget<OutlinedButton>(find.byKey(const Key('checkLink'))).onPressed,
+      isNull,
+    );
+    expect(_canAdd(t), isFalse);
+
+    await _check(t, secretLink);
+
+    expect(find.text('Found 2 events this week'), findsOneWidget);
+    expect(_canAdd(t), isTrue);
+    // A link is not a phone calendar: calendar access was never asked for.
+    expect(h.uiCalls.where((c) => c.method == 'requestPermission'), isEmpty);
+    await h.dispose(t);
+  });
+
+  testWidgets('nothing can be added until a way is chosen and has something '
+      'valid', (t) async {
+    tallScreen(t);
+    final h = await pumpApp(
+      t,
+      location: '/sources/add',
+      feeds: _goodFeed(),
+      seed: (h) async => h.deviceCalendars = [phoneCalendar('1', 'Work')],
+    );
+
+    // Nothing chosen: there is no button to press.
+    expect(find.byKey(const Key('addCalendar')), findsNothing);
+    expect(find.byKey(const Key('addSelected')), findsNothing);
+
+    // The phone, with no calendar ticked yet.
+    await choosePhoneCard(t);
+    expect(_canAddSelected(t), isFalse);
+    await t.tap(find.byKey(const Key('calendar-1')));
+    await t.pump();
+    expect(_canAddSelected(t), isTrue);
+
+    // The link, with nothing checked. The phone's button went with its list.
+    await choosePasteCard(t);
+    expect(find.byKey(const Key('addSelected')), findsNothing);
+    expect(_canAdd(t), isFalse);
+    await _check(t, secretLink);
+    expect(_canAdd(t), isTrue);
+
+    // Nothing was added on the way.
+    expect(await getIt<SourceRepository>().all(), isEmpty);
+    expect(h.syncs, isEmpty);
     await h.dispose(t);
   });
 
@@ -277,6 +402,7 @@ void main() {
   ) async {
     tallScreen(t);
     final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+    await choosePasteCard(t);
     expect(_canAdd(t), isFalse);
     expect(
       t.widget<OutlinedButton>(find.byKey(const Key('checkLink'))).onPressed,
@@ -314,6 +440,7 @@ void main() {
       location: '/sources/add',
       feeds: MockClient((_) async => http.Response('', 404)),
     );
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
 
@@ -349,6 +476,7 @@ void main() {
         return http.Response(weekFeed, 200);
       }),
     );
+    await choosePasteCard(t);
 
     await _check(
       t,
@@ -377,6 +505,7 @@ void main() {
         return http.Response(weekFeed, 200);
       }),
     );
+    await choosePasteCard(t);
 
     // The half-typed link of a keystroke is not sent anywhere.
     for (final typed in ['h', 'https://', 'https://example.test/c.ics']) {
@@ -395,6 +524,7 @@ void main() {
   testWidgets('Done on the keyboard checks the link', (t) async {
     tallScreen(t);
     final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+    await choosePasteCard(t);
 
     await t.enterText(_linkField(), secretLink);
     await t.testTextInput.receiveAction(TextInputAction.done);
@@ -418,6 +548,7 @@ void main() {
         return http.Response(weekFeed, 200);
       }),
     );
+    await choosePasteCard(t);
 
     await t.tap(find.byTooltip('Paste'));
     await t.pumpAndSettle();
@@ -454,6 +585,7 @@ void main() {
           return http.Response(weekFeed, 200);
         }),
       );
+      await choosePasteCard(t);
       // The name starts as Work Outlook.
       expect(
         t
@@ -494,6 +626,7 @@ void main() {
   testWidgets('an empty name becomes Work Outlook', (t) async {
     tallScreen(t);
     final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.enterText(find.byKey(const Key('newSourceName')), '   ');
@@ -515,6 +648,7 @@ void main() {
         icsSource(id: 'first', name: 'Aaa', color: calendarPalette[0]),
       ),
     );
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
@@ -539,6 +673,7 @@ void main() {
           h.syncResult = (trigger) =>
               SyncReport(trigger: trigger, outcome: SyncRunOutcome.busy),
     );
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
@@ -571,6 +706,7 @@ void main() {
       seed: (h) async =>
           h.syncResult = (_) => throw StateError('boom $secretLink'),
     );
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
@@ -608,6 +744,7 @@ void main() {
             });
       },
     );
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
@@ -644,6 +781,7 @@ void main() {
       final platform = recordPlatformCalls();
       final stopSemantics = watchSemantics(t);
       final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+      await choosePasteCard(t);
 
       await _check(t, secretLink);
       await t.tap(find.byKey(const Key('addCalendar')));
@@ -696,7 +834,7 @@ void main() {
         ];
       },
     );
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
     expect(_canAddSelected(t), isFalse);
 
     await t.tap(find.byKey(const Key('calendar-1')));
@@ -757,7 +895,7 @@ void main() {
       },
     );
     await _hostPanel(t);
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     // Only the Samsung one is ticked. The Google one is not added, and is still
     // the reason for the account in the name.
@@ -796,7 +934,7 @@ void main() {
       },
     );
     await _hostPanel(t);
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     await _addPhoneCalendars(t, ['g', 's']);
 
@@ -833,7 +971,7 @@ void main() {
       },
     );
     await _hostPanel(t);
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     await _addPhoneCalendars(t, ['1', '2']);
 
@@ -865,7 +1003,7 @@ void main() {
       },
     );
     await _hostPanel(t);
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     await _addPhoneCalendars(t, ['1']);
 
@@ -918,7 +1056,7 @@ void main() {
       },
     );
     await _hostPanel(t);
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     await _addPhoneCalendars(t, ['g', 's']);
 
@@ -959,7 +1097,7 @@ void main() {
       },
     );
 
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     expect(_boxOf(t, '2').value, isFalse);
     expect(_boxOf(t, '2').onChanged, isNotNull);
@@ -978,7 +1116,7 @@ void main() {
       },
     );
 
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     expect(
       find.text(
@@ -1014,7 +1152,7 @@ void main() {
       seed: (h) async => _failCalendarRead('permission_denied'),
     );
 
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     expect(
       find.text(
@@ -1042,7 +1180,7 @@ void main() {
       seed: (h) async => _failCalendarRead('boom'),
     );
 
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     expect(find.text("Could not read this phone's calendars."), findsOneWidget);
     expect(find.text('Try again'), findsOneWidget);
@@ -1059,7 +1197,7 @@ void main() {
     tallScreen(t);
     final h = await pumpApp(t, location: '/sources/add');
 
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     expect(find.text('No calendars found on this phone.'), findsOneWidget);
     expect(find.byKey(const Key('addSelected')), findsNothing);
@@ -1071,6 +1209,7 @@ void main() {
     tallScreen(t);
     final h = await pumpApp(t, feeds: _goodFeed());
     final added = await _hostPanel(t, onboarding: true);
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
@@ -1105,6 +1244,7 @@ void main() {
     tallScreen(t);
     final h = await pumpApp(t, feeds: _goodFeed());
     await _hostPanel(t);
+    await choosePasteCard(t);
 
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
@@ -1129,7 +1269,7 @@ void main() {
       },
     );
     final added = await _hostPanel(t, onboarding: true);
-    await _choosePhoneCard(t);
+    await choosePhoneCard(t);
 
     await t.tap(find.byKey(const Key('calendar-1')));
     await t.pump();
@@ -1165,6 +1305,7 @@ void main() {
             : http.Response(weekFeed, 200),
       ),
     );
+    await choosePasteCard(t);
     // What the result says. The field is left out of the search: it holds the
     // link, as it must.
     Finder inResult(String text) => find.descendant(
@@ -1208,6 +1349,7 @@ void main() {
       feeds: _goodFeed(),
       seed: (h) async => held = HeldSecureWrites(h),
     );
+    await choosePasteCard(t);
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
     await t.pump();
@@ -1230,6 +1372,7 @@ void main() {
   testWidgets('back leaves Add source when nothing is being added', (t) async {
     tallScreen(t);
     final h = await pumpApp(t, location: '/sources/add', feeds: _goodFeed());
+    await choosePasteCard(t);
     await _check(t, secretLink);
 
     // The control of the test above: the same Back does leave.
@@ -1253,6 +1396,7 @@ void main() {
       feeds: _goodFeed(),
       seed: (h) async => held = HeldSecureWrites(h),
     );
+    await choosePasteCard(t);
     await _check(t, secretLink);
 
     // Both taps land before a frame: the second finds the button as it was
@@ -1278,6 +1422,7 @@ void main() {
       feeds: _goodFeed(),
       seed: (h) async => held = HeldSecureWrites(h),
     );
+    await choosePasteCard(t);
     await _check(t, secretLink);
     await t.tap(find.byKey(const Key('addCalendar')));
     await t.pump();

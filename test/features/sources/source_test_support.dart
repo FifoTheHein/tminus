@@ -61,6 +61,22 @@ END:VEVENT
 END:VCALENDAR
 ''';
 
+/// Taps the "Use a calendar on this phone" card of the add panel (Add source,
+/// and onboarding's Add your calendar step). That opens the list of the phone's
+/// calendars, and asks for calendar access. Neither card is open at first.
+Future<void> choosePhoneCard(WidgetTester t) async {
+  await t.tap(find.text('Use a calendar on this phone'));
+  await t.pumpAndSettle();
+}
+
+/// Taps the "Paste a calendar link" card of the add panel. That opens the link
+/// form: the ICS link field, Check and Add calendar. Neither card is open at
+/// first, so a test that types a link starts here.
+Future<void> choosePasteCard(WidgetTester t) async {
+  await t.tap(find.text('Paste a calendar link'));
+  await t.pumpAndSettle();
+}
+
 /// A surface tall enough that nothing a test taps is below the fold.
 void tallScreen(WidgetTester t) {
   t.view.physicalSize = const Size(800, 2400);

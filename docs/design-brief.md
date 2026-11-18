@@ -42,13 +42,12 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
 ### 1. Onboarding (first run only)
 
 1. **Welcome:** the value in one sentence.
-2. **Add a source**, with two options:
-   - **Paste an Outlook ICS link.** Show a hint with a small illustration of where to find it: Outlook → Settings → Calendar → Shared calendars → Publish → ICS. The app validates the link and shows "Found 23 events this week".
-   - **Use a calendar on this phone.** Shows the phone's calendars with checkboxes, grouped under headings by account kind and account (Google, Samsung account, Outlook, and so on).
+2. **Add a source**, with two options, the phone first. Neither is open when the step first shows; tapping one opens it, and tapping the other switches to it (Plan 6, C1). The same panel is used from the Sources tab.
+   - **Use a calendar on this phone.** Shows the phone's calendars with checkboxes, grouped under headings by account kind and account (Google, Samsung account, Outlook, and so on). The Calendar permission is asked only after this option is tapped.
      - **Shared with you**, **Holidays and birthdays** and **On this phone only** get their own groups.
      - Calendars that are not synced are greyed out with a **Not synced** label, and a footnote explains how to turn sync on.
      - The layout and the rules are in `docs/superpowers/specs/2026-11-13-calendar-grouping-design.md` §4 and §6.
-     - The same picker is used from the Sources tab.
+   - **Paste a calendar link.** Show a hint with a small illustration of where to find it: Outlook → Settings → Calendar → Shared calendars → Publish → ICS. The app validates the link and shows "Found 23 events this week".
 3. **Permissions**, one per step, each with a one-line reason and an Allow button:
    - notifications
    - full-screen alarms

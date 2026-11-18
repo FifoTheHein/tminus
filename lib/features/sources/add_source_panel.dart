@@ -36,11 +36,14 @@ int firstUnusedPaletteColour(Iterable<int> used) {
   return best;
 }
 
-/// The two ways to add a calendar (mockup 5b), as two selectable cards: paste
-/// a calendar's ICS link (with steps for Outlook, Google or any other), or use
-/// a calendar on this phone. It adds the source,
-/// syncs it once, and then calls [onAdded] with it. It is part of a screen,
-/// not a screen: Add source and onboarding put it on theirs.
+/// The two ways to add a calendar (mockup 5b), as two selectable cards: use a
+/// calendar on this phone, or paste a calendar's ICS link (with steps for
+/// Outlook, Google or any other). Neither is open at first. A tap on a card
+/// opens it (the phone's list, which asks for calendar access, or the link
+/// form) and closes the other, so a pasted link never asks for calendar
+/// access. It adds the source, syncs it once, and then calls [onAdded] with it.
+/// It is part of a screen, not a screen: Add source and onboarding put it on
+/// theirs.
 ///
 /// The link is typed into the field, checked by [IcsLinkProbe] (one real
 /// fetch, nothing stored) and handed to `SourceAdmin`. Nothing else holds it.
@@ -63,7 +66,7 @@ class AddSourcePanel extends StatefulWidget {
   State<AddSourcePanel> createState() => _AddSourcePanelState();
 }
 
-enum _Choice { ics, phone }
+enum _Choice { phone, ics }
 
 class _AddSourcePanelState extends State<AddSourcePanel> {
   late final LinkChecker _link;
@@ -71,7 +74,11 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
   /// Whose steps are shown. A link from a host we know switches it.
   LinkProvider _provider = LinkProvider.outlook;
   late final _name = TextEditingController(text: _provider.defaultName);
-  _Choice _choice = _Choice.ics;
+
+  /// The card that is open. Null until the user taps one, so neither is open
+  /// at first, and the phone's list does not ask for calendar access before
+  /// the user has chosen it.
+  _Choice? _choice;
 
   /// The link text last looked at, so a selection or focus change (which
   /// also notifies the controller) does not undo the user's own choice.
@@ -272,16 +279,6 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _ChoiceCard(
-          key: const Key('choice-ics'),
-          icon: Icons.link,
-          title: 'Paste a calendar link',
-          subtitle: 'Outlook, Google Calendar or any ICS link',
-          selected: _choice == _Choice.ics,
-          onSelect: () => setState(() => _choice = _Choice.ics),
-          child: _icsBody(context),
-        ),
-        const SizedBox(height: TMinusSpacing.sm),
-        _ChoiceCard(
           key: const Key('choice-phone'),
           icon: Icons.phone_android,
           title: 'Use a calendar on this phone',
@@ -289,6 +286,16 @@ class _AddSourcePanelState extends State<AddSourcePanel> {
           selected: _choice == _Choice.phone,
           onSelect: _selectPhone,
           child: CalendarPicker.pickMany(takenIds: _taken, onAdd: _addDevice),
+        ),
+        const SizedBox(height: TMinusSpacing.sm),
+        _ChoiceCard(
+          key: const Key('choice-ics'),
+          icon: Icons.link,
+          title: 'Paste a calendar link',
+          subtitle: 'Outlook, Google Calendar or any ICS link',
+          selected: _choice == _Choice.ics,
+          onSelect: () => setState(() => _choice = _Choice.ics),
+          child: _icsBody(context),
         ),
         if (_addedNote != null) ...[
           const SizedBox(height: TMinusSpacing.sm),

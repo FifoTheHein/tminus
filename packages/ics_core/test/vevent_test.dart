@@ -103,4 +103,94 @@ void main() {
       throwsFormatException,
     );
   });
+
+  group('joinUrl', () {
+    List<String> lines(List<String> more) => [
+      'UID:a',
+      'DTSTART:20261013T090000Z',
+      ...more,
+    ];
+
+    test('X-GOOGLE-CONFERENCE is searched before the text and location', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij',
+            r'DESCRIPTION:Dial in with Zoom: https://example.zoom.us/j/12345678901\n',
+            'LOCATION:https://example.webex.com/meet/someone',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://meet.google.com/abc-defg-hij');
+    });
+
+    test('a conference value that is no join link is skipped', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://hangouts.google.com/hangouts/_/abcdefghijklmnop',
+            r'DESCRIPTION:Join by Zoom: https://example.zoom.us/j/12345678901\n',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('the conference property alone gives the link', () {
+      final e = parseVevent(
+        event(
+          lines(['X-GOOGLE-CONFERENCE:https://meet.google.com/klm-nopq-rst']),
+        ),
+      );
+      expect(e.joinUrl, 'https://meet.google.com/klm-nopq-rst');
+    });
+
+    test('without a conference value, the text comes before the location', () {
+      final e = parseVevent(
+        event(
+          lines([
+            r'DESCRIPTION:Join by Zoom: https://example.zoom.us/j/12345678901\n',
+            'LOCATION:https://example.webex.com/meet/someone',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('a Webex link in the location alone is found', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'DESCRIPTION:Come by.',
+            'LOCATION:https://example.webex.com/meet/someone',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.webex.com/meet/someone');
+    });
+
+    test('an escaped semicolon after a Zoom link is not part of it', () {
+      final e = parseVevent(
+        event(
+          lines([
+            r'DESCRIPTION:https://us02web.zoom.us/j/81234567890?pwd=abcXYZ\;',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://us02web.zoom.us/j/81234567890?pwd=abcXYZ');
+    });
+
+    test('no join link anywhere gives null', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://hangouts.google.com/hangouts/_/abcdefghijklmnop',
+            r'DESCRIPTION:https://zoom.us/download\nhttps://tel.meet/abc-defg-hij?pin=1234567890\n',
+            'LOCATION:Boardroom',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, isNull);
+    });
+  });
 }

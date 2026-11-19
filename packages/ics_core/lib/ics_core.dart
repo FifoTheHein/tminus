@@ -11,6 +11,8 @@
 /// converted to UTC, so local meeting times survive DST changes.
 library;
 
-export 'src/event_fields.dart' show extractTeamsJoinUrl, isCancelledTitle;
+export 'src/event_fields.dart' show isCancelledTitle;
 export 'src/expand_ics.dart' show expandIcs;
+export 'src/meeting_links.dart'
+    show MeetingService, extractJoinUrl, meetingServiceOf;
 export 'src/model.dart';

@@ -212,6 +212,128 @@ END:VEVENT''');
     });
   });
 
+  group('meeting links (meeting_links.ics)', () {
+    final r = expandFixture('meeting_links.ics', from: from, to: to);
+    String? link(String uid) => byUid(r, uid).single.joinUrl;
+
+    test('no issues', () => expect(r.issues, isEmpty));
+
+    test('Teams on teams.cloud.microsoft, up to the line break', () {
+      expect(
+        link('teams-cloud'),
+        'https://teams.cloud.microsoft/meet/1234567890123?p=AbCdEfGh',
+      );
+    });
+
+    test('Google Meet: the link ends at the escaped line break', () {
+      // The conference property and the description hold the same link, and
+      // the description goes on with a phone-numbers link and a help link.
+      expect(link('google-meet'), 'https://meet.google.com/abc-defg-hij');
+    });
+
+    test('Google Meet: a link inside HTML ends at the closing quote', () {
+      expect(link('google-html'), 'https://meet.google.com/abc-defg-hij');
+    });
+
+    test('Google Meet: the conference property alone is enough', () {
+      expect(
+        link('google-conference-only'),
+        'https://meet.google.com/klm-nopq-rst',
+      );
+    });
+
+    test('Google Meet: the conference property comes before the text', () {
+      expect(
+        link('google-conference-first'),
+        'https://meet.google.com/abc-defg-hij',
+      );
+    });
+
+    test('a conference value that is no join link is skipped', () {
+      expect(
+        link('google-old-conference'),
+        'https://example.zoom.us/j/12345678901',
+      );
+    });
+
+    test('Zoom behind a Google redirect holding the plain link', () {
+      expect(
+        link('google-zoom-redirect'),
+        'https://us02web.zoom.us/j/81234567890?pwd=abcXYZ',
+      );
+    });
+
+    test('Zoom followed by an escaped semicolon', () {
+      expect(
+        link('zoom-semicolon'),
+        'https://us02web.zoom.us/j/81234567890?pwd=abcXYZ',
+      );
+    });
+
+    test('Zoom link that is only in the location', () {
+      expect(link('zoom-location'), 'https://example.zoom.us/my/someone');
+    });
+
+    test('Webex join page link in the description', () {
+      expect(
+        link('webex'),
+        'https://example.webex.com/example/j.php?MTID=m0123abcd',
+      );
+    });
+
+    test('Webex personal room that is only in the location', () {
+      expect(link('webex-room'), 'https://example.webex.com/meet/someone');
+    });
+
+    test('with two links, the earliest wins, whatever its service', () {
+      expect(
+        link('two-links-zoom-first'),
+        'https://example.zoom.us/j/12345678901?pwd=abc',
+      );
+      expect(
+        link('two-links-teams-first'),
+        'https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0',
+      );
+    });
+
+    test('Outlook invite of a Meet: the description form beats the location', () {
+      // The description holds the link only inside a Safe Links wrapper, with
+      // ?hs=224, and shows the bare text meet.google.com/... without https. The
+      // location is the plain link, and the description is searched first.
+      expect(
+        link('outlook-meet'),
+        'https://meet.google.com/abc-defg-hij?hs=224',
+      );
+    });
+
+    test('pages that only look like join links give null', () {
+      expect(link('no-join-link'), isNull);
+    });
+
+    test('every link the fixture gives is named by its service', () {
+      expect(
+        {for (final o in r.occurrences) o.uid: meetingServiceOf(o.joinUrl)},
+        {
+          'teams-cloud': MeetingService.teams,
+          'google-meet': MeetingService.googleMeet,
+          'google-html': MeetingService.googleMeet,
+          'google-conference-only': MeetingService.googleMeet,
+          'google-conference-first': MeetingService.googleMeet,
+          'google-old-conference': MeetingService.zoom,
+          'google-zoom-redirect': MeetingService.zoom,
+          'zoom-semicolon': MeetingService.zoom,
+          'zoom-location': MeetingService.zoom,
+          'webex': MeetingService.webex,
+          'webex-room': MeetingService.webex,
+          'two-links-zoom-first': MeetingService.zoom,
+          'two-links-teams-first': MeetingService.teams,
+          'outlook-meet': MeetingService.googleMeet,
+          'no-join-link': null,
+        },
+      );
+    });
+  });
+
   group('folded lines (folded_lines.ics)', () {
     test('unfolds names, parameters, values and URLs', () {
       final o = expandFixture(

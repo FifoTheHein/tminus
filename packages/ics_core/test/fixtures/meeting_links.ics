@@ -1,0 +1,118 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example//Meeting links//EN
+BEGIN:VEVENT
+UID:teams-cloud
+SUMMARY:Teams on the newer host
+DESCRIPTION:Join the meeting now\nhttps://teams.cloud.microsoft/meet/1234567890123?p=AbCdEfGh\nMeeting ID: 123 456 789 0\n
+LOCATION:Microsoft Teams Meeting
+DTSTART:20261013T090000Z
+DTEND:20261013T093000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-meet
+SUMMARY:Planning
+X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij
+DESCRIPTION:Join with Google Meet: https://meet.google.com/abc-defg-hij\nMore phone numbers: https://tel.meet/abc-defg-hij?pin=1234567890\nLearn more about Meet at: https://support.google.com/a/users/answer/9282720\n
+DTSTART:20261013T100000Z
+DTEND:20261013T103000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-html
+SUMMARY:Retro
+DESCRIPTION:<b>Join with Google Meet</b><br><a href="https://meet.google.com/abc-defg-hij">https://meet.google.com/abc-defg-hij</a><br><br>Learn more about Meet at: <a href="https://support.google.com/a/users/answer/9282720">https://support.google.com/a/users/answer/9282720</a>
+DTSTART:20261013T110000Z
+DTEND:20261013T113000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-conference-only
+SUMMARY:Standup
+X-GOOGLE-CONFERENCE:https://meet.google.com/klm-nopq-rst
+DESCRIPTION:Agenda: budget and hiring\nNo link in the text.
+DTSTART:20261013T120000Z
+DTEND:20261013T123000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-conference-first
+SUMMARY:Customer call
+X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij
+DESCRIPTION:Dial in with Zoom instead: https://example.zoom.us/j/12345678901?pwd=abc\n
+DTSTART:20261013T130000Z
+DTEND:20261013T133000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-old-conference
+SUMMARY:Old Hangout
+X-GOOGLE-CONFERENCE:https://hangouts.google.com/hangouts/_/abcdefghijklmnop
+DESCRIPTION:Join by Zoom: https://example.zoom.us/j/12345678901\n
+DTSTART:20261013T140000Z
+DTEND:20261013T143000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-zoom-redirect
+SUMMARY:Vendor call
+DESCRIPTION:<a href="https://www.google.com/url?q=https://us02web.zoom.us/j/81234567890?pwd%3DabcXYZ&sa=D&source=calendar&usg=x">Join Zoom Meeting</a>
+DTSTART:20261014T090000Z
+DTEND:20261014T093000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:zoom-semicolon
+SUMMARY:Support call
+DESCRIPTION:Join Zoom Meeting\nhttps://us02web.zoom.us/j/81234567890?pwd=abcXYZ\;\nMeeting ID: 812 3456 7890\nPasscode: 123456\n
+DTSTART:20261014T100000Z
+DTEND:20261014T103000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:zoom-location
+SUMMARY:Weekly sync
+DESCRIPTION:Weekly sync with the team.
+LOCATION:https://example.zoom.us/my/someone
+DTSTART:20261014T110000Z
+DTEND:20261014T113000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:webex
+SUMMARY:Vendor review
+DESCRIPTION:Join meeting\nhttps://example.webex.com/example/j.php?MTID=m0123abcd\n\nJoin by phone\n+1-555-0100\n
+DTSTART:20261014T120000Z
+DTEND:20261014T123000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:webex-room
+SUMMARY:Office hours
+DESCRIPTION:Come by.
+LOCATION:https://example.webex.com/meet/someone
+DTSTART:20261014T130000Z
+DTEND:20261014T133000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:two-links-zoom-first
+SUMMARY:Zoom, or Teams
+DESCRIPTION:Join by Zoom: https://example.zoom.us/j/12345678901?pwd=abc\nOr join in Teams: https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0\n
+DTSTART:20261015T090000Z
+DTEND:20261015T093000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:two-links-teams-first
+SUMMARY:Teams, or Zoom
+DESCRIPTION:Join in Teams: https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0\nOr join by Zoom: https://example.zoom.us/j/12345678901?pwd=abc\n
+DTSTART:20261015T100000Z
+DTEND:20261015T103000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:outlook-meet
+SUMMARY:Design sync
+DESCRIPTION:Join with Google Meet\nmeet.google.com/abc-defg-hij<https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fhs%3D224&data=05%7C02%7Cuser%40example.com%7C0123abcd%7C0%7C0%7C638000000000000000%7CUnknown&sdata=abc%2Fdef%3D&reserved=0>\n\nMore phone numbers\ntel.meet/abc-defg-hij<https://eur02.safelinks.protection.outlook.com/?url=https%3A%2F%2Ftel.meet%2Fabc-defg-hij%3Fpin%3D1234567890&data=05%7C02%7Cuser%40example.com%7C0123abcd%7C0%7C0%7C638000000000000000%7CUnknown&sdata=abc%2Fdef%3D&reserved=0>\n
+LOCATION:https://meet.google.com/abc-defg-hij
+DTSTART:20261015T110000Z
+DTEND:20261015T113000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:no-join-link
+SUMMARY:Pages that only look like join links
+DESCRIPTION:https://zoom.us/download\nhttps://www.webex.com/\nhttps://meet.google.com/\nhttps://tel.meet/abc-defg-hij?pin=1234567890\nhttps://support.google.com/a/users/answer/9282720\nhttps://teams.microsoft.com/l/channel/19%3aabc%40thread.tacv2/General\n
+LOCATION:Boardroom
+DTSTART:20261015T120000Z
+DTEND:20261015T123000Z
+END:VEVENT
+END:VCALENDAR

@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'package:ics_core/src/content_line.dart';
 import 'package:ics_core/src/event_fields.dart';
+import 'package:ics_core/src/meeting_links.dart';
 
 /// Properties copied unchanged.
 const keptProperties = {
@@ -110,7 +111,10 @@ ScrubResult scrubFeed(String raw, {required DateTime capturedUtc}) {
     } else if (cl.name == 'LOCATION') {
       location = unescapeText(cl.value);
     } else if (cl.name == 'END' && cl.value.trim().toUpperCase() == 'VEVENT') {
-      eventHasTeams.add(extractTeamsJoinUrl(description, location) != null);
+      eventHasTeams.add(
+        meetingServiceOf(extractJoinUrl(description, location)) ==
+            MeetingService.teams,
+      );
       if (_meetLink.hasMatch('$description $location')) {
         meetLinks++;
       }
@@ -158,7 +162,8 @@ ScrubResult scrubFeed(String raw, {required DateTime capturedUtc}) {
         final place = unescapeText(value).trim();
         if (place.isEmpty) {
           out.add('LOCATION:');
-        } else if (extractTeamsJoinUrl(null, place) != null) {
+        } else if (meetingServiceOf(extractJoinUrl(null, place)) ==
+            MeetingService.teams) {
           out.add('LOCATION:${teamsUrl()}');
         } else if (place.toLowerCase().contains('microsoft teams')) {
           out.add('LOCATION:Microsoft Teams Meeting');

@@ -16,12 +16,20 @@ class AlertText(zone: ZoneId, is24Hour: Boolean, locale: Locale = Locale.getDefa
     /** "10:00–11:00" with an en dash. */
     fun range(e: EventSnapshot): String = "${time(e.startUtcMs)}–${time(e.endUtcMs)}"
 
-    /** "Teams", "Boardroom 2" or "Teams · Boardroom 2"; a Teams location text is not repeated. */
+    /**
+     * The join link's service, then the location: "Zoom", "Boardroom 2" or "Google Meet · Boardroom 2".
+     * A location that already names the service ("Microsoft Teams Meeting"), or is itself a link of
+     * that service (Outlook writes the bare Meet link into LOCATION), is not repeated. A link of no
+     * known service adds nothing.
+     */
     fun where(e: EventSnapshot): String? {
+        val service = MeetingService.of(e.joinUrl)
         val parts = mutableListOf<String>()
-        if (e.joinUrl != null) parts += "Teams"
+        if (service != null) parts += service.label
         val location = e.location?.trim().orEmpty()
-        if (location.isNotEmpty() && !(e.joinUrl != null && location.contains("Teams", ignoreCase = true))) parts += location
+        val repeatsService = service != null &&
+            (location.contains(service.label, ignoreCase = true) || MeetingService.of(location) == service)
+        if (location.isNotEmpty() && !repeatsService) parts += location
         return parts.joinToString(" · ").ifEmpty { null }
     }
 

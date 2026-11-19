@@ -29,7 +29,10 @@ class JoinActivity : Activity() {
                 .putExtra(EXTRA_ALERT_ID, alertId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY)
 
-        /** Teams opens teams.microsoft.com links when installed; otherwise the browser does (spec §6). */
+        /**
+         * The meeting service's own app (Teams, Meet, Zoom or Webex) opens the link when it is
+         * installed; otherwise the browser does (spec §6).
+         */
         fun openJoinUrl(context: Context, url: String) {
             try {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

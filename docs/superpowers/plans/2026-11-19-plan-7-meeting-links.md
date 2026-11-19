@@ -27,6 +27,7 @@ The web search did not settle the exact formats, so Wave 0 checks them against r
   - Zoom: `<sub>.zoom.us/j/<digits>` (also `zoom.com`, an optional `pwd` query), personal `/my/<name>`, webinar `/w/<id>`;
   - Webex: `<sub>.webex.com/<path>/j.php?MTID=<id>` and personal rooms `<sub>.webex.com/meet/<id>` or `/join/<id>`;
   - Teams also uses `teams.cloud.microsoft/meet/<digits>` and, for personal accounts, `teams.live.com/meet/<digits>`. Today's finder misses both.
+- **The user's own Outlook feed** (checked 2026-11-19, read in the session, raw file only in the git-ignored `packages/ics_core/test/fixtures/private/`): 608 events; 502 hold a Teams link, 65 a Meet link, 1 a Zoom link, none a Webex link. All 65 Meet events are Google invites accepted into Outlook. Every one has the plain link `https://meet.google.com/<code>` as its whole `LOCATION`. Their `DESCRIPTION` holds it only inside Outlook Safe Links wrappers, as `https://meet.google.com/<code>?hs=224`, plus a `https://tel.meet/<code>?pin=...` "more phone numbers" link, which is not a join link. Five also have a plain link in `DESCRIPTION`. The Zoom event has its link plain and Safe-Links-wrapped in `DESCRIPTION`. Today none of these 66 meetings gets a Join button.
 - **Zoom and Webex** add-ins usually write the link into `LOCATION` and the body ([Zoom community](https://community.zoom.com/meetings-2/inconsistent-zoom-meeting-urls-prevent-teams-rooms-from-joining-meetings-81408), [Cisco community](https://community.cisco.com/t5/collaboration-knowledge-base/join-meeting-url-format/ta-p/3609454)).
 
 ## Global constraints
@@ -96,7 +97,7 @@ The web search did not settle the exact formats, so Wave 0 checks them against r
 | `AgendaItem.service` | Dart getter, `lib/features/agenda/agenda_model.dart`; replaces `hasTeams` | `MeetingService? get service => meetingServiceOf(meeting.joinUrl)` | J3 | null: no badge, no Join |
 | `MeetingBadge` | Dart widget, `lib/features/common/alert_chips.dart`; replaces `TeamsBadge` | `const MeetingBadge({super.key, required MeetingService service})`, icon `Icons.videocam_rounded`, label `service.label` | J3 | - |
 | Join button text | `lib/features/agenda/event_sheet.dart` | `Join Teams meeting`, `Join Google Meet`, `Join Zoom meeting`, `Join Webex meeting` | J3 | - |
-| Shared test table | both test authors | the same 20 links and expected services: 5 Teams (today's 2 forms, `teams.cloud.microsoft`, `teams.live.com`, a Safe Links wrap), 4 Meet (plain, with `?authuser=0`, a Google `url?q=` wrap, HTML `href="...">`), 5 Zoom (`us06web.zoom.us/j/..?pwd=`, `zoom.us/my/name`, `zoom.com/j/..`, `/w/..`, a Safe Links wrap), 3 Webex (`j.php?MTID=`, `/meet/`, `/join/`), 3 not links (`https://zoom.us/download`, `https://www.webex.com/`, `https://meet.google.com/`) | T1 writes it in Dart, T2 copies the same rows into Kotlin | - |
+| Shared test table | both test authors | the same 21 links and expected services: 5 Teams (today's 2 forms, `teams.cloud.microsoft`, `teams.live.com`, a Safe Links wrap), 4 Meet (plain, with `?authuser=0`, a Google `url?q=` wrap, HTML `href="...">`), 5 Zoom (`us06web.zoom.us/j/..?pwd=`, `zoom.us/my/name`, `zoom.com/j/..`, `/w/..`, a Safe Links wrap), 3 Webex (`j.php?MTID=`, `/meet/`, `/join/`), 4 not links (`https://zoom.us/download`, `https://www.webex.com/`, `https://meet.google.com/`, `https://tel.meet/abc-defg-hij?pin=1234`); the Meet rows include Outlook's form, a Safe Links wrap of `https://meet.google.com/abc-defg-hij?hs=224` | T1 writes it in Dart, T2 copies the same rows into Kotlin | - |
 
 ## 4. Acceptance criteria → tests
 
@@ -138,6 +139,8 @@ ACCEPTANCE: branch name; `HEAD` equals `origin/main`; `@{u}` unset; analyze `No 
 ### Wave 0: what the real data looks like (user + scout, read-only)
 
 #### W0.1: Google, Zoom and Webex in a Google ICS feed
+
+Outlook feeds are already answered (see Research: the user's own feed). This job covers Google's own ICS export only.
 
 AGENT: scout, with the user · TASK: plan-7-data
 - The user puts in `C:\Projects\tminus\.claude\worktrees\plan-7-meeting-links\packages\ics_core\test\fixtures\private\` (git-ignored) a Google Calendar ICS export, or the secret iCal address saved to a file. It holds at least one event with "Add Google Meet video conferencing", and if possible one with a Zoom link and one with a Webex link.

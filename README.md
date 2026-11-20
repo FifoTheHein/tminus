@@ -69,7 +69,7 @@ Outlook and Teams are trademarks of Microsoft. Google Calendar and Google Meet a
 
 ## Availability
 
-T-Minus is on Google Play internal testing (version 1.0.1, 18 November 2026). It is not on the public Play Store yet, so there is no Play link.
+T-Minus is on Google Play internal testing (version 1.0.2, 20 November 2026). The same version is in Play review for a closed test. It is not on the public Play Store yet, so there is no Play link.
 
 Bugs and questions go to [GitHub issues](https://github.com/FifoTheHein/tminus/issues). [The privacy policy](https://fifothehein.github.io/tminus/privacy/) is on GitHub Pages.
 
@@ -92,7 +92,7 @@ Plans 1 to 7 are built:
 
 Between Plans 5 and 6, the phone calendar picker started to group calendars by account, and the app got its own launcher icon and in-app logo.
 
-The app is on Google Play internal testing (1.0.1, 18 November 2026), and its store listing is in Play review. It is not in production: the closed test and the production release are a later step. Plan 7 reaches Play with the 1.0.2 release, which is still to come.
+Version 1.0.2 (build 3), which carries Plan 7, is on Google Play internal testing. It was published on 20 November 2026 and replaced 1.0.1 there. The same day, 1.0.2 was promoted to the closed testing track (Alpha). That rollout is in Play review, together with an updated full description (`docs/play/listing.md`) that names Google Meet, Zoom and Webex. The app is not in production: the production release is a later step.
 
 ### Documents
 

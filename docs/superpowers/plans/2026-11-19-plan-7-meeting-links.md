@@ -368,28 +368,29 @@ Each waits for the user's go.
 
 ## 8. Bookmark: the orchestrator edits this section only
 
-Reviewer: (none yet)
+Reviewer: a4e00dec7f995483f (review-worker, run 1)
 
 ### Steps
 
 | Step | State | Evidence | Commit |
 |-|-|-|-|
-| Setup | todo | | |
-| W0.1 | todo | | |
-| W0.2 | todo | | |
-| Gate 0 | todo | | |
-| J1 | todo | | |
-| J2 | todo | | |
-| T1 | todo | | |
-| T2 | todo | | |
-| W1 close | todo | | |
-| J3 | todo | | |
-| T3 | todo | | |
-| W2 close | todo | | |
-| J4 | todo | | |
-| W3 close | todo | | |
-| W4 | todo | | |
-| Push and PR | todo | | |
+| Setup | done | branch claude/plan-7-meeting-links-2ec46f at 0b9e9d0 (origin/main + 3 plan-only commits); `@{u}` unset; gradle files present. Baseline: analyze "No issues found!"; flutter test +1266 "All tests passed!"; ics_core dart test +157 "All tests passed!"; gradle testDebugUnitTest BUILD SUCCESSFUL (79 of 84 tasks up to date, so test count not seen) | |
+| W0.1 | done | Google secret iCal feed (address given by the user in chat, not recorded) at private/google-feed.ics, git-ignored (check-ignore .gitignore:51). 339 VEVENTs; Meet 246, Zoom 1, Webex 1 (bare text only), Teams 16. Meet: `X-GOOGLE-CONFERENCE` in 246/246, each value exactly one `https://meet.google.com/<l>-<l>-<l>`; `DESCRIPTION` plain in 246/246, no query, followed by an ICS-escaped `\n`; `LOCATION` never. Next to Meet: `tel.meet` (234), `support.google.com` (246). Zoom: `<sub>.zoom.us` only, `/j/<digits>` plain and in `href=`, other non-join paths beside it, query names `pwd` and others, one link followed by an ICS-escaped `\;`. Teams: `/l/meetup-join/` and `/meet/` on `teams.microsoft.com` (today's forms) in 5 events; 13 events hold only Mimecast-rewritten links (`url.za.m.mimecastprotect.com/...?domain=teams.microsoft.com`), where the Teams link itself is not in the text. | |
+| W0.1b | done | Second Google feed (a colleague's, shared with consent; address not recorded) at private/google-feed-2.ics, git-ignored. 14953 VEVENTs: Meet 8123, Zoom 1432, Webex 62, Teams 578. Meet: `X-GOOGLE-CONFERENCE` 8121 (the other 56 values are old `hangouts.google.com`/`plus.google.com` links), DESCRIPTION plain, never a query, first link clean in 8121/8123. Zoom: `zoom.us` and `<sub>.zoom.us`, `/j/` 2376, `/w/` 4; non-join paths beside them (`/addon/invitation` 1076, `/hc/` 76, `/u/` 38, `/s/` 1); 1455 Zoom links sit inside Google redirects as `url?q=https://<sub>.zoom.us/j/<d>?pwd%3D...&sa=D...` (inner link plain, its `=` encoded, ends at `&`); first Zoom link in DESCRIPTION clean in 1339/1344 events; LOCATION is exactly the Zoom link in 332. Webex: `j.php?MTID=` 3, `/join/` 1; 62 `webex.com/msteams?confid=...` (Webex-from-Teams links in Teams invites, not Webex joins); 153 host-only mentions. Teams: `/l/meetup-join/` in 562 events, `/meet/<digits>` on teams.microsoft.com 23 and teams.live.com 6; 192 inside Google `url?q=` redirects; Mimecast wrappers in 7 events. No `&amp;` anywhere. | |
+| W0.2 | skipped | user: phone "Not now, carry on" (2026-11-19). Phone Meet support recorded as unknown | |
+| Gate 0 | done | 2026-11-19T23:42:42+0200. Decisions below (run 1, Gate 0) | |
+| J1 | done (0b27fb1) | reviewed clean; D1-D19 caught; checked (with fix C2+C5): ics_core `dart analyze` issues only the 12 removed-function calls in T1's event_fields_test.dart; scrub_feed_test +4 all passed; diff only J1 OWNS + tool/scrub_feed.dart; no logging, no U+2014; model.dart doc comment only; main checkout clean. Parity with J2's Kotlin rules compared by the orchestrator and the reviewer: same decisions on fragment, port, bare webex.com, MTID first, case, trailing slash | 0b27fb1 |
+| J2 | done | checked with fix C3 (`compileDebugUnitTestKotlin -x compileFlutterBuildDebug -q` exit 0, C4; android diff only the 3 OWNS files; main checkout clean; JoinActivity.kt:40 logs only the exception's class name, existing line); reviewed, no blocker; controls N1-N19 all caught | 5396892 |
+| T1 | done (0b27fb1) | +353 pass; D1-D19 caught; ics_core `dart analyze` "No issues found!"; test diff: event_fields_test renamed calls + the C6 example only; teams_links.ics one line (C6); new meeting_links_test.dart and fixtures/meeting_links.ics (15 VEVENTs, CRLF); no U+2014, no real-data strings; main checkout clean | |
+| T2 | done | compile exit 0 (C4); test diff additive only plus new MeetingServiceTest.kt (16 tests after the review fix); engine 255 tests pass; every control caught | 5396892 |
+| W1 close | done | ics_core `dart test` +353 all passed; ics_core `dart analyze` clean; Kotlin engine 255 tests 0 failures (`-x compileFlutterBuildDebug`, C4); `flutter analyze` fails only on occurrence_mapping.dart until J3 (expected, recorded); review clean after one BLOCK (T1 row) settled; controls N1-N19 and D1-D19 all caught. Real-data compare of HEAD's `extractTeamsJoinUrl` with the new `extractJoinUrl` over the three private feeds (counts only, scripts deleted): 0 exceptions; every link found is named by `meetingServiceOf`; no old Teams link lost (C = 0). Outlook 608 events: Teams 501, Meet 65, Zoom 1; 1 old Teams result now Meet (the Meet link comes first in the text). Google (user) 339: Teams 3 unchanged, Meet 246, Zoom 1. Google 2, 14953: Teams 557 of 562 unchanged, 5 more found (teams.live.com `/meet/`), Meet 8121, Zoom 1418, Webex 2; 3 old Teams results now Meet (Google's conference property holds an auto-added Meet link), 2 give a different Teams link form (a longer Safe Links copy with an extra parameter, and a double-encoded copy replaced by the earlier clean link). Slowest event 27 ms. | 5396892 (Kotlin), 0b27fb1 (Dart) |
+| J3 | done (c245e68) | reviewed clean; E1-E17 caught. Check: `flutter analyze`: 4 issues, all in T3's test files (hasTeams, TeamsBadge); lib diff only the 13 OWNS files (68+/33-), `diff --check` clean, lib/core/model untouched, no logging or U+2014 added; every old-string hit in test/ is in T3's OWNS; main checkout clean | |
+| T3 | done (c245e68) | reviewed clean; E1-E17 caught (E10 as E10b); full flutter test +1294; `flutter analyze` "No issues found!"; test diff only the 10 OWNS files (479+/17-), `diff --check` clean; no U+2014 or real-data strings; no old strings left in test/; main checkout clean | |
+| W2 close | done | `flutter analyze` clean; full `flutter test` +1294 all passed; full Gradle `:app:testDebugUnitTest` (no -x) 367 tests, 0 failures; ics_core unchanged since W1 (+353); review clean (J3, T3); controls E1-E17 all caught (E10 rewritten as E10b to compile); 304 sync re-expands the stored body, so cached meetings get new links on the first sync | c245e68 |
+| J4 | done (390ef1b) | reviewed clean; doc-guard tests +7 passed (J4's run); listing 1914 -> 2147 of 4000 (recounted by the reviewer); README bullets and trademark paragraph identical to listing.md; every claim checked against the code; no phone Meet claim; privacy date 20 November 2026. Open (user's call): "Teams meetings come in through Outlook." could become "...through your calendar, for example Outlook." | |
+| W3 close | done | review read every changed sentence against the code: clean; doc-guard tests +7 (J4's run; rerun in the final full suite) | 390ef1b |
+| W4 | done | Pixel_9 AVD (API 36, `-gpu swiftshader_indirect`), RELEASE build of 390ef1b (signed with the upload key: this worktree has android/key.properties), a local-http fixture (10.0.2.2:8765) with one invented meeting per service plus an Outlook-style Meet. C1 PASS agenda badges Teams, Google Meet, Zoom, Webex, Google Meet. C2 PASS sheet Join texts; Outlook Meet's link location not shown; "Boardroom 2" and "Microsoft Teams Meeting" shown. C3 PASS Join on Zoom and Meet sheets starts ACTION_VIEW from the app (https, example.zoom.us /j/..., meet.google.com), Chrome opens it. C4 PASS alarm screen and notification "03:40-04:05 · Zoom", "04:40-05:05 · Google Meet" (no URL), Teams "02:40-03:05 · Teams". C5 PASS Join on the Zoom alarm screen starts ACTION_VIEW. C6 PASS no link or title in the app process's logcat. Not captured: heads-up text for Meet/Webex (alarm notifications were). Clock reset; emulator left running. | n/a |
+| Push and PR | waiting for the user's go | | |
 | 1.0.2 release | todo | | |
 
 ### Sessions
@@ -397,11 +398,49 @@ Reviewer: (none yet)
 | Session | Started | Ended | Check / note |
 |-|-|-|-|
 | plan | 2026-11-19T23:16:12+0200 | | Written in "tminus-59 · Plan 6 play readiness build" (Opus 5.5, effort medium; the skill asks for high, recorded, not switched) |
+| run 1 | 2026-11-19T23:27:55+0200 | 2026-11-20T02:52:35+0200 | "Plan 7: Meet, Zoom and Webex join links" (Opus 5.5, effort high). Plan check passed (W0 and Setup are read-only scout jobs with no OWNS; J4 has no test author, so it goes out with the implementations). |
 
 ### Time log
 
 | Job | Task | Agent id | Dispatched | Reported | Checked | Worker ms | Committed |
 |-|-|-|-|-|-|-|-|
+| Setup | overhead | a22e5919a4d715701 | 2026-11-19T23:28:21+0200 | 2026-11-19T23:46:32+0200 | 2026-11-19T23:46:32+0200 | 1090680 | n/a |
+| J1 | plan-7-links | a38c6c8e425511f98 | 2026-11-19T23:43:40+0200 | 2026-11-20T00:07:23+0200 (partial: scrub_feed.dart unowned) | 2026-11-20T00:26:17+0200 (with fix C2+C5) | 1391018 | |
+| J1 fix C2+C5 | plan-7-links | a38c6c8e425511f98 | 2026-11-20T00:08:30+0200 | 2026-11-20T00:25:00+0200 | | 953734 | |
+| J1 check | overhead | adf13b0fbd9a5f6d2 | 2026-11-20T00:25:30+0200 | 2026-11-20T00:26:17+0200 | 2026-11-20T00:26:17+0200 | 138422 | n/a |
+| T1 | plan-7-links | a7bcf7d8d7d158b3b | 2026-11-20T00:27:00+0200 | 2026-11-20T00:51:00+0200 (discloses a usage grep that showed 3 comment lines of meeting_links.dart; file not opened) | 2026-11-20T00:52:29+0200 | 1406629 | |
+| T1 check | overhead | adf13b0fbd9a5f6d2 | 2026-11-20T00:51:30+0200 | 2026-11-20T00:52:29+0200 | 2026-11-20T00:52:29+0200 | 112035 | n/a |
+| W1 review (Dart part) | overhead | a4e00dec7f995483f | 2026-11-20T00:52:40+0200 | 2026-11-20T00:57:00+0200: BLOCK T1 `_glued` row teams.microsoft.com (settled: row dropped); notes only otherwise; 19 controls D1-D19 named | | 246094 | |
+| T1 fix (drop glued Teams row) | plan-7-links | a7bcf7d8d7d158b3b | 2026-11-20T00:58:00+0200 | 2026-11-20T00:59:30+0200 | 2026-11-20T01:00:30+0200 (analyze clean; row gone; CRLF) | 100923 | |
+| W1 real-data compare (old vs new finder, counts only) | overhead | a6cfe9dd663a7a847 | 2026-11-20T00:58:30+0200 | 2026-11-20T01:06:00+0200: see W1 close evidence | | 130358 | n/a |
+| J2 | plan-7-kotlin | a87dba8eadfb7b075 | 2026-11-19T23:43:40+0200 | 2026-11-19T23:57:22+0200 | 2026-11-20T00:02:49+0200 | 817009 | 5396892 |
+| J2 check | overhead | adf13b0fbd9a5f6d2 | 2026-11-19T23:57:40+0200 | 2026-11-20T00:02:49+0200 | 2026-11-20T00:02:49+0200 | 311052 | n/a |
+| T2 | plan-7-kotlin | a634fcdc50ce4011d | 2026-11-20T00:04:30+0200 | 2026-11-20T00:15:00+0200 | 2026-11-20T00:15:16+0200 | 650692 | |
+| W1 test run 1 (Kotlin engine) | overhead | a22e5919a4d715701 | 2026-11-20T00:15:30+0200 | 2026-11-20T00:20:30+0200: BUILD SUCCESSFUL, engine 253 tests, 0 failures (MeetingServiceTest 14, AlertTextTest 12, NotificationFactoryTest 17, AlarmScreenModelTest 9) | | | |
+| W1 review (Kotlin part) | overhead | a4e00dec7f995483f | 2026-11-20T00:16:00+0200 | 2026-11-20T00:19:00+0200: no blocker; WARN j.php MTID untested (to T2); 19 controls named | | 178598 | |
+| T2 fix (review WARN + parity rows) | plan-7-kotlin | a634fcdc50ce4011d | 2026-11-20T00:19:30+0200 | 2026-11-20T00:21:30+0200 | 2026-11-20T00:22:33+0200 (compile exit 0; 16 @Test in MeetingServiceTest) | 169185 | |
+| W1 test run 2 + controls N1-N19 (Kotlin) | overhead | a22e5919a4d715701 | 2026-11-20T00:22:40+0200 | 2026-11-20T01:10:00+0200: engine 255 tests 0 failures (MeetingServiceTest 16); N1-N19 each failed its expected tests (N11 now fails after T2's fix); none survived; N19 (AlertText at HEAD) keeps the old Teams test passing; restores hash-verified | | 2848210 | |
+| W1 Kotlin verify + commit | overhead | adf13b0fbd9a5f6d2 | 2026-11-20T01:10:30+0200 | 2026-11-20T01:10:58+0200 | 2026-11-20T01:10:58+0200 (diff and hashes as after the controls) | 29138 | 5396892 |
+| W1 Dart test run + controls D1-D19 | overhead | a22e5919a4d715701 | 2026-11-20T01:11:00+0200 | before 2026-11-20T01:19:50+0200 (not stamped on arrival): ics_core `dart test` +353 all passed; D1-D19 each failed its expected tests (plus extras); none survived; restores hash-verified | | | |
+| W1 re-review (T1 fix + results) | overhead | a4e00dec7f995483f | before 2026-11-20T01:19:50+0200 | clean: BLOCK resolved, nothing new | | 15791 | |
+| W1 Dart verify + commit | overhead | adf13b0fbd9a5f6d2 | before 2026-11-20T01:19:50+0200 | 2026-11-20T01:19:50+0200 | 2026-11-20T01:19:50+0200 (hashes and diff as after the controls; no private path staged) | 20659 | 0b27fb1 |
+| J3 | plan-7-app | a8700cd91e406fe9c | 2026-11-20T01:19:00+0200 | before 2026-11-20T01:30:00+0200 (not stamped on arrival) | 2026-11-20T01:31:38+0200 | 609535 | |
+| J3 check | overhead | adf13b0fbd9a5f6d2 | ~2026-11-20T01:30:00+0200 | 2026-11-20T01:31:38+0200 | 2026-11-20T01:31:38+0200 | 65339 | n/a |
+| J4 | plan-7-docs | a4a8d815dd29f0d9d | ~2026-11-20T01:30:30+0200 (not stamped) | before 2026-11-20T01:50:52+0200 (not stamped; doc-guard tests +7 all passed; listing 1914 -> 2147 chars of 4000) | | | |
+| J4 fix (privacy date) | plan-7-docs | a4a8d815dd29f0d9d | before 2026-11-20T01:50:52+0200 (not stamped) | before 2026-11-20T01:50:52+0200 (not stamped; date only; LF kept) | | | |
+| W3 review (J4) | overhead | a4e00dec7f995483f | before 2026-11-20T01:50:52+0200 (not stamped) | clean (no BLOCK/WARN); one optional store-text wording for the user | | 68948 | |
+| W2 review (T3) | overhead | a4e00dec7f995483f | ~2026-11-20T01:51:30+0200 | 2026-11-20T01:53:22+0200: clean (no BLOCK/WARN); E1-E16 mapped to real names; E17 added (location trim); note: rule_editor_test's `teams.example` fixture is an unrecognised link, harmless while `hasJoinLink` is `joinUrl != null` (left as is) | | 153536 | |
+| T3 | plan-7-app | ac780763c477b2693 | 2026-11-20T01:31:45+0200 | before 2026-11-20T01:50:52+0200 (not stamped; discloses two greps that printed 4 lines of J3 files: the place icon row, the MeetingBadge declaration, the service getter, one usage) | | | |
+| T3 check | overhead | adf13b0fbd9a5f6d2 | ~2026-11-20T01:48:00+0200 (not stamped) | 2026-11-20T01:50:52+0200 | 2026-11-20T01:50:52+0200 | 61376 | n/a |
+| W2 test run + controls E1-E16 + full Gradle | overhead | a22e5919a4d715701 | 2026-11-20T01:51:00+0200 | 2026-11-20T02:09:43+0200: full `flutter test` +1294 all passed; E1-E9, E11-E16 each failed tests (none survived); E10 did not compile (re-sent as E10b); full Gradle `testDebugUnitTest` (no -x) 367 tests 0 failures; restores hash-verified | | 1122606 | |
+| W2 controls E10b + E17 | overhead | a22e5919a4d715701 | 2026-11-20T02:09:50+0200 | before 2026-11-20T02:12:42+0200: E10b and E17 each failed their expected tests; none survived; hash restored | | 1236750 | |
+| W2 + W3 verify and commits | overhead | adf13b0fbd9a5f6d2 | before 2026-11-20T02:12:42+0200 | 2026-11-20T02:12:42+0200 | 2026-11-20T02:12:42+0200 (all nine hashes as after the controls; lib 13 files 68+/33-, test 10 files 479+/17-) | 29337 | c245e68, 390ef1b |
+| W4 emulator check | overhead | aa9db1a66606d498b | ~2026-11-20T02:11:30+0200 (not stamped) | 2026-11-20T02:52:07+0200 | 2026-11-20T02:52:07+0200 | 2355482 | n/a |
+| W2 review (J3) | overhead | a4e00dec7f995483f | ~2026-11-20T01:32:00+0200 | clean (no BLOCK/WARN); explanation never persisted (verified); 16 controls E1-E16 named | | 76033 | |
+| 304 re-expansion trace (review's open question) | overhead | a8bb468400f85ff7a | ~2026-11-20T01:34:00+0200 | answered: re-expanded every sync. A 304 re-runs `expandIcs` on the stored body (ics_feed_source.dart:130-142) and `replaceForSource` replaces the rows (sync_service.dart:454-463); phone calendars are re-read every fetching run. Only an EmptyFeedGuard keep leaves old rows. So existing meetings get their new links on the first sync after the update. | | | n/a |
+| J2 fix C3 | plan-7-kotlin | a87dba8eadfb7b075 | 2026-11-20T00:04:30+0200 | 2026-11-20T00:06:00+0200 | 2026-11-20T00:07:45+0200 | 208531 | |
+| W0.1b (second Google feed, given by the user in chat) | plan-7-data | aca896f9e65ecba6f | 2026-11-19T23:52:37+0200 | 2026-11-20T00:00:32+0200 (first try refused by the permission check; the orchestrator downloaded it after the user and the feed's owner approved; then two analysis runs) | 2026-11-20T00:00:32+0200 | 311816 | n/a |
+| W0.1 | plan-7-data | aca896f9e65ecba6f | 2026-11-19T23:36:13+0200 | 2026-11-19T23:42:30+0200 (with two follow-ups) | 2026-11-19T23:42:42+0200 (read-only survey; report is the evidence) | 364473 | n/a |
 
 ### Booked
 
@@ -411,5 +450,36 @@ Reviewer: (none yet)
 Decisions taken (each overturnable: say so and the next session acts on it):
 - plan: the earliest link in a text wins, and Google's conference property comes first if Gate 0 keeps it. The first link in an invite is the organiser's.
 - plan: the rule texts change to "meeting link" instead of listing four services, to stay short in the rule list.
+- run 1 (from the session that started this run): WORKDIR is this run's own worktree, `C:\Projects\tminus\.claude\worktrees\plan-6-play-readiness-build-fe4abe`, on branch `claude/plan-7-meeting-links-2ec46f` cut from `claude/plan-7-meeting-links-plan` (0b9e9d0, which is `main` f84cc98 plus the three plan commits). It replaces the plan's `...\worktrees\plan-7-meeting-links` in every brief. Setup step 1 (worktree add) is skipped; steps 2-4 still run, and Setup's ACCEPTANCE "HEAD equals origin/main" reads "HEAD equals 0b9e9d0, whose only commits past origin/main touch this plan file".
+- run 1: W0.1's Outlook half is answered by the Research section. The user's raw Outlook feed is at `<WORKDIR>\packages\ics_core\test\fixtures\private\outlook-feed.ics` (git-ignored, real data: never print values, never copy into git). W0.1 still needs Google's own export and W0.2 the user's phone; if the user cannot give them yet, Gate 0 is recorded with what is known (drop `X-GOOGLE-CONFERENCE`, phone Meet support documented as unknown) and Wave 1 goes on.
+- run 1, Gate 0: **keep** the `conference:` parameter. `vevent.dart` passes the `X-GOOGLE-CONFERENCE` value as `conference:` (W0.1: present on every Google Meet event, always exactly the plain link).
+- run 1, Gate 0: no §1 correction. Every join link the two real feeds hold is in a §1 form. The 13 Mimecast-rewritten Teams events carry only the host name in a `domain` query parameter, so no finder can recover their link; they stay without Join, as today (no work, and nothing to build: it would be guessing).
+- run 1, Gate 0: Google's raw `DESCRIPTION` puts an ICS-escaped newline straight after the Meet link, and the Zoom link can be followed by an escaped `;`. T1's fixture `meeting_links.ics` copies both (with invented ids), so AC5 proves the link stops there after unescaping.
+- run 1, Gate 0: W0.2 not run (user, 2026-11-19). J4's docs say phone calendars get a Meet link only when it is written in the event's description or location, and that an event made with Google's "Add Google Meet video conferencing" may not carry it on the phone (not checked). No reader job (§5).
+- run 1, correction C1 (W0.1b): each service's link ends where its grammar ends. `/j/<digits>` stops at the first non-digit; a query is part of the link only when it starts with `?` right after the path. So `https://x.zoom.us/j/123&...` gives `https://x.zoom.us/j/123`. Teams keeps today's grammar (C2 aside).
+- run 1, correction C2 (W0.1b): a plain link directly preceded by `q=` (Google's `https://www.google.com/url?q=https://...` redirect, inner link not percent-encoded) ends at the first `&`, and its percent-escapes are then decoded, so `...zoom.us/j/123?pwd%3Dabc&sa=D...` gives `...zoom.us/j/123?pwd=abc`. For all four services (1455 Zoom and 192 Teams such links in W0.1b; mostly after a clean link, but first in a few events).
+- run 1, correction C3 (J2's report, Outlook Meet data): `AlertText.where` also skips a location that is itself a join link of the meeting's service (`MeetingService.of(location.trim()) == service`). Outlook Meet invites have the bare Meet link as LOCATION, and "Google Meet · https://meet..." would repeat it. Zoom's link location already contains "zoom". J3 applies the same rule wherever the app shows a location beside the service name.
+- run 1, correction C4 (J2 check, reproduced by a scout): every Gradle task of `:app` compiles the Flutter app first (`compileFlutterBuildDebug`), which fails from J1 until J3 moves `occurrence_mapping.dart` off `extractTeamsJoinUrl`. Wave 1's Gradle checks therefore run with `-x compileFlutterBuildDebug`; the Wave 2 close runs the full Gradle suite without it.
+- run 1, correction C5 (J1's report, reproduced by J1's analyze output): `packages/ics_core/tool/scrub_feed.dart` calls `extractTeamsJoinUrl` (lines 113 and 161) and was in no OWNS. It goes to J1's fix, keeping its Teams-only meaning: `meetingServiceOf(extractJoinUrl(...)) == MeetingService.teams`. The scrubber already replaces every description and location, so no Meet, Zoom or Webex text can leak into a fixture.
+- run 1, correction C6 (J1's report): two old Teams tests used `https://zoom.us/j/1` as a "no link" example, which is now a real Zoom link (`event_fields_test.dart` "null when there is no Teams join link"; the `none` event of `fixtures/teams_links.ics`). Their meaning is "no join link gives null", so T1 changes that example to `https://zoom.us/download` (not a join link), and `packages/ics_core/test/fixtures/teams_links.ics` joins T1's OWNS for that one line.
+- run 1, C1 clarified (J1's fix report): a `#fragment` right after the path is kept as part of the link (Kotlin's `of` ignores it, so both name the service; T2 pins `https://zoom.us/j/12345678901#success` -> Zoom). A word character glued to the end of a Zoom number, a Teams `/meet/` number or a Meet code (`/j/123abc`, `abc-defg-hijk`) gives no link rather than a cut one: cutting could link a different room. Both overturnable.
+- run 1, W1 review BLOCK settled: "a Teams `/meet/` number" in the C1 clarification means the digit grammar of `teams.cloud.microsoft` and `teams.live.com` only. `teams.microsoft.com` keeps today's grammar (any path after `/meet/`), so `https://teams.microsoft.com/meet/3456789012345abc` stays a Teams link and T1 drops that `_glued` row. Narrowing it would change today's Teams behaviour (Review focus 5).
+- run 1, kept after the real-data compare: §1's order stands for invites that hold both a Meet and a Teams link (4 events of about 15,900; 3 of them Google events whose conference property is a Meet link, likely auto-added by Google, with a Teams link in the text). They now get the Meet link. Raised to the user at the Wave 1 close; overturnable (the alternative: a Teams link in the text beats an auto-added conference Meet link).
+- run 1, C3 for Teams (J3's report): C3 is service-agnostic, so a Teams meeting whose LOCATION is itself the bare Teams join link loses that raw-link place row on the event sheet (today it shows the URL). Kept, to match Kotlin's `where` and because a raw join link is not a place; a usual Outlook Teams location (`Microsoft Teams Meeting`) is unchanged. A narrow exception to Review focus 5, overturnable (J3's one-condition fix: `service != MeetingService.teams &&`).
+- run 1, J4's report: docs/index.md stays unchanged (its one Teams line is still true; no new public claim). privacy.md's effective date moves to 20 November 2026, because the policy now names Google's conference property; the push/PR step moves it again if the merge is later. The spec header, roadmap Status block and README "Build status" change after the merge, as for Plan 6. J4 also widened spec §11's test list and roadmap §4's explanation example, both made false by this plan: kept.
+- run 1: J4 also updates roadmap §2, which still lists `extractTeamsJoinUrl` as an `ics_core` export (J1's report).
 
-Stopped at: plan written, not run. Next: Setup.
+Stopped at: Waves 0-4 built, checked, reviewed and committed (5396892, 0b27fb1, c245e68, 390ef1b); Wave 4 passed on the emulator. Next: the user's go for the push and PR (§7).
+
+### Built differently from this plan
+
+The code is authoritative; each entry is in "Decisions taken" above.
+- WORKDIR was the run's own worktree `C:\Projects\tminus\.claude\worktrees\plan-6-play-readiness-build-fe4abe`, branch `claude/plan-7-meeting-links-2ec46f`, not `...\worktrees\plan-7-meeting-links`.
+- Gate 0: a second Google feed (a colleague's, shared with consent) was surveyed as W0.1b; W0.2 (phone) was not run. `X-GOOGLE-CONFERENCE` is read and searched first.
+- C1/C2: each link ends where its own form ends; a plain link inside Google's `url?q=` redirect ends at `&` and is decoded once. A `#fragment` is kept; a word character glued to a number or Meet code gives no link. `teams.microsoft.com` keeps today's grammar.
+- C3: a location that is itself the meeting's own join link is not shown, in Kotlin's `where` and on the event sheet, for every service including Teams.
+- C4: Wave 1's Gradle checks ran with `-x compileFlutterBuildDebug`.
+- C5/C6: `tool/scrub_feed.dart` moved to `extractJoinUrl` (Teams-only meaning kept); two old tests' "no link" example changed from `https://zoom.us/j/1` to `https://zoom.us/download`.
+- J1 used one grammar per service plus a decode step instead of a regex pair per service. Kotlin's `MeetingService.of` is a hand-written parser, not a regex.
+- J4 also widened spec §11 and roadmap §4; docs/index.md is unchanged; privacy.md's effective date is 20 November 2026.
+- J4 ran alongside Wave 2 (no shared files, no test author).

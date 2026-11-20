@@ -17,6 +17,7 @@ import android.os.Looper
 import android.os.Vibrator
 import android.provider.Settings
 import android.util.Log
+import io.github.fifothehein.tminus.LoggedErrors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -37,6 +38,7 @@ import org.robolectric.shadows.ShadowMediaPlayer
 import org.robolectric.shadows.ShadowPowerManager
 import org.robolectric.shadows.util.DataSource
 import java.time.Duration
+import java.util.concurrent.Executor
 
 @RunWith(RobolectricTestRunner::class)
 class RingingServiceTest {
@@ -621,5 +623,44 @@ class RingingServiceTest {
         assertTrue("the class is logged: ${line.msg}", line.msg.contains("ForegroundServiceStartNotAllowedException"))
         assertNull("no trace is logged", line.throwable)
         assertTrue("the message is never logged", logs.none { secret in it.msg.orEmpty() || it.throwable?.toString()?.contains(secret) == true })
+    }
+
+    @Test
+    fun `a refused start arms its retry without the queue`() {
+        // Nothing AlarmCalls is given runs in this test. The retry is what brings the alarm back after Android
+        // refused the start, so it must be armed by the time the start command returns, not behind the queue.
+        val queued = ArrayDeque<Runnable>()
+        AlarmCalls.executor = Executor { queued.add(it) }
+        refuseForeground()
+        try {
+            startWith(alert("a", NOW, group = "G"))
+
+            val retry = retryAlarms().singleOrNull()
+            assertNotNull("the retry was not armed before the queue ran", retry)
+            assertEquals(arrayListOf("a"), shadowOf(retry!!.operation).savedIntent.getStringArrayListExtra(AlarmReceiver.EXTRA_ALERT_IDS))
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+            AlarmCalls.executor = Executor { it.run() }
+            AlarmCalls.failureHook = { throw it }
+        }
+    }
+
+    @Test
+    @Config(shadows = [FailingAlarmManagerShadow::class])
+    fun `a retry that cannot be armed still stops the service`() {
+        // Every way of arming the retry fails with an IllegalStateException that quotes a planted secret.
+        refuseForeground()
+        ShadowLog.clear()
+        try {
+            val service = startWith(alert("a", NOW, group = "G")).get() // must not crash the app
+
+            assertTrue("the service did not stop itself", shadowOf(service).isStoppedBySelf)
+            assertTrue("a retry was armed although every arm fails", retryAlarms().isEmpty())
+            val line = ShadowLog.getLogs().single { it.msg.orEmpty().contains("Ringing retry could not be armed") }
+            assertEquals(Log.WARN, line.type)
+            LoggedErrors.assertClassOnly("Ringing retry could not be armed", "IllegalStateException")
+        } finally {
+            RingingService.startForeground = RingingService.DEFAULT_START_FOREGROUND
+        }
     }
 }

@@ -26,14 +26,14 @@ Meeting alarms you can't miss, for Outlook, Teams and phone calendar meetings.
 
 ## Full description
 
-Limit 4000 characters. This text has 2147. It is plain text, with line breaks and bullets (•) for the lists.
+Limit 4000 characters. This text has 2174. It is plain text, with line breaks and bullets (•) for the lists.
 
 ```text
 T-Minus turns your calendar meetings into alarms you can't miss, and can always stop.
 
 ADD YOUR CALENDARS
 • Pick a calendar already on your phone, for example from a Google, Samsung, Outlook or Exchange account, or paste a calendar link (Outlook, Google Calendar or any ICS link).
-• Teams meetings come in through Outlook.
+• Teams meetings come in through your calendar, for example Outlook.
 • A meeting with a Teams, Google Meet, Zoom or Webex link gets a Join button. On a phone calendar, T-Minus finds the link when it is written in the meeting's description or location.
 • Calendars are checked about every 15 minutes, and again shortly before each alarm.
 
@@ -132,7 +132,7 @@ Names are files and symbols, not line numbers, so the table stays true when code
 
 ## Notes for Task 10's reviewer
 
-- The plan's short description is kept as written. The full description adds one sentence that says Teams meetings reach T-Minus through the Outlook calendar, because the app has no Teams connection of its own.
+- The plan's short description is kept as written. The full description adds one sentence that says Teams meetings reach T-Minus through the user's own calendar, for example Outlook, because the app has no Teams connection of its own and Google feeds carry Teams meetings too.
 - The last paragraph of the full description (the trademark and independence statement) is not in the plan. It is true, and it keeps the listing's use of the Outlook, Teams, Google Calendar, Google Meet, Zoom and Webex names to a plain description of what the app reads. It does not name the owners of Zoom and Webex, because nothing in the repository says who they are.
 - Plan 7 widened the Join sentence from Teams to Teams, Google Meet, Zoom and Webex, and added the phone-calendar sentence after it. Whether a phone calendar holds the Meet link that Google Calendar adds with its video conferencing button was not checked on a phone, so the text says only where T-Minus looks (the description and the location).
 - The volume keys stop an alarm only while the full-screen alarm is showing, and the text says so. When the phone is unlocked and in use, Android may show the alarm as a notification instead; its Stop button works, and opening T-Minus goes to the alarm screen.

@@ -29,7 +29,7 @@ T-Minus turns your calendar meetings into alarms you can't miss, and can always 
 ## Add your calendars
 
 - Pick a calendar already on your phone, for example from a Google, Samsung, Outlook or Exchange account, or paste a calendar link (Outlook, Google Calendar or any ICS link).
-- Teams meetings come in through Outlook.
+- Teams meetings come in through your calendar, for example Outlook.
 - A meeting with a Teams, Google Meet, Zoom or Webex link gets a Join button. On a phone calendar, T-Minus finds the link when it is written in the meeting's description or location.
 - Calendars are checked about every 15 minutes, and again shortly before each alarm.
 

@@ -7,7 +7,8 @@ import android.net.Uri
 
 /**
  * Snooze / Dismiss (Stop) / Dismiss all buttons on engine notifications, and the ringing notification's
- * delete intent. Join goes to JoinActivity.
+ * delete intent. Join goes to JoinActivity. A snooze arms and a dismissal cancels alarms on
+ * AlarmCalls' thread, and the broadcast stays open until they have run.
  */
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -15,6 +16,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
             // The ringing notification was swiped away. RingingService owns id 1001 and is still in
             // the foreground while the session is not empty, so posting the id again restores it.
             if (RingingSession.alerts.isNotEmpty()) NotificationFactory(context).notifyRinging(RingingSession.alerts)
+            finishWhenAlarmCallsIdle()
             return
         }
         val ids = intent.getStringArrayListExtra(EXTRA_ALERT_IDS) ?: return
@@ -32,6 +34,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         if (notificationId != NO_NOTIFICATION_ID && !AndroidAlertPresenter.headsUpRemains(PlanStore(context), notificationId)) {
             NotificationFactory(context).cancelHeadsUpNotifications(listOf(notificationId))
         }
+        finishWhenAlarmCallsIdle()
     }
 
     companion object {

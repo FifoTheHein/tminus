@@ -7,7 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import io.github.fifothehein.tminus.engine.AlarmCalls
 import io.github.fifothehein.tminus.engine.TimeChangeReceiver
+import io.github.fifothehein.tminus.engine.finishWhenAlarmCallsIdle
 
 /**
  * Pre-alarm sync (spec §7): Dart sends one time per occurrence (12 min before its earliest alert)
@@ -34,23 +36,29 @@ class PreSyncScheduler(
     /** The next stored time after now, or null. */
     fun next(): Long? = times().firstOrNull { it > clock() }
 
-    /** Sets the alarm for [next], or cancels it when nothing is left. */
+    /**
+     * Sets the alarm for [next], or cancels it when nothing is left. [next] is worked out on the
+     * caller's thread; the PendingIntent lookup and the AlarmManager call are Binder calls, so they are
+     * posted to AlarmCalls and run after this returns.
+     */
     fun armNext() {
         val at = next()
-        if (at == null) {
-            operation(PendingIntent.FLAG_NO_CREATE)?.let { alarmManager.cancel(it); it.cancel() }
-            return
-        }
-        val operation = operation(PendingIntent.FLAG_UPDATE_CURRENT)!!
-        try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
-            } else {
+        AlarmCalls.run {
+            if (at == null) {
+                operation(PendingIntent.FLAG_NO_CREATE)?.let { alarmManager.cancel(it); it.cancel() }
+                return@run
+            }
+            val operation = operation(PendingIntent.FLAG_UPDATE_CURRENT)!!
+            try {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
+                } else {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Exact alarm refused for pre-alarm sync; using an inexact alarm: ${e.javaClass.simpleName}")
                 alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
             }
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Exact alarm refused for pre-alarm sync; using an inexact alarm: ${e.javaClass.simpleName}")
-            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, operation)
         }
     }
 
@@ -70,19 +78,24 @@ class PreSyncScheduler(
     }
 }
 
-/** The pre-alarm sync alarm: an expedited sync now, then the alarm for the next time. */
+/**
+ * The pre-alarm sync alarm: an expedited sync now, then the alarm for the next time. The broadcast
+ * stays open until AlarmCalls has set that alarm.
+ */
 class PreSyncReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != PreSyncScheduler.ACTION) return
         SyncScheduler(context).runNow(SyncWorker.TRIGGER_PRE_ALARM, expedited = true)
         PreSyncScheduler(context).armNext()
+        finishWhenAlarmCallsIdle()
     }
 }
 
 /**
  * Re-arms the pre-alarm sync alarm after a reboot, an app update or a clock change. A clock or zone
  * change also queues a sync, so floating and all-day times and quiet modes are planned in the new
- * zone without waiting for the periodic sync (decision 28).
+ * zone without waiting for the periodic sync (decision 28). The broadcast stays open until AlarmCalls
+ * has set the alarm.
  */
 class SyncBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -91,6 +104,7 @@ class SyncBootReceiver : BroadcastReceiver() {
         if (intent.action in SYNC_ACTIONS) {
             SyncScheduler(context).runNow(SyncWorker.TRIGGER_TIME_CHANGE, expedited = false)
         }
+        finishWhenAlarmCallsIdle()
     }
 
     companion object {

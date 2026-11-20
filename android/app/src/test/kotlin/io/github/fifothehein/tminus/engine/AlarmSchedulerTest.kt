@@ -53,12 +53,19 @@ class AlarmSchedulerTest {
             shadowOf(it.operation).savedIntent.getStringExtra(AlarmReceiver.EXTRA_ALERT_ID)!!
         }
 
+    /** What [AlarmScheduler.applyPlan] reports. Under TestTMinusApplication AlarmCalls runs the block at once, so it has by the time the call returns. */
+    private fun applied(plan: List<PlannedAlert>): ApplyResult {
+        var counts: ApplyResult? = null
+        scheduler.applyPlan(plan) { counts = it }
+        return checkNotNull(counts) { "applyPlan reported no counts" }
+    }
+
     @Test
     fun `alarms use setAlarmClock with a show intent and heads-ups use exact allow-while-idle`() {
         val alarm = alert("a", NOW + 10 * MINUTE_MS)
         val headsUp = alert("h", NOW + 5 * MINUTE_MS, strength = Strength.HEADS_UP)
 
-        assertEquals(ApplyResult(armed = 2, cancelled = 0, kept = 0), scheduler.applyPlan(listOf(alarm, headsUp)))
+        assertEquals(ApplyResult(armed = 2, cancelled = 0, kept = 0), applied(listOf(alarm, headsUp)))
 
         val s = scheduled()
         assertEquals(NOW + 10 * MINUTE_MS, s.getValue("a").triggerAtMs)
@@ -75,14 +82,14 @@ class AlarmSchedulerTest {
     fun `applying the same plan again keeps every alarm`() {
         val plan = listOf(alert("a", NOW + 10 * MINUTE_MS), alert("b", NOW + 20 * MINUTE_MS))
         scheduler.applyPlan(plan)
-        assertEquals(ApplyResult(0, 0, 2), scheduler.applyPlan(plan))
+        assertEquals(ApplyResult(0, 0, 2), applied(plan))
         assertEquals(setOf("a", "b"), scheduled().keys)
     }
 
     @Test
     fun `new details at the same fire time keep the alarm and store the new snapshot`() {
         scheduler.applyPlan(listOf(alert("a", NOW + 10 * MINUTE_MS, title = "Old")))
-        assertEquals(ApplyResult(0, 0, 1), scheduler.applyPlan(listOf(alert("a", NOW + 10 * MINUTE_MS, title = "New"))))
+        assertEquals(ApplyResult(0, 0, 1), applied(listOf(alert("a", NOW + 10 * MINUTE_MS, title = "New"))))
         assertEquals("New", store.read().plan.single().event.title)
     }
 
@@ -91,7 +98,7 @@ class AlarmSchedulerTest {
         val a = alert("a", NOW + 10 * MINUTE_MS)
         val b = alert("b", NOW + 20 * MINUTE_MS)
         scheduler.applyPlan(listOf(a, b))
-        assertEquals(ApplyResult(0, 1, 1), scheduler.applyPlan(listOf(a)))
+        assertEquals(ApplyResult(0, 1, 1), applied(listOf(a)))
         assertEquals(setOf("a"), scheduled().keys)
         assertFalse(scheduler.isArmed(b))
     }
@@ -99,7 +106,7 @@ class AlarmSchedulerTest {
     @Test
     fun `a moved alert is re-armed at its new time`() {
         scheduler.applyPlan(listOf(alert("a", NOW + 10 * MINUTE_MS)))
-        assertEquals(ApplyResult(1, 1, 0), scheduler.applyPlan(listOf(alert("a", NOW + 40 * MINUTE_MS))))
+        assertEquals(ApplyResult(1, 1, 0), applied(listOf(alert("a", NOW + 40 * MINUTE_MS))))
         assertEquals(1, shadowOf(alarmManager).scheduledAlarms.size)
         assertEquals(NOW + 40 * MINUTE_MS, scheduled().getValue("a").triggerAtMs)
     }
@@ -110,7 +117,7 @@ class AlarmSchedulerTest {
         scheduler.applyPlan(listOf(alert("a", fireAt, strength = Strength.HEADS_UP)))
         assertNull(scheduled().getValue("a").alarmClockInfo)
 
-        assertEquals(ApplyResult(armed = 1, cancelled = 1, kept = 0), scheduler.applyPlan(listOf(alert("a", fireAt))))
+        assertEquals(ApplyResult(armed = 1, cancelled = 1, kept = 0), applied(listOf(alert("a", fireAt))))
 
         assertEquals(1, shadowOf(alarmManager).scheduledAlarms.size)
         assertNotNull(scheduled().getValue("a").alarmClockInfo)
@@ -119,7 +126,7 @@ class AlarmSchedulerTest {
 
     @Test
     fun `past alerts are never armed`() {
-        val result = scheduler.applyPlan(listOf(alert("p", NOW - MINUTE_MS), alert("n", NOW), alert("f", NOW + MINUTE_MS)))
+        val result = applied(listOf(alert("p", NOW - MINUTE_MS), alert("n", NOW), alert("f", NOW + MINUTE_MS)))
         assertEquals(ApplyResult(1, 0, 0), result)
         assertEquals(setOf("f"), scheduled().keys)
         assertEquals(listOf("f"), store.read().plan.map { it.id })
@@ -131,7 +138,7 @@ class AlarmSchedulerTest {
         store.write(EngineState(acks = listOf(Ack("src|x|occ", start))))
         val sameStart = alert("x10", start - 10 * MINUTE_MS, occurrenceKey = "src|x|occ", start = start)
         val moved = alert("x1", start + HOUR - MINUTE_MS, occurrenceKey = "src|x|occ", start = start + HOUR)
-        assertEquals(ApplyResult(1, 0, 0), scheduler.applyPlan(listOf(sameStart, moved)))
+        assertEquals(ApplyResult(1, 0, 0), applied(listOf(sameStart, moved)))
         assertEquals(setOf("x1"), scheduled().keys)
     }
 
@@ -139,8 +146,8 @@ class AlarmSchedulerTest {
     fun `a dismissed alert is not re-armed at the same fire time`() {
         val fireAt = NOW + 10 * MINUTE_MS
         store.write(EngineState(dismissed = listOf(Dismissal("d", fireAt))))
-        assertEquals(ApplyResult(0, 0, 0), scheduler.applyPlan(listOf(alert("d", fireAt))))
-        assertEquals(ApplyResult(1, 0, 0), scheduler.applyPlan(listOf(alert("d", fireAt + 30 * MINUTE_MS))))
+        assertEquals(ApplyResult(0, 0, 0), applied(listOf(alert("d", fireAt))))
+        assertEquals(ApplyResult(1, 0, 0), applied(listOf(alert("d", fireAt + 30 * MINUTE_MS))))
     }
 
     @Test
@@ -148,7 +155,7 @@ class AlarmSchedulerTest {
         // A coalesce sibling can fire up to a minute early; a plan arriving meanwhile must not re-arm it.
         val sibling = alert("s", NOW + 30_000)
         store.write(EngineState(presented = listOf(sibling)))
-        assertEquals(ApplyResult(0, 0, 0), scheduler.applyPlan(listOf(sibling)))
+        assertEquals(ApplyResult(0, 0, 0), applied(listOf(sibling)))
     }
 
     @Test
@@ -159,7 +166,7 @@ class AlarmSchedulerTest {
         store.write(EngineState(snoozes = listOf(snooze)))
         scheduler.arm(snooze)
 
-        assertEquals(ApplyResult(1, 0, 0), scheduler.applyPlan(listOf(planned)))
+        assertEquals(ApplyResult(1, 0, 0), applied(listOf(planned)))
         assertEquals(listOf(snooze), store.read().snoozes)
         assertTrue(scheduler.isArmed(snooze))
     }
@@ -173,7 +180,7 @@ class AlarmSchedulerTest {
         store.write(EngineState(snoozes = listOf(snooze)))
         scheduler.arm(snooze)
 
-        assertEquals(ApplyResult(0, 0, 0), scheduler.applyPlan(listOf(pastAlarm)))
+        assertEquals(ApplyResult(0, 0, 0), applied(listOf(pastAlarm)))
         assertEquals(listOf(snooze), store.read().snoozes)
         assertTrue(scheduler.isArmed(snooze))
         assertTrue(store.read().plan.isEmpty()) // the past alert is never armed
@@ -185,7 +192,7 @@ class AlarmSchedulerTest {
         store.write(EngineState(snoozes = listOf(snooze)))
         scheduler.arm(snooze)
 
-        assertEquals(ApplyResult(1, 1, 0), scheduler.applyPlan(listOf(alert("other", NOW + HOUR))))
+        assertEquals(ApplyResult(1, 1, 0), applied(listOf(alert("other", NOW + HOUR))))
         assertTrue(store.read().snoozes.isEmpty())
         assertFalse(scheduler.isArmed(snooze))
     }
@@ -198,7 +205,7 @@ class AlarmSchedulerTest {
         scheduler.arm(snooze)
         val moved = alert("x", start + 29 * MINUTE_MS, occurrenceKey = "src|m|occ", start = start + 30 * MINUTE_MS)
 
-        assertEquals(ApplyResult(armed = 1, cancelled = 1, kept = 0), scheduler.applyPlan(listOf(moved)))
+        assertEquals(ApplyResult(armed = 1, cancelled = 1, kept = 0), applied(listOf(moved)))
 
         assertTrue(store.read().snoozes.isEmpty())
         assertFalse(scheduler.isArmed(snooze))
@@ -223,7 +230,7 @@ class AlarmSchedulerTest {
         val a = alert("a", NOW + 10 * MINUTE_MS)
         scheduler.applyPlan(listOf(a))
         scheduler.cancel("a") // what a force stop does to the app's alarms and PendingIntents
-        assertEquals(ApplyResult(1, 0, 0), scheduler.applyPlan(listOf(a)))
+        assertEquals(ApplyResult(1, 0, 0), applied(listOf(a)))
         assertTrue(scheduler.isArmed(a))
         assertEquals(setOf("a"), scheduled().keys)
     }
@@ -236,7 +243,7 @@ class AlarmSchedulerTest {
         assertTrue(scheduled().isEmpty())
         assertTrue(scheduler.isArmed(a))
 
-        assertEquals(ApplyResult(armed = 0, cancelled = 0, kept = 1), scheduler.applyPlan(listOf(a)))
+        assertEquals(ApplyResult(armed = 0, cancelled = 0, kept = 1), applied(listOf(a)))
 
         assertEquals(setOf("a"), scheduled().keys)
         assertEquals(NOW + 10 * MINUTE_MS, scheduled().getValue("a").triggerAtMs)
@@ -245,7 +252,7 @@ class AlarmSchedulerTest {
     @Test
     fun `duplicate ids in one plan arm once`() {
         val a = alert("a", NOW + 10 * MINUTE_MS)
-        assertEquals(ApplyResult(1, 0, 0), scheduler.applyPlan(listOf(a, a.copy(offsetMinutes = 99))))
+        assertEquals(ApplyResult(1, 0, 0), applied(listOf(a, a.copy(offsetMinutes = 99))))
     }
 
     @Test
@@ -279,7 +286,7 @@ class AlarmSchedulerTest {
     fun `if setAlarmClock throws SecurityException the alert still gets an inexact alarm`() {
         assertTrue(scheduler.canScheduleExactAlarms()) // access looks granted, but the call is refused
 
-        assertEquals(ApplyResult(armed = 1, cancelled = 0, kept = 0), scheduler.applyPlan(listOf(alert("a", NOW + 10 * MINUTE_MS))))
+        assertEquals(ApplyResult(armed = 1, cancelled = 0, kept = 0), applied(listOf(alert("a", NOW + 10 * MINUTE_MS))))
 
         val a = scheduled().getValue("a")
         assertEquals(NOW + 10 * MINUTE_MS, a.triggerAtMs)

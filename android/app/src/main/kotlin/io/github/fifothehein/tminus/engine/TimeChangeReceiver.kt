@@ -6,12 +6,14 @@ import android.content.Intent
 
 /**
  * Re-arms after the clock, the time zone or exact-alarm access changes (spec §7). Alarms are absolute
- * UTC times, so this mainly handles alerts that are now overdue and restores exactness.
+ * UTC times, so this mainly handles alerts that are now overdue and restores exactness. The alarm
+ * calls run on AlarmCalls' thread, and the broadcast stays open until they have.
  */
 class TimeChangeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in ACTIONS) return
         EngineActions.create(context).rearmAll()
+        finishWhenAlarmCallsIdle()
     }
 
     companion object {

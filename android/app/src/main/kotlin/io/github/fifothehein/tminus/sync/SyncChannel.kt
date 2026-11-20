@@ -5,6 +5,8 @@ import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.github.fifothehein.tminus.engine.AlarmCalls
+import io.github.fifothehein.tminus.engine.onMainThread
 import io.github.fifothehein.tminus.quiet.QuietStore
 import io.github.fifothehein.tminus.quiet.QuietTileService
 import java.util.TimeZone
@@ -118,7 +120,18 @@ class SyncChannel internal constructor(
                     preSync.setTimes(preSyncTimes)
                     quiet.mirror(quietUntil, quietText)
                     onQuietChanged()
-                    result.success(null)
+                    // The pre-sync alarm is set on AlarmCalls' thread: answer once it is, from the main thread.
+                    AlarmCalls.whenIdle { failure ->
+                        onMainThread {
+                            if (failure == null) {
+                                result.success(null)
+                            } else {
+                                // The same answer the generic catch below gives: never the message.
+                                Log.e(TAG, "tminus_sync.configure failed: ${failure.javaClass.simpleName}")
+                                result.error("sync_error", null, null)
+                            }
+                        }
+                    }
                 }
                 "requestSync" -> {
                     scheduler.runNow(call.string("trigger"), expedited = true)

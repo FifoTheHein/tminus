@@ -31,6 +31,12 @@ class RearmReceiversInstrumentedTest {
         store.read().scheduled.forEach { scheduler.cancel(it.id) }
         store.write(saved)
         scheduler.rearmAll()
+        awaitAlarmCalls() // the saved alarms are armed again before the test process can end
+    }
+
+    /** The scheduler and the receivers only post their alarm calls: wait until AlarmCalls has run them. */
+    private fun awaitAlarmCalls() {
+        assertTrue("the alarm calls did not finish", AlarmCalls.awaitIdle(10_000))
     }
 
     private fun alertAt(id: String, fireAt: Long, strength: Strength) = PlannedAlert(
@@ -50,6 +56,7 @@ class RearmReceiversInstrumentedTest {
         val headsUp = alertAt("rearm-headsup", now + 3 * HOUR_MS, Strength.HEADS_UP)
         val past = alertAt("rearm-past", now - HOUR_MS, Strength.ALARM)
         store.write(EngineState(plan = listOf(alarm, headsUp, past)))
+        awaitAlarmCalls() // the cancels posted before this have run
         assertFalse(scheduler.isArmed(alarm))
         return Triple(alarm, headsUp, past)
     }
@@ -57,6 +64,7 @@ class RearmReceiversInstrumentedTest {
     private fun assertRearmed(action: String, deliver: (Intent) -> Unit) {
         val (alarm, headsUp, past) = seed()
         deliver(Intent(action))
+        awaitAlarmCalls() // the receiver returned after posting its arms
         assertTrue(action, scheduler.isArmed(alarm))
         assertTrue(action, scheduler.isArmed(headsUp))
         assertFalse(action, scheduler.isArmed(past))

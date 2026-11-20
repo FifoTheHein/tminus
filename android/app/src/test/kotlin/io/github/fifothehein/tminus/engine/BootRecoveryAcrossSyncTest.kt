@@ -73,7 +73,7 @@ class BootRecoveryAcrossSyncTest {
 
         // The sync that boot starts replaces the plan. It lists the running meeting's alerts, past ones too.
         // It runs after the boot broadcast's FGS allow-list ended, so Android refuses its service start.
-        syncEngineWhoseServiceStartIsRefused().applyPlan(listOf(headsUp, alarm, later))
+        syncEngineWhoseServiceStartIsRefused().applyPlan(listOf(headsUp, alarm, later)) {} // what it left armed is asserted below
 
         assertNotNull(shadowOf(manager).getNotification(NotificationFactory.headsUpId(alarm.coalesceGroup)))
         val left = alarmsThatRing("alarm")

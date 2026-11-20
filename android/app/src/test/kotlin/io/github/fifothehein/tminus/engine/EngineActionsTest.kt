@@ -48,6 +48,16 @@ class EngineActionsTest {
 
     private fun events() = EventQueue(context).drain()
 
+    /**
+     * What [EngineActions.applyPlan] answers. Under TestTMinusApplication AlarmCalls runs every call at
+     * once, so the answer has come by the time the call returns. A failed alarm call throws here.
+     */
+    private fun applied(plan: List<PlannedAlert>): ApplyResult {
+        var answer: Result<ApplyResult>? = null
+        actions.applyPlan(plan) { answer = it }
+        return checkNotNull(answer) { "applyPlan gave no answer" }.getOrThrow()
+    }
+
     @Test
     fun `fire presents the due coalesce group and queues fired events`() {
         val a = alert("a", NOW + MINUTE_MS, group = "G")
@@ -88,10 +98,10 @@ class EngineActionsTest {
     @Test
     fun `an overdue alert still fires when a plan arrives before its alarm is delivered`() {
         val a = alert("a", NOW + MINUTE_MS)
-        actions.applyPlan(listOf(a))
+        applied(listOf(a))
         now = NOW + MINUTE_MS + 10_000 // the alarm is late (inexact, Doze) and the next plan comes first
 
-        actions.applyPlan(listOf(a)) // Dart keeps listing a until its occurrence ends
+        applied(listOf(a)) // Dart keeps listing a until its occurrence ends
 
         assertEquals(listOf(listOf(a)), presenter.presented)
         assertEquals(listOf(EngineEventType.FIRED to "a"), events().map { it.type to it.alertId })
@@ -104,7 +114,7 @@ class EngineActionsTest {
         val ended = alert("e", NOW - HOUR) // its event ran from 59 to 29 minutes ago
         store.write(EngineState(plan = listOf(ended)))
 
-        actions.applyPlan(emptyList()) // an occurrence that has ended is no longer planned
+        applied(emptyList()) // an occurrence that has ended is no longer planned
 
         assertEquals(listOf(ended), presenter.missed)
         assertTrue(presenter.presented.isEmpty())
@@ -117,7 +127,7 @@ class EngineActionsTest {
         val cancelled = alert("c", NOW - MINUTE_MS) // the event runs from now for 30 min
         store.write(EngineState(plan = listOf(cancelled)))
 
-        actions.applyPlan(listOf(alert("other", NOW + HOUR)))
+        applied(listOf(alert("other", NOW + HOUR)))
 
         assertTrue(presenter.presented.isEmpty())
         assertTrue(presenter.missed.isEmpty())
@@ -131,7 +141,7 @@ class EngineActionsTest {
         val start = NOW + HOUR
         val headsUp = alert("h", start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, occurrenceKey = "K", start = start)
         val alarm = alert("a", start - MINUTE_MS, occurrenceKey = "K", start = start)
-        actions.applyPlan(listOf(headsUp, alarm))
+        applied(listOf(headsUp, alarm))
         now = start - 30_000
         actions.fire("h")
         actions.fire("a")
@@ -150,7 +160,7 @@ class EngineActionsTest {
         assertFalse(scheduler.isArmed(alarm))
         assertTrue(events().isEmpty())
 
-        actions.applyPlan(listOf(headsUp, alarm)) // the next sync plans both again
+        applied(listOf(headsUp, alarm)) // the next sync plans both again
         assertEquals(listOf("h"), store.read().scheduled.map { it.id })
         assertTrue(scheduler.isArmed(headsUp))
         assertFalse(scheduler.isArmed(alarm))
@@ -160,7 +170,7 @@ class EngineActionsTest {
     fun `applyPlan and recoverPresented also re-arm a presented alert whose fire time is ahead again`() {
         val h = alert("h", NOW + HOUR, strength = Strength.HEADS_UP)
         store.write(EngineState(presented = listOf(h)))
-        actions.applyPlan(listOf(h))
+        applied(listOf(h))
         assertEquals(listOf("h"), store.read().plan.map { it.id })
         assertTrue(scheduler.isArmed(h))
 
@@ -266,7 +276,7 @@ class EngineActionsTest {
         store.write(EngineState(presented = listOf(x)))
         actions.snooze(listOf("x"), SnoozeOption.PLUS_5_MIN)
 
-        assertEquals(ApplyResult(armed = 0, cancelled = 0, kept = 0), actions.applyPlan(listOf(x)))
+        assertEquals(ApplyResult(armed = 0, cancelled = 0, kept = 0), applied(listOf(x)))
 
         assertFalse(scheduler.isArmed(x))
         assertTrue(store.read().plan.isEmpty())

@@ -127,7 +127,9 @@ class RingingService : Service() {
      * boot broadcast's allow-list; an OEM may refuse too; the type's permission may be missing, or the type
      * may not be the manifest's). Nothing may ring: the session's alerts show as heads-up notifications
      * instead, with their normal actions, and stay presented. They ring again through AlarmManager after
-     * RECOVERY_DELAY_MS, once: a refused [retry] is not retried again.
+     * RECOVERY_DELAY_MS, once: a refused [retry] is not retried again. The retry's alarm is armed here, on
+     * this thread, before the service stops: it stops at once and nothing would keep the process alive for
+     * a queued alarm, and a lost retry would leave the alerts as heads-ups that never ring.
      */
     private fun refuseForeground(session: List<PlannedAlert>, retry: Boolean, error: Exception) {
         // The class only: an exception's message or trace can quote a link or an event's text.
@@ -135,7 +137,13 @@ class RingingService : Service() {
         stopAlerting()
         AndroidAlertPresenter(this).fallBackToHeadsUp(session)
         if (!retry && session.isNotEmpty()) {
-            AlarmScheduler(this).armRingingRetry(session.map { it.id }, System.currentTimeMillis() + EngineActions.RECOVERY_DELAY_MS)
+            // A failed arm must not skip stopSelfResult: a service started with startForegroundService that
+            // neither goes foreground nor stops risks Android's "did not start foreground in time" crash.
+            try {
+                AlarmScheduler(this).armRingingRetryNow(session.map { it.id }, System.currentTimeMillis() + EngineActions.RECOVERY_DELAY_MS)
+            } catch (e: Exception) {
+                Log.w(TAG, "Ringing retry could not be armed: ${e.javaClass.simpleName}")
+            }
         }
         stopSelfResult(lastStartId)
     }

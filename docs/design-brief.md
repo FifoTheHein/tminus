@@ -73,7 +73,7 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
 - Calendar colour bar
 - Time range
 - Title
-- Location, or a "Teams" badge when there's a join link
+- Location, or a badge with the meeting service's name (Teams, Google Meet, Zoom or Webex) when there's a join link
 - Alert chips, e.g. `🔔 −10` `⏰ −1`
 - On/off toggle, shown only until the meeting starts. Every alert fires at or before the start, so after that the toggle could change nothing.
 - A small grey reason line, e.g. "Quick · rule: standup", "Silent · tentative", "Silenced · Mute today"
@@ -94,7 +94,10 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
 ### 3. Event detail (bottom sheet)
 
 - Title, time, location, organiser, calendar name and colour.
-- A large **Join Teams meeting** button when a link exists.
+- A large Join button when a Teams, Google Meet, Zoom or Webex link exists, named for its service: **Join Teams meeting**, **Join Google Meet**, **Join Zoom meeting** or **Join Webex meeting**.
+  - It opens the link with Android: the service's own app when it is installed, otherwise the browser. If nothing can open the link, the sheet says "Could not open the meeting link." (a snack bar would be drawn behind the sheet).
+  - A location that is only the meeting's own link (Outlook writes a Meet link there) is not shown as a place, because the Join button already offers it.
+  - A phone calendar's link is found in the meeting's description or location only. An event made in Google Calendar with Meet added may not carry the link on the phone (not checked).
 - **Alerts for this event:** a profile picker with a scope switch **This occurrence / Whole series** (series only for repeating events).
   - "Customise" opens an alert list editor for this event only.
 - **Why:** "Using *Quick* because rule 'standup' matched the title."
@@ -117,7 +120,7 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
   - Declined (device calendars only)
 - **Keyword rules:** a drag-to-reorder list. Each row reads "Title contains *standup* → Quick".
 - **Rule editor:**
-  - field dropdown: Title / Location / Organizer / Description / Has Teams link
+  - field dropdown: Title / Location / Organizer / Description / Has meeting link (a Teams, Google Meet, Zoom or Webex link)
   - match: contains (with a "regex" advanced toggle)
   - text field
   - target profile
@@ -175,8 +178,8 @@ The app draws edge to edge. Screens outside the tab bar (Settings, Developer too
 This screen will be built natively, so keep it simple and self-contained.
 - The event's calendar colour as a background wash or accent.
 - A large countdown: "Starts in 1 min" (or "Starting now" / "Started 2 min ago").
-- Title, time range, location or Teams.
-- **Primary button:** **Join** when there's a Teams link, otherwise **Dismiss**.
+- Title, time range, and where it is: the meeting service's name (Teams, Google Meet, Zoom or Webex), the location, or both, such as "Google Meet · Boardroom 2".
+- **Primary button:** **Join** when there's a Teams, Google Meet, Zoom or Webex link, otherwise **Dismiss**.
 - **Snooze**, which expands to show: +1 min · +5 min · 1 min before start · At start (hide past options).
 - **Dismiss all alerts for this event.**
 - **Coalesced state:** two or three meetings starting at the same time appear as a stacked list, each with its own Join and Dismiss.
@@ -191,6 +194,8 @@ This screen will be built natively, so keep it simple and self-contained.
 | **Missed** | "Missed: Sprint planning (10:00)", with action Open |
 | **Feed stale** | "Calendar hasn't synced for 1 h. Alarms may be outdated", with action Sync now |
 | **Feed broken** | "Outlook feed link stopped working" (for a phone calendar, for example "Work: calendar is not syncing"), with action Fix |
+
+When a meeting has a join link, the text of its heads-up, ringing or missed notification names the service after the time, for example "10:00–10:30 · Zoom".
 
 ## Sample data for mockups
 

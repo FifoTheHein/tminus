@@ -27,6 +27,18 @@ void main() {
     uid: 'teams',
     joinUrl: 'https://teams.microsoft.com/l/meetup-join/1',
   );
+  // Invented join links of the other three services.
+  const meetingLinks = [
+    ('Google Meet', 'https://meet.google.com/abc-defg-hij'),
+    ('Zoom', 'https://example.zoom.us/j/12345678901'),
+    ('Webex', 'https://example.webex.com/meet/someone'),
+  ];
+  final linkRule = KeywordRule(
+    id: 'j',
+    position: 0,
+    field: RuleField.hasJoinLink,
+    profileId: 'quick',
+  );
 
   final cases = <Case>[
     // 6. Global default
@@ -138,9 +150,27 @@ void main() {
           ),
         ],
       ),
-      'Quick · rule: Teams link',
+      'Quick · rule: meeting link',
       quickAlerts,
       step: ResolutionStep.keywordRule,
+    ),
+    for (final (service, url) in meetingLinks)
+      Case(
+        'hasJoinLink rule on a $service meeting',
+        occ(uid: 'link', joinUrl: url),
+        RuleSet(rules: [linkRule]),
+        'Quick · rule: meeting link',
+        quickAlerts,
+        step: ResolutionStep.keywordRule,
+      ),
+    Case(
+      'hasJoinLink rule skips a meeting with no link',
+      plain,
+      RuleSet(rules: [linkRule]),
+      'Meeting · default',
+      meetingAlerts,
+      step: ResolutionStep.globalDefault,
+      profileId: 'meeting',
     ),
     Case(
       'rule to Silent',

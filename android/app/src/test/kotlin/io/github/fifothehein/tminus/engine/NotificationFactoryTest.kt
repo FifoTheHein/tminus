@@ -32,6 +32,7 @@ class NotificationFactoryTest {
         AlertText(ZoneId.of("Africa/Johannesburg"), is24Hour = true, locale = Locale.US),
     ) { start - 10 * MINUTE_MS }
     private val link = "https://teams.microsoft.com/l/meetup-join/abc"
+    private val zoomLink = "https://example.zoom.us/j/12345678901?pwd=abc"
 
     private fun meeting(id: String = "a", joinUrl: String? = null, location: String? = null, title: String = "Sprint planning") =
         alert(id, start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, start = start, title = title, joinUrl = joinUrl, location = location)
@@ -71,6 +72,20 @@ class NotificationFactoryTest {
         assertEquals("10:00–10:30 · Teams", n.body())
         assertEquals(listOf("Join", "Snooze", "Dismiss all"), n.actionTitles())
         assertTrue(shadowOf(n.actions[0].actionIntent).isActivityIntent) // no trampoline
+    }
+
+    @Test
+    fun `heads-up for a Zoom meeting names Zoom in the body`() {
+        val n = factory.headsUp(listOf(meeting(joinUrl = zoomLink)))
+        assertEquals("In 10 min · Sprint planning", n.title())
+        assertEquals("10:00–10:30 · Zoom", n.body())
+    }
+
+    @Test
+    fun `the ringing and missed notifications name the service too`() {
+        val zoom = meeting(joinUrl = zoomLink).copy(strength = Strength.ALARM)
+        assertEquals("10:00–10:30 · Zoom", factory.ringing(listOf(zoom)).body())
+        assertEquals("10:00–10:30 · Zoom", factory.missed(zoom).body())
     }
 
     @Test

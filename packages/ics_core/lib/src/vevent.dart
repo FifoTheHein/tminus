@@ -1,5 +1,6 @@
 import 'component.dart';
 import 'event_fields.dart';
+import 'meeting_links.dart';
 import 'model.dart';
 import 'values.dart';
 
@@ -90,7 +91,11 @@ ParsedEvent parseVevent(Component event) {
     location: location,
     description: description,
     organizer: organizerOf(event.first('ORGANIZER')),
-    joinUrl: extractTeamsJoinUrl(description, location),
+    joinUrl: extractJoinUrl(
+      description,
+      location,
+      conference: textOf(event.first('X-GOOGLE-CONFERENCE')),
+    ),
     busyStatus: busyStatusOf(event),
   );
 }

@@ -63,6 +63,26 @@ void main() {
     expect(rule(RuleField.hasJoinLink, 'nomatch').matches(teams), isTrue);
   });
 
+  test('hasJoinLink matches the join URL of every service, not only Teams', () {
+    for (final url in [
+      'https://meet.google.com/abc-defg-hij',
+      'https://example.zoom.us/j/12345678901',
+      'https://example.webex.com/meet/someone',
+    ]) {
+      final meeting = occ(joinUrl: url);
+      expect(
+        rule(RuleField.hasJoinLink, '').matches(meeting),
+        isTrue,
+        reason: url,
+      );
+      expect(
+        rule(RuleField.hasJoinLink, 'nomatch').matches(meeting),
+        isTrue,
+        reason: url,
+      );
+    }
+  });
+
   test('isValid flags only an uncompilable regex', () {
     expect(
       rule(RuleField.title, 'a(', match: RuleMatch.regex).isValid,

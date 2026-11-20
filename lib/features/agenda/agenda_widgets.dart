@@ -443,7 +443,8 @@ class EmptyDayCard extends StatelessWidget {
 }
 
 /// One meeting (mockups 1a, 2c, 6e): its colour bar, time, title, where it is
-/// or "Teams", what will ring and why, and the toggle. A tap opens the sheet.
+/// or the name of its meeting service ("Teams", "Google Meet", "Zoom" or
+/// "Webex"), what will ring and why, and the toggle. A tap opens the sheet.
 class AgendaCard extends StatelessWidget {
   const AgendaCard({
     super.key,
@@ -472,11 +473,14 @@ class AgendaCard extends StatelessWidget {
     final meeting = item.meeting;
     final on = item.on;
     final location = meeting.location;
+    final service = item.service;
     final alerts = item.resolved.alerts;
 
     final meta = <Widget>[
-      if (item.hasTeams)
-        const TeamsBadge()
+      // The service's name stands in for the location, so a location that is
+      // only the meeting's own link is never shown beside it.
+      if (service != null)
+        MeetingBadge(service: service)
       else if (location != null && location.isNotEmpty)
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 200),

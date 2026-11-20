@@ -12,8 +12,8 @@ import 'calendar_source.dart';
 /// times are stored when created, so later syncs do not move them.
 ///
 /// With the Meeting profile: two events start at +2 min (one coalesced alarm
-/// at +1 min) and one with a Teams link starts at +12 min (heads-up at +2 min,
-/// alarm at +11 min).
+/// at +1 min) and one with a meeting link (a Teams one) starts at +12 min
+/// (heads-up at +2 min, alarm at +11 min).
 class FastAlarms {
   FastAlarms({
     required this.sources,

@@ -103,4 +103,123 @@ void main() {
       throwsFormatException,
     );
   });
+
+  group('joinUrl', () {
+    List<String> lines(List<String> more) => [
+      'UID:a',
+      'DTSTART:20261013T090000Z',
+      ...more,
+    ];
+
+    test('X-GOOGLE-CONFERENCE is searched after the text and location', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij',
+            r'DESCRIPTION:Dial in with Zoom: https://example.zoom.us/j/12345678901\n',
+            'LOCATION:https://example.webex.com/meet/someone',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('a Teams link in the text beats the Meet link of the conference', () {
+      // Google adds the Meet link on its own; the organiser pasted the Teams
+      // invite into the description, and that is the meeting to join.
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij',
+            r'DESCRIPTION:Join on your computer\, mobile app or room device\nClick here to join the meeting<https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0>\nMeeting ID: 123 456 789 0\n',
+          ]),
+        ),
+      );
+      expect(
+        e.joinUrl,
+        'https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0',
+      );
+    });
+
+    test('a Zoom link only in the location beats the Meet conference', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij',
+            'LOCATION:https://example.zoom.us/j/12345678901',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('a conference value that is no join link is skipped', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://hangouts.google.com/hangouts/_/abcdefghijklmnop',
+            r'DESCRIPTION:Join by Zoom: https://example.zoom.us/j/12345678901\n',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('the conference property alone gives the link', () {
+      final e = parseVevent(
+        event(
+          lines(['X-GOOGLE-CONFERENCE:https://meet.google.com/klm-nopq-rst']),
+        ),
+      );
+      expect(e.joinUrl, 'https://meet.google.com/klm-nopq-rst');
+    });
+
+    test('without a conference value, the text comes before the location', () {
+      final e = parseVevent(
+        event(
+          lines([
+            r'DESCRIPTION:Join by Zoom: https://example.zoom.us/j/12345678901\n',
+            'LOCATION:https://example.webex.com/meet/someone',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('a Webex link in the location alone is found', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'DESCRIPTION:Come by.',
+            'LOCATION:https://example.webex.com/meet/someone',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.webex.com/meet/someone');
+    });
+
+    test('an escaped semicolon after a Zoom link is not part of it', () {
+      final e = parseVevent(
+        event(
+          lines([
+            r'DESCRIPTION:https://us02web.zoom.us/j/81234567890?pwd=abcXYZ\;',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://us02web.zoom.us/j/81234567890?pwd=abcXYZ');
+    });
+
+    test('no join link anywhere gives null', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://hangouts.google.com/hangouts/_/abcdefghijklmnop',
+            r'DESCRIPTION:https://zoom.us/download\nhttps://tel.meet/abc-defg-hij?pin=1234567890\n',
+            'LOCATION:Boardroom',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, isNull);
+    });
+  });
 }

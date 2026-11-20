@@ -106,14 +106,14 @@ String? _skipFilter(String explanation) => switch (_lastPart(explanation)) {
   _ => null,
 };
 
-/// `rule: Teams link` or `rule: "<words>"`, after the profile's name. The words
-/// are the user's, so they may hold ` · ` or a quote: they are everything
+/// `rule: meeting link` or `rule: "<words>"`, after the profile's name. The
+/// words are the user's, so they may hold ` · ` or a quote: they are everything
 /// between the first quote and the last.
 String? _rule(ResolvedOccurrence r, String name) {
   final rule = _after(r.explanation, r.profile.name);
   if (rule == null) return null;
-  if (rule == 'rule: Teams link') {
-    return 'Using **$name** because it has a Teams link.';
+  if (rule == 'rule: meeting link') {
+    return 'Using **$name** because it has a meeting link.';
   }
   const open = 'rule: "';
   if (rule.length > open.length &&

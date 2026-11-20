@@ -13,6 +13,7 @@ class AlarmScreenModelTest {
     private val text = AlertText(ZoneId.of("Africa/Johannesburg"), is24Hour = true, locale = Locale.US)
     private val start = Instant.parse("2026-10-06T08:00:00Z").toEpochMilli() // 10:00 local
     private val link = "https://teams.microsoft.com/l/meetup-join/abc"
+    private val meetLink = "https://meet.google.com/abc-defg-hij"
 
     private fun meeting(id: String, title: String, start: Long = this.start, joinUrl: String? = link) =
         alert(id, start - MINUTE_MS, start = start, title = title, joinUrl = joinUrl, location = null)
@@ -30,6 +31,36 @@ class AlarmScreenModelTest {
         assertEquals("Teams", item.where)
         assertEquals(link, item.joinUrl)
         assertEquals(listOf(SnoozeOption.PLUS_1_MIN, SnoozeOption.PLUS_5_MIN, SnoozeOption.AT_START), m.snoozeOptions)
+    }
+
+    @Test
+    fun `a Meet meeting says Google Meet on the alarm screen`() {
+        val m = AlarmScreenModel.of(listOf(meeting("a", "Stand-up", joinUrl = meetLink)), start - MINUTE_MS, text)!!
+        val item = m.items.single()
+        assertEquals("Google Meet", item.where)
+        assertEquals(meetLink, item.joinUrl)
+    }
+
+    @Test
+    fun `each item of a coalesced screen names its own service`() {
+        val alerts = listOf(
+            meeting("t", "Team sync"),
+            meeting("m", "Stand-up", joinUrl = meetLink),
+            meeting("z", "Customer call", joinUrl = "https://example.zoom.us/j/12345678901?pwd=abc"),
+            meeting("w", "Vendor demo", joinUrl = "https://example.webex.com/meet/someone"),
+            meeting("n", "Call the bank", joinUrl = null),
+        )
+        val m = AlarmScreenModel.of(alerts, start, text)!!
+        assertEquals(
+            mapOf(
+                "Call the bank" to null,
+                "Customer call" to "Zoom",
+                "Stand-up" to "Google Meet",
+                "Team sync" to "Teams",
+                "Vendor demo" to "Webex",
+            ),
+            m.items.associate { it.title to it.where },
+        )
     }
 
     @Test

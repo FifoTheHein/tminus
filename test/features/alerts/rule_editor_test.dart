@@ -133,7 +133,7 @@ void main() {
     expect(find.text('Sprint planning'), findsOneWidget);
 
     // A Teams-link rule matches the meeting that has a link.
-    await chooseField(t, 'Has Teams link');
+    await chooseField(t, 'Has meeting link');
     expect(find.byKey(const Key('rulePattern')), findsNothing);
     expect(count(), 'Matches 1 upcoming event');
     expect(find.text('Sprint planning'), findsOneWidget);
@@ -184,6 +184,61 @@ void main() {
       'Matches 7 upcoming events',
     );
     expect(find.textContaining('Standup '), findsNWidgets(5));
+    await h.dispose(t);
+  });
+
+  testWidgets('a meeting-link rule counts a Meet, Zoom or Webex meeting like a '
+      'Teams one', (t) async {
+    useTallWindow(t);
+    final h = await pumpApp(
+      t,
+      location: '/alerts/rules/new',
+      seed: (h) async {
+        await getIt<SourceRepository>().save(_feed);
+        // Invented links, one per service, and a meeting with no link. All four
+        // are still to come at the harness's 09:27.
+        await getIt<OccurrenceRepository>().replaceForSource('feed', [
+          occ(
+            sourceId: 'feed',
+            uid: 'meet',
+            title: 'Design review',
+            start: DateTime.utc(2026, 10, 6, 8),
+            joinUrl: 'https://meet.google.com/abc-defg-hij',
+          ),
+          occ(
+            sourceId: 'feed',
+            uid: 'zoom',
+            title: 'Vendor call',
+            start: DateTime.utc(2026, 10, 6, 9),
+            joinUrl: 'https://example.zoom.us/j/12345678901',
+          ),
+          occ(
+            sourceId: 'feed',
+            uid: 'webex',
+            title: 'Partner sync',
+            start: DateTime.utc(2026, 10, 6, 10),
+            joinUrl: 'https://example.webex.com/meet/someone',
+          ),
+          occ(
+            sourceId: 'feed',
+            uid: 'room',
+            title: 'Quarterly review',
+            start: DateTime.utc(2026, 10, 6, 11),
+          ),
+        ]);
+      },
+    );
+
+    await chooseField(t, 'Has meeting link');
+
+    expect(
+      t.widget<Text>(find.byKey(const Key('rulePreviewCount'))).data,
+      'Matches 3 upcoming events',
+    );
+    expect(find.text('Design review'), findsOneWidget);
+    expect(find.text('Vendor call'), findsOneWidget);
+    expect(find.text('Partner sync'), findsOneWidget);
+    expect(find.text('Quarterly review'), findsNothing);
     await h.dispose(t);
   });
 
@@ -372,7 +427,7 @@ void main() {
     await type(t, 'standup');
     await t.tap(find.byKey(const Key('ruleRegex')));
     await t.pump();
-    await chooseField(t, 'Has Teams link');
+    await chooseField(t, 'Has meeting link');
     expect(find.byKey(const Key('rulePattern')), findsNothing);
     expect(find.byKey(const Key('ruleRegex')), findsNothing);
     expect(save(t).onPressed, isNotNull);

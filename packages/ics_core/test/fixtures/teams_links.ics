@@ -40,7 +40,7 @@ END:VEVENT
 BEGIN:VEVENT
 UID:none
 SUMMARY:In person
-DESCRIPTION:Bring snacks. Zoom backup: https://zoom.us/j/1
+DESCRIPTION:Bring snacks. Zoom backup: https://zoom.us/download
 LOCATION:Boardroom
 DTSTART;TZID=South Africa Standard Time:20261013T140000
 DTEND;TZID=South Africa Standard Time:20261013T150000

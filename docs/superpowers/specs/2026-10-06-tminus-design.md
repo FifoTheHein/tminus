@@ -119,6 +119,7 @@ The window is **now − 1 h to now + 7 days**.
 - Stores an Android calendar ID.
 - Reads `CalendarContract.Instances` natively through the channel. Android has already expanded recurrence there.
 - Provides `AVAILABILITY` (busy/free/tentative) and `SELF_ATTENDEE_STATUS` (declined).
+- Finds the join link in the event's description and location only. It reads no conference property, so a Meet link is found only when it is written in one of those two. An event made in Google Calendar with Meet added may not carry the link on the phone (not checked).
 - Asks for `READ_CALENDAR` only when the user adds this kind of source.
 - The user picks the calendar from a list grouped by account kind and account. Shared, holiday and phone-only calendars are set apart, and calendars that are not synced are greyed out (`2026-11-13-calendar-grouping-design.md`).
 
@@ -129,7 +130,10 @@ The window is **now − 1 h to now + 7 days**.
 - Expands RRULE with the `rrule` package. Applies EXDATE, then RECURRENCE-ID overrides.
 - Drops `STATUS:CANCELLED` events and titles prefixed `Canceled:` / `Cancelled:`.
 - Reads `X-MICROSOFT-CDO-BUSYSTATUS` → `free | tentative | busy | oof`.
-- Extracts the Teams join URL from DESCRIPTION/LOCATION by matching `https://teams.microsoft.com/l/meetup-join/...` or the newer `https://teams.microsoft.com/meet/...`.
+- Extracts one join link per meeting, a Microsoft Teams, Google Meet, Zoom or Webex link (`extractJoinUrl`). `meetingServiceOf` names the service from the link's host and path.
+  - It looks in Google's `X-GOOGLE-CONFERENCE` property first (ICS feeds only), then DESCRIPTION, then LOCATION. Inside one text the earliest link wins, whatever its service.
+  - It recognises these forms, `https` only: Teams `teams.microsoft.com/l/meetup-join/...` and `teams.microsoft.com/meet/...`, and `/meet/<digits>` on `teams.cloud.microsoft` and `teams.live.com`; Google Meet `meet.google.com/xxx-xxxx-xxx`; Zoom `/j/<digits>`, `/my/<name>` and `/w/<digits>` on `zoom.us`, `zoom.com` and their subdomains; Webex `j.php?MTID=<id>`, `/meet/<id>` and `/join/<id>` on subdomains of `webex.com`. Any other page on those hosts, such as `zoom.us/download`, is not a join link.
+  - A link inside an Outlook Safe Links or Google redirect wrapper (`https://www.google.com/url?q=...`) is unwrapped and decoded.
 - Parses each event separately: one malformed VEVENT is skipped and logged, and the rest of the feed still parses.
 
 ### `EventOccurrence`
@@ -222,7 +226,7 @@ Every planned occurrence records the step that decided it, e.g. `Quick · rule: 
   - Each event has its own Join / Dismiss.
   - The screen adds **Snooze all** and **Dismiss all**. Dismiss all acts as Dismiss all for every listed occurrence.
   - The coalesced notification shows "N meetings starting", with actions Stop · Snooze all · Dismiss all.
-- **Join:** opens `joinUrl` (Teams app, otherwise the browser) and counts as dismissing the occurrence.
+- **Join:** opens `joinUrl` (a Teams, Google Meet, Zoom or Webex link) with Android's `ACTION_VIEW`: the service's own app when it is installed, otherwise the browser. It counts as dismissing the occurrence.
 
 ## 7. Alarm engine (Kotlin)
 
@@ -384,7 +388,7 @@ The rule: never lose an alarm because of bad data, and never fail silently.
   - an organiser in a zone with daylight saving time
   - all-day and multi-day events
   - `Canceled:` titles
-  - Teams link extraction
+  - join link extraction (Teams, Google Meet, Zoom and Webex)
   - folded lines
 - **Rules engine:** table-driven tests covering the full resolution order, quiet modes against `ringsInQuietMode`, Vacation silencing Important, and the explanation text.
 - **Planner:**
@@ -412,7 +416,11 @@ The rule: never lose an alarm because of bad data, and never fail silently.
    - Does the Outlook Android app's "Sync calendars" work on the user's phone?
    - This decides the primary source but changes no code.
 2. **Published-feed latency:** measure how long Outlook takes to update the published ICS feed after a meeting change. This sets expectations for the pre-alarm sync.
-3. **Teams link in the feed:** confirm the "Can view all details" feed includes the Teams join URL in DESCRIPTION.
+3. **Teams link in the feed:** confirm the "Can view all details" feed includes the Teams join URL in DESCRIPTION. **Done in Plan 1** (`packages/ics_core/test/real_feed_test.dart`): the published Outlook feed carries Teams links in DESCRIPTION. **Widened in Plan 7 (2026-11-19)** to Google Meet, Zoom and Webex, checked against real feeds:
+   - One Outlook feed: a Google invite accepted into Outlook has its Meet link as the whole LOCATION, and in DESCRIPTION mostly inside Outlook Safe Links wrappers.
+   - Two Google Calendar feeds: nearly every Meet meeting has its link, as the plain link, in `X-GOOGLE-CONFERENCE` and in DESCRIPTION. Zoom links are in DESCRIPTION (sometimes also the whole LOCATION), many of them inside Google redirects (`https://www.google.com/url?q=...`). Only a handful of real Webex join links turned up, so the Webex forms rest mostly on published descriptions of Webex links.
+   - Not recoverable: when a mail-security service rewrites a Teams link, the new link holds only the host name (`...?domain=teams.microsoft.com`), so no link can be found. Those meetings get no Join button, as before.
+   - Phone calendars were not checked. Whether Android's calendar store holds the Meet link that Google Calendar adds with its video conferencing button is not known (§5).
 4. **Foreground service type:** confirm `mediaPlayback` is acceptable for alarm ringing under the current Play policy; otherwise use `specialUse`. *Superseded (2026-11-02):* Plan 6 moves `RingingService` to `systemExempted`, with `mediaPlayback` as the fallback (roadmap, Plan 6 decision 2). **Done (2026-11-18):** `RingingService` is a `systemExempted` service, and it was checked on the release build in three ways.
    - Release smoke test (Plan 6, Task 4): on an API 36 emulator the release build rang the test alarm full screen with the service in the foreground as `systemExempted` (`0x400`). The merged release manifest has one typed service, `RingingService`.
    - Emulators on API 26, 30, 33, 35 and 36 (Task 11), with the 1.0.1 release APK: the alarm rang on every level, and stopped from the screen, from the notification and from a volume key. API 35 and 36 show `0x400`. On API 26, 30 and 33 the dump shows the service in the foreground. On API 35's first leg, Android showed "T-Minus isn't responding" and Dismiss on the alarm screen did not stop one alarm (the notification's Stop did). The traces show the alarm screen stuck in the emulator's software renderer, and the main thread blocked in an AlarmManager call, which is follow-up issue #26. On the third try Dismiss worked with no ANR.
@@ -459,7 +467,7 @@ Copies are ranked:
 | Field | Rule |
 |---|---|
 | start, end, all-day, warnings, title, `seriesUid`, colour | From the top-ranked copy (the **time source**). |
-| Join link, location, organiser, description | First non-null in rank order (Outlook's phone sync may leave out the body; the feed has the Teams link). |
+| Join link, location, organiser, description | First non-null in rank order (Outlook's phone sync may leave out the body; the feed has the Teams, Google Meet, Zoom or Webex link). |
 | Busy status | First that is not `unknown`. |
 | Declined, cancelled | True if any copy says so (only phone copies know). |
 | Source default profile (§6 step 5) | First source in rank order that has one. |

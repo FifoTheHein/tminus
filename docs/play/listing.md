@@ -26,14 +26,15 @@ Meeting alarms you can't miss, for Outlook, Teams and phone calendar meetings.
 
 ## Full description
 
-Limit 4000 characters. This text has 1914. It is plain text, with line breaks and bullets (•) for the lists.
+Limit 4000 characters. This text has 2147. It is plain text, with line breaks and bullets (•) for the lists.
 
 ```text
 T-Minus turns your calendar meetings into alarms you can't miss, and can always stop.
 
 ADD YOUR CALENDARS
 • Pick a calendar already on your phone, for example from a Google, Samsung, Outlook or Exchange account, or paste a calendar link (Outlook, Google Calendar or any ICS link).
-• Teams meetings come in through Outlook. A meeting with a Teams link gets a Join button.
+• Teams meetings come in through Outlook.
+• A meeting with a Teams, Google Meet, Zoom or Webex link gets a Join button. On a phone calendar, T-Minus finds the link when it is written in the meeting's description or location.
 • Calendars are checked about every 15 minutes, and again shortly before each alarm.
 
 ALERTS THAT GET STRONGER
@@ -63,7 +64,7 @@ PRIVATE
 
 Needs Android 8 or later.
 
-Outlook and Teams are trademarks of Microsoft. Google Calendar is a trademark of Google. T-Minus is an independent app and is not affiliated with or endorsed by either company.
+Outlook and Teams are trademarks of Microsoft. Google Calendar and Google Meet are trademarks of Google. Zoom and Webex are trademarks of their owners. T-Minus is an independent app and is not affiliated with or endorsed by Microsoft, Google or the owners of Zoom and Webex.
 ```
 
 ## Store settings
@@ -108,13 +109,14 @@ Names are files and symbols, not line numbers, so the table stays true when code
 | The two ways to add a calendar; Outlook, Google Calendar and any ICS link; the link check | `lib/features/sources/add_source_panel.dart` (the two cards, the Check button), `lib/features/sources/link_help.dart` (`LinkProvider`), `lib/core/sources/ics_link_probe.dart` |
 | Google, Samsung, Outlook and Exchange accounts | `lib/features/sources/calendar_groups.dart` (`CalendarGroupKind`, `kindLabel`) |
 | The Calendar permission is asked for only with a phone calendar | `lib/features/sources/calendar_picker.dart`, `lib/features/onboarding/onboarding_controller.dart`, `lib/features/sources/source_detail_screen.dart` (the three places that ask); the manifest comment on `READ_CALENDAR` |
-| A Join button opens a meeting's Teams link | `NotificationFactory.kt` (the heads-up and ringing notifications of one meeting), `AlarmScreen.kt` (each meeting), `lib/features/agenda/event_sheet.dart` (Join Teams meeting) |
+| A Join button opens a meeting's Teams, Google Meet, Zoom or Webex link | `packages/ics_core/lib/src/meeting_links.dart` (`extractJoinUrl` finds the link, `meetingServiceOf` names its service), `NotificationFactory.kt` (the heads-up and ringing notifications of one meeting), `AlarmScreen.kt` (each meeting), `JoinActivity.kt` (the notifications and the alarm screen) and `android/.../ui/UiChannel.kt` (`openUrl`, the event sheet) open it with `ACTION_VIEW`; `lib/features/agenda/event_sheet.dart` (`_joinLabel`: Join Teams meeting, Join Google Meet, Join Zoom meeting, Join Webex meeting) |
+| On a phone calendar, a link is found when it is written in the meeting's description or location | `lib/core/sources/occurrence_mapping.dart` (`occurrenceFromDevice` passes the description and the location to `extractJoinUrl`, and no conference), `android/.../calendar/DeviceCalendarReader.kt` (`INSTANCE_COLUMNS` has no conference or extended property) |
 | A check about every 15 minutes, and one shortly before each alarm | `android/.../sync/SyncScheduler.kt` (periodic, 15 minutes), `PreSyncScheduler.kt` (12 minutes before the earliest alert) |
 | Heads-up follows the sound settings | `NotificationFactory.kt` (the `heads_up` channel) |
 | Alarm: alarm volume, vibration, full-screen alarm, ring timeout | `RingingService.kt` (`ALARM_ATTRIBUTES`, vibration, `restartTimeout`), `NotificationFactory.kt` (`setFullScreenIntent`), `AlarmActivity.kt`, `lib/core/model/alert.dart` (`SoundSettings`: two minutes) |
 | Meeting profile: heads-up 10 minutes, alarm 1 minute; Quick, Important, Silent | `lib/core/model/alert_profile.dart` (`BuiltInProfiles`) |
 | Own profiles: alert times, tone, vibration, volume ramp | `lib/features/alerts/profile_editor_screen.dart` |
-| Keyword rules by title, location, organiser or description, or a Teams link | `lib/core/model/keyword_rule.dart` (`RuleField`), `lib/features/alerts/rule_editor_screen.dart` |
+| Keyword rules by title, location, organiser or description, or a meeting link (Teams, Google Meet, Zoom or Webex) | `lib/core/model/keyword_rule.dart` (`RuleField`, `hasJoinLink`), `lib/features/alerts/rule_editor_screen.dart` |
 | Skipped meetings, all five filters on by default, declined for phone calendars only | `lib/core/model/skip_filters.dart`, `lib/core/rules/rules_engine.dart`, `lib/features/alerts/alerts_screen.dart` |
 | Alerts of one meeting or a series | `lib/features/agenda/event_sheet.dart` |
 | Mute today, Pause, Vacation, what still rings, the tile | `lib/features/quiet/quiet_sheet.dart`, `lib/core/rules/rules_engine.dart` (`resolve`), `android/.../quiet/QuietTileService.kt` |
@@ -131,7 +133,8 @@ Names are files and symbols, not line numbers, so the table stays true when code
 ## Notes for Task 10's reviewer
 
 - The plan's short description is kept as written. The full description adds one sentence that says Teams meetings reach T-Minus through the Outlook calendar, because the app has no Teams connection of its own.
-- The last paragraph of the full description (the trademark and independence statement) is not in the plan. It is true, and it keeps the listing's use of the Outlook, Teams and Google Calendar names to a plain description of what the app reads.
+- The last paragraph of the full description (the trademark and independence statement) is not in the plan. It is true, and it keeps the listing's use of the Outlook, Teams, Google Calendar, Google Meet, Zoom and Webex names to a plain description of what the app reads. It does not name the owners of Zoom and Webex, because nothing in the repository says who they are.
+- Plan 7 widened the Join sentence from Teams to Teams, Google Meet, Zoom and Webex, and added the phone-calendar sentence after it. Whether a phone calendar holds the Meet link that Google Calendar adds with its video conferencing button was not checked on a phone, so the text says only where T-Minus looks (the description and the location).
 - The volume keys stop an alarm only while the full-screen alarm is showing, and the text says so. When the phone is unlocked and in use, Android may show the alarm as a notification instead; its Stop button works, and opening T-Minus goes to the alarm screen.
 - The full description was shortened in F6 (2026-11-18). The claims table (Where each claim comes from) is a superset of the text on purpose, so a row can name a claim the text no longer makes.
 - Re-count the three fields if any of them is edited. The limits are 30, 80 and 4000 characters.

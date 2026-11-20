@@ -17,6 +17,7 @@ The spec covers six subsystems, so it is split into six plans. Each one ends in 
 | 4b | Meetings in more than one source (spec §13) | `2026-10-09-plan-4b-multi-source-meetings.md` | 4 | One meeting per real meeting across sources: `MeetingMerger`, `meeting_links`, sticky meeting keys, lookups over copy keys |
 | 5 | UI | `2026-10-11-plan-5-ui.md` | 2, 4, 4b | Agenda, event sheet, quiet sheet + quick-settings tile, Alerts, Sources, Health, Onboarding, Settings (incl. persisted theme mode) |
 | 6 | Play readiness (phase 1.5) | `2026-11-14-plan-6-play-readiness.md` (decisions below) | all | A signed release build on Play internal testing, the privacy policy and a demo feed on GitHub Pages, the store listing and Play declarations, the `systemExempted` ringing service, and the meeting cache in a second database that is never backed up |
+| 7 | Join links for Google Meet, Zoom and Webex | `2026-11-19-plan-7-meeting-links.md` | 1, 2, 3, 4, 5 | The Join button, the Agenda badge and the "Has meeting link" keyword rule work for Google Meet, Zoom and Webex links as they do for Teams links, and the app names the meeting service where it said "Teams". `ics_core` gets `extractJoinUrl` and `meetingServiceOf`. No schema or contract change |
 
 Plans 2 and 3 share only the contract in §3 and can run in parallel after Plan 1 (or even alongside it).
 
@@ -107,7 +108,7 @@ class IcsOccurrence {
   final String? location;
   final String? organizer;         // CN if present, else mailto address
   final String? description;
-  final String? joinUrl;           // first https://teams.microsoft.com/l/meetup-join/... or https://teams.microsoft.com/meet/... in DESCRIPTION, then LOCATION
+  final String? joinUrl;           // a Teams, Google Meet, Zoom or Webex join link: the first in X-GOOGLE-CONFERENCE, then DESCRIPTION, then LOCATION
   final DateTime startUtc;
   final DateTime endUtc;
   final bool allDay;               // DATE values; start/end = local midnight in deviceZone, as UTC
@@ -141,7 +142,7 @@ class IcsFormatException implements Exception { final String message; }
 
 Plan 4 maps `IcsOccurrence` to `EventOccurrence`: `seriesUid = recurring ? uid : null`, both `IcsWarning`s → `OccurrenceWarning.tzFallback`, `cancelled = false`, `declined = false`.
 
-`ics_core` also exports `String? extractTeamsJoinUrl(String? description, String? location)` (added by Plan 4), so device-calendar events find Teams links exactly as feeds do.
+`ics_core` also exports `String? extractJoinUrl(String? description, String? location, {String? conference})`, `MeetingService? meetingServiceOf(String? url)` and `enum MeetingService { teams, googleMeet, zoom, webex }` with a `label` (`Teams`, `Google Meet`, `Zoom`, `Webex`). Plan 4 added `extractTeamsJoinUrl` and Plan 7 replaced it, so device-calendar events find join links with the same function as feeds, from the description and the location. `conference` is Google's `X-GOOGLE-CONFERENCE` property, which only ICS feeds carry. The service is worked out from the link whenever it is needed, never stored, and not part of the §3 contract.
 
 `ics_core` also exports `bool isCancelledTitle(String title)` (Plan 5), so phone events titled `Canceled:` are cancelled like ICS ones.
 
@@ -368,7 +369,7 @@ Errors carry a code and never a message: `busy`, `cancelled`, `no_activity`, `io
 - Occurrences reach the rules engine and the planner as *meetings* (spec §13, Plan 4b): `MeetingMerger.merge` joins the copies of one meeting found in several sources, so `occurrenceKey` in plans and history is the meeting key (a copy's key when it stands alone), and Plan 5's Agenda must call `MeetingMerger.merge` with `MeetingLinkRepository.all()` to show what the sync plans.
 - Built-in profile ids: `meeting`, `quick`, `important`, `silent` with the alerts in spec §6 (`Important` = headsUp 30, headsUp 10, alarm 2, `ringsInQuietMode: true`).
 - Overrides: scope `occurrence` (by key) or `series` (by `seriesUid`); each sets any of `profileId`, `customAlerts`, `enabled`. The agenda toggle writes an occurrence override with `enabled`. The Agenda shows the toggle only until the meeting starts (PR #17). "Turned on with an occurrence override" (spec quiet modes) means `enabled == true`.
-- Explanation strings have the form `<Profile name> · <reason>`, e.g. `Quick · rule: "standup"`, `Meeting · default`, `Silent · tentative`. Reasons by resolution step: `this event`, `series`, `all-day` / `free` / `tentative` / `cancelled` / `declined`, `rule: "<pattern>"`, `source default`, `default`. An event the agenda toggle turned off reads `Off · this event` (`Off · series` for a series override). Custom alerts read `Custom · this event` / `Custom · series`. A has-Teams-link rule reads `<Profile> · rule: Teams link`. When a quiet mode silences an event the whole line becomes `Silenced · Mute today`, `Silenced · Paused until 14:00` (local time; `Paused until Wed 09:00` when it ends within the next 6 days, `Paused until 14 Oct 09:00` beyond that) or `Silenced · Vacation`.
+- Explanation strings have the form `<Profile name> · <reason>`, e.g. `Quick · rule: "standup"`, `Meeting · default`, `Silent · tentative`. Reasons by resolution step: `this event`, `series`, `all-day` / `free` / `tentative` / `cancelled` / `declined`, `rule: "<pattern>"`, `source default`, `default`. An event the agenda toggle turned off reads `Off · this event` (`Off · series` for a series override). Custom alerts read `Custom · this event` / `Custom · series`. A has-join-link rule reads `<Profile> · rule: meeting link` (before Plan 7 it read `rule: Teams link`; it matches a Teams, Google Meet, Zoom or Webex link). When a quiet mode silences an event the whole line becomes `Silenced · Mute today`, `Silenced · Paused until 14:00` (local time; `Paused until Wed 09:00` when it ends within the next 6 days, `Paused until 14 Oct 09:00` beyond that) or `Silenced · Vacation`.
 
 ## 5. Decisions made while planning (the spec is silent; flagged for review)
 

@@ -4,9 +4,10 @@
 
 The spec covers six subsystems, so it is split into six plans. Each one ends in working, tested software. Each plan is written when its turn comes, against the code that exists by then.
 
-**Status (2026-11-18):**
+**Status (2026-11-20):**
 - Plans 1–5 and 4b are built and merged into `main`.
-- Plan 6 is built (`2026-11-14-plan-6-play-readiness.md`). It also built the three follow-ups that decision 6 below listed, and moved the meeting cache out of Android backup. The app is on Google Play internal testing (1.0.1, 2026-11-18), and the store listing is in Play review. It is not in production: the closed test and the production release are a later step.
+- Plan 6 is built (`2026-11-14-plan-6-play-readiness.md`) and merged (#28, 2026-11-18). It also built the three follow-ups that decision 6 below listed, and moved the meeting cache out of Android backup. The app is on Google Play internal testing (1.0.1, 2026-11-18), and the store listing is in Play review. It is not in production: the closed test and the production release are a later step.
+- Plan 7 is built (`2026-11-19-plan-7-meeting-links.md`) and merged (#30, 2026-11-20). The Join button, the Agenda badge and the "Has meeting link" keyword rule now work for Google Meet, Zoom and Webex links as they do for Teams links, and the app, the alarm screen and the notifications name the meeting service. It reaches Play with the 1.0.2 release, which is still to come.
 
 | # | Plan | File | Depends on | Delivers |
 |---|---|---|---|---|

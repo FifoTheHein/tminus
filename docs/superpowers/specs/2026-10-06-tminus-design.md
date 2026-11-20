@@ -1,7 +1,7 @@
 # T-Minus: Meeting Alarm — Design Spec
 
 - **Date:** 2026-10-06
-- **Status:** Approved, and built through Plan 6 (2026-11-18). Phase 1.5 (Play readiness, Plan 6) is built, and the app is on Google Play internal testing. Later changes that refine this spec: the calendar picker grouping (`2026-11-13-calendar-grouping-design.md`) and the list in the roadmap's "Changes merged after Plan 5".
+- **Status:** Approved, and built through Plan 7 (2026-11-20). Plan 7 added Join links for Google Meet, Zoom and Webex. Phase 1.5 (Play readiness, Plan 6) is built, and the app is on Google Play internal testing. Later changes that refine this spec: the calendar picker grouping (`2026-11-13-calendar-grouping-design.md`) and the list in the roadmap's "Changes merged after Plan 5".
 - **Store name:** T-Minus: Meeting Alarm · **Project/package:** `tminus` · **Application ID:** `io.github.fifothehein.tminus`
 - **Platform:** Android (Flutter UI + native Kotlin alarm engine). iOS is backlog.
 

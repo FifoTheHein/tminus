@@ -169,8 +169,33 @@ void main() {
 
       expect(
         why(occ(joinUrl: teams), rules),
-        'Using **Quick** because it has a Teams link.',
+        'Using **Quick** because it has a meeting link.',
       );
+    });
+
+    test('a rule on the meeting link reads the same for every service', () {
+      final rules = RuleSet(
+        rules: [
+          KeywordRule(
+            id: 'r-link',
+            position: 0,
+            field: RuleField.hasJoinLink,
+            profileId: BuiltInProfiles.quickId,
+          ),
+        ],
+      );
+
+      for (final link in [
+        'https://meet.google.com/abc-defg-hij',
+        'https://example.zoom.us/j/12345678901',
+        'https://example.webex.com/meet/someone',
+      ]) {
+        expect(
+          why(occ(joinUrl: link), rules),
+          'Using **Quick** because it has a meeting link.',
+          reason: link,
+        );
+      }
     });
 
     test('a rule on words', () {
@@ -339,10 +364,10 @@ void main() {
 
   group('whyPieces', () {
     test('splits at the markers and marks the wrapped part', () {
-      expect(whyPieces('Using **Quick** because it has a Teams link.'), [
+      expect(whyPieces('Using **Quick** because it has a meeting link.'), [
         (text: 'Using ', bold: false),
         (text: 'Quick', bold: true),
-        (text: ' because it has a Teams link.', bold: false),
+        (text: ' because it has a meeting link.', bold: false),
       ]);
     });
 

@@ -653,7 +653,7 @@ class _NoRules extends StatelessWidget {
       padding: const EdgeInsets.all(TMinusSpacing.md),
       child: Text(
         'No rules yet. Rules pick a profile by title, location, organiser or '
-        'Teams link.',
+        'meeting link (Teams, Google Meet, Zoom or Webex).',
         textAlign: TextAlign.center,
         style: Theme.of(context).textTheme.bodyMedium
             ?.copyWith(color: context.tminusColors.tertiaryText),

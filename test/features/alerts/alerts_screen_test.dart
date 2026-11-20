@@ -300,7 +300,7 @@ void main() {
 
     expect(find.text('Title contains standup → Quick'), findsOneWidget);
     expect(find.text(r'Location matches Room \d → Important'), findsOneWidget);
-    expect(find.text('Has Teams link → Silent'), findsOneWidget);
+    expect(find.text('Has meeting link → Silent'), findsOneWidget);
     // Each row shows its place in the order the rules run.
     for (final (id, place) in [
       ('r-000000000001', '1'),
@@ -330,7 +330,7 @@ void main() {
     expect(
       find.text(
         'No rules yet. Rules pick a profile by title, location, organiser or '
-        'Teams link.',
+        'meeting link (Teams, Google Meet, Zoom or Webex).',
       ),
       findsOneWidget,
     );

@@ -77,7 +77,7 @@ class UiPlatform {
       await _channel.invokeMethod<String>('toneTitle', {'uri': uri}) ??
       defaultToneTitle;
 
-  /// Opens an `https` link (the Teams join link); false when nothing could.
+  /// Opens an `https` link (a meeting's join link); false when nothing could.
   Future<bool> openUrl(String url) async =>
       await _channel.invokeMethod<bool>('openUrl', {'url': url}) ?? false;
 

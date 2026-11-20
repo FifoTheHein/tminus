@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ics_core/ics_core.dart' show MeetingService;
 
 import '../../app/theme/tminus_theme.dart';
 import '../../core/model/alert.dart';
@@ -89,13 +90,17 @@ class AlertChips extends StatelessWidget {
   }
 }
 
-/// Shown on a meeting that has a join link.
-class TeamsBadge extends StatelessWidget {
-  const TeamsBadge({super.key});
+/// Shown on a meeting that has a join link: the [service]'s name ("Teams",
+/// "Google Meet", "Zoom" or "Webex") beside a video icon. All four services
+/// share the icon.
+class MeetingBadge extends StatelessWidget {
+  const MeetingBadge({super.key, required this.service});
+
+  final MeetingService service;
 
   @override
   Widget build(BuildContext context) =>
-      const _Badge(icon: Icons.videocam_rounded, label: 'Teams');
+      _Badge(icon: Icons.videocam_rounded, label: service.label);
 }
 
 class _Badge extends StatelessWidget {

@@ -51,6 +51,17 @@ const _feed = SourceConfig(
   secureStorageKey: 'ics-url.feed',
 );
 const _teams = 'https://teams.microsoft.com/l/meetup-join/abc';
+const _meet = 'https://meet.google.com/abc-defg-hij';
+const _zoom = 'https://example.zoom.us/j/12345678901';
+const _webex = 'https://example.webex.com/meet/someone';
+
+/// Each service, an invented join link of it, and the Join button's text.
+const _services = [
+  ('Teams', _teams, 'Join Teams meeting'),
+  ('Google Meet', _meet, 'Join Google Meet'),
+  ('Zoom', _zoom, 'Join Zoom meeting'),
+  ('Webex', _webex, 'Join Webex meeting'),
+];
 
 /// An hour-long meeting on 6 Oct 2026, the day of the harness's clock, at
 /// [hour]:00 in Johannesburg (UTC+2 all year).
@@ -193,6 +204,9 @@ final _anyChecked = find.descendant(
 final _resetButton = find.byKey(const Key('resetOverride'));
 final _joinButton = find.byKey(const Key('joinButton'));
 final _failureBanner = find.byKey(const Key('sheetFailure'));
+
+/// The icon of the sheet's place row: there is one only when a place is shown.
+final _placeIcon = _inSheet(find.byIcon(Icons.place_outlined));
 
 /// The text of a sheet `Text` with this key.
 String? _textOf(WidgetTester t, String key) =>
@@ -414,7 +428,139 @@ void main() {
 
     expect(h.uiCalls.map((c) => c.method), contains('openUrl'));
     expect(_failureBanner, findsOneWidget);
-    expect(find.text('Could not open the Teams link.'), findsOneWidget);
+    expect(find.text('Could not open the meeting link.'), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  for (final (service, link, joinText) in _services) {
+    testWidgets('the Join button of a $service meeting says "$joinText", '
+        'opens its link and fails with the same words as any other', (t) async {
+      final (:h, item: _) = await _open(
+        t,
+        sources: {
+          _work: [_meeting('sprint', joinUrl: link)],
+        },
+      );
+
+      // Its own service is named, and no other.
+      expect(_inSheet(find.text(joinText)), findsOneWidget);
+      for (final (_, _, other) in _services) {
+        if (other != joinText) {
+          expect(_inSheet(find.text(other)), findsNothing, reason: other);
+        }
+      }
+
+      // The harness answers `openUrl` with nothing at first: no app took it.
+      await t.tap(_joinButton);
+      await t.pumpAndSettle();
+      expect(_failureBanner, findsOneWidget);
+      expect(find.text('Could not open the meeting link.'), findsOneWidget);
+
+      h.ui['openUrl'] = (_) => true;
+      await t.tap(_joinButton);
+      await t.pumpAndSettle();
+      expect(_failureBanner, findsNothing);
+      expect(
+        [
+          for (final c in h.uiCalls)
+            if (c.method == 'openUrl') c.arguments,
+        ],
+        [
+          {'url': link},
+          {'url': link},
+        ],
+      );
+      await h.dispose(t);
+    });
+  }
+
+  // A raw join link is not a place, so the sheet leaves it out when it is the
+  // meeting's location, for every service. Any other location still shows.
+  for (final (service, link) in [
+    ('Google Meet', _meet),
+    ('Zoom', _zoom),
+    ('Webex', _webex),
+  ]) {
+    testWidgets('a $service meeting whose location is its own link shows no '
+        'place', (t) async {
+      final h = (await _open(
+        t,
+        sources: {
+          _work: [_meeting('sprint', joinUrl: link, location: link)],
+        },
+      )).h;
+
+      expect(_placeIcon, findsNothing);
+      expect(_inSheet(find.textContaining(Uri.parse(link).host)), findsNothing);
+      await h.dispose(t);
+    });
+  }
+
+  // Teams is no exception, so that the sheet agrees with the notification and
+  // alarm text, which leave the raw link out as well.
+  testWidgets('a Teams meeting whose location is its own Teams link shows no '
+      'place either', (t) async {
+    final h = (await _open(
+      t,
+      sources: {
+        _work: [_meeting('sprint', joinUrl: _teams, location: _teams)],
+      },
+    )).h;
+
+    expect(_placeIcon, findsNothing);
+    expect(_inSheet(find.textContaining('teams.microsoft.com')), findsNothing);
+    expect(_inSheet(find.text('Join Teams meeting')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  testWidgets('spaces around a location that is the meeting link do not bring '
+      'the place back', (t) async {
+    final h = (await _open(
+      t,
+      sources: {
+        _work: [_meeting('sprint', joinUrl: _meet, location: '  $_meet  ')],
+      },
+    )).h;
+
+    expect(_placeIcon, findsNothing);
+    expect(_inSheet(find.textContaining('meet.google.com')), findsNothing);
+    expect(_inSheet(find.text('Join Google Meet')), findsOneWidget);
+    await h.dispose(t);
+  });
+
+  for (final (service, link, place) in [
+    ('Google Meet', _meet, 'Boardroom 2'),
+    ('Zoom', _zoom, 'Zoom'),
+    ('Teams', _teams, 'Microsoft Teams Meeting'),
+  ]) {
+    testWidgets('a $service meeting whose location is "$place" still shows '
+        'it', (t) async {
+      final h = (await _open(
+        t,
+        sources: {
+          _work: [_meeting('sprint', joinUrl: link, location: place)],
+        },
+      )).h;
+
+      expect(_placeIcon, findsOneWidget);
+      expect(_inSheet(find.text(place)), findsOneWidget);
+      await h.dispose(t);
+    });
+  }
+
+  testWidgets('a location that is the link of another service is still shown', (
+    t,
+  ) async {
+    final h = (await _open(
+      t,
+      sources: {
+        _work: [_meeting('sprint', joinUrl: _zoom, location: _meet)],
+      },
+    )).h;
+
+    expect(_placeIcon, findsOneWidget);
+    expect(_inSheet(find.text(_meet)), findsOneWidget);
+    expect(_inSheet(find.text('Join Zoom meeting')), findsOneWidget);
     await h.dispose(t);
   });
 
@@ -831,9 +977,9 @@ void main() {
       await t.tap(_joinButton);
       await t.pumpAndSettle();
 
-      expect(find.text('Could not open the Teams link.'), findsOneWidget);
+      expect(find.text('Could not open the meeting link.'), findsOneWidget);
       expect(find.textContaining('private detail'), findsNothing);
-      expect(logs, contains('Could not open the Teams link. (no_activity)'));
+      expect(logs, contains('Could not open the meeting link. (no_activity)'));
       expect(logs.where((l) => l.contains('private detail')), isEmpty);
 
       h.ui['openUrl'] = (_) => true;

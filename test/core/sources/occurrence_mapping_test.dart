@@ -193,4 +193,85 @@ void main() {
       expect(phoneEventCancelled(title), isFalse, reason: '$title');
     }
   });
+
+  /// The join link that the phone event with this description and location
+  /// maps to.
+  String? phoneJoinUrl({String? description, String? location}) =>
+      occurrenceFromDevice(
+        DeviceInstance(
+          eventId: '10',
+          calendarId: '3',
+          beginMs: DateTime.utc(2026, 10, 12, 8).millisecondsSinceEpoch,
+          endMs: DateTime.utc(2026, 10, 12, 9).millisecondsSinceEpoch,
+          allDay: false,
+          title: 'Sprint planning',
+          location: location,
+          description: description,
+          availability: DeviceInstance.availabilityBusy,
+          selfAttendeeStatus: 1,
+          recurring: false,
+        ),
+        const SourceConfig(
+          id: 'phone',
+          name: 'Outlook on the phone',
+          color: 0xFF33AA66,
+          kind: SourceKind.device,
+          deviceCalendarId: '3',
+        ),
+        johannesburg,
+      ).joinUrl;
+
+  test('a phone event with a Zoom link in its location gets that link', () {
+    expect(
+      phoneJoinUrl(location: 'https://example.zoom.us/j/12345678901'),
+      'https://example.zoom.us/j/12345678901',
+    );
+  });
+
+  test('a phone event with a Meet link in its description gets that link', () {
+    expect(
+      phoneJoinUrl(
+        description:
+            'Join with Google Meet: https://meet.google.com/abc-defg-hij\n'
+            'More phone numbers: https://tel.meet/abc-defg-hij?pin=1234',
+      ),
+      'https://meet.google.com/abc-defg-hij',
+    );
+  });
+
+  test('a phone event still gets a Teams link, and a Webex link', () {
+    expect(
+      phoneJoinUrl(
+        description: 'Join: https://teams.microsoft.com/l/meetup-join/abc',
+      ),
+      'https://teams.microsoft.com/l/meetup-join/abc',
+    );
+    expect(
+      phoneJoinUrl(location: 'https://example.webex.com/meet/someone'),
+      'https://example.webex.com/meet/someone',
+    );
+  });
+
+  test('a phone event looks in its description before its location', () {
+    expect(
+      phoneJoinUrl(
+        description: 'Join: https://teams.microsoft.com/l/meetup-join/abc',
+        location: 'https://example.zoom.us/j/12345678901',
+      ),
+      'https://teams.microsoft.com/l/meetup-join/abc',
+    );
+  });
+
+  test('a phone event with no join link has no joinUrl', () {
+    expect(phoneJoinUrl(), isNull);
+    expect(phoneJoinUrl(location: 'Boardroom 2'), isNull);
+    // Links on those hosts that nobody joins a meeting through.
+    expect(
+      phoneJoinUrl(
+        description: 'Get the app: https://zoom.us/download',
+        location: 'https://www.webex.com/',
+      ),
+      isNull,
+    );
+  });
 }

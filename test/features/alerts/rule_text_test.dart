@@ -49,7 +49,7 @@ void main() {
         keywordRule('r-1', 0, field: RuleField.hasJoinLink, pattern: 'left'),
         'Silent',
       ),
-      'Has Teams link → Silent',
+      'Has meeting link → Silent',
     );
   });
 
@@ -66,7 +66,7 @@ void main() {
   test('every field has its own label', () {
     expect(
       [for (final f in RuleField.values) ruleFieldLabel(f)],
-      ['Title', 'Location', 'Organizer', 'Description', 'Has Teams link'],
+      ['Title', 'Location', 'Organizer', 'Description', 'Has meeting link'],
     );
   });
 }

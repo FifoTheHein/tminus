@@ -67,7 +67,7 @@ EventOccurrence occurrenceFromDevice(
     location: _blankToNull(i.location),
     organizer: _blankToNull(i.organizer),
     description: _blankToNull(i.description),
-    joinUrl: extractTeamsJoinUrl(i.description, i.location),
+    joinUrl: extractJoinUrl(i.description, i.location),
     startUtc: instant(i.beginMs),
     endUtc: instant(i.endMs),
     allDay: i.allDay,

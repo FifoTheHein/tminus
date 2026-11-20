@@ -125,15 +125,15 @@ class _RuleEditorState extends State<_RuleEditor> {
     }
   }
 
-  /// The rule as the form describes it. A Teams-link rule has no pattern.
+  /// The rule as the form describes it. A meeting-link rule has no pattern.
   KeywordRule _draft() {
-    final teams = _field == RuleField.hasJoinLink;
+    final linkRule = _field == RuleField.hasJoinLink;
     return KeywordRule(
       id: _id,
       position: _original?.position ?? 0,
       field: _field,
-      match: !teams && _regex ? RuleMatch.regex : RuleMatch.contains,
-      pattern: teams ? '' : _pattern.text,
+      match: !linkRule && _regex ? RuleMatch.regex : RuleMatch.contains,
+      pattern: linkRule ? '' : _pattern.text,
       profileId: _profileId,
     );
   }
@@ -224,7 +224,7 @@ class _RuleEditorState extends State<_RuleEditor> {
   Widget _form(BuildContext context, KeywordRule draft) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final teams = _field == RuleField.hasJoinLink;
+    final linkRule = _field == RuleField.hasJoinLink;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
         TMinusSpacing.md,
@@ -256,7 +256,7 @@ class _RuleEditorState extends State<_RuleEditor> {
               ),
             ),
           ),
-          if (!teams) ...[
+          if (!linkRule) ...[
             const SizedBox(height: TMinusSpacing.xs),
             SwitchListTile(
               key: const Key('ruleRegex'),

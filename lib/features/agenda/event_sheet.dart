@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
+import 'package:ics_core/ics_core.dart' show MeetingService, meetingServiceOf;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../app/di.dart';
@@ -53,7 +54,7 @@ class EventSheet extends StatefulWidget {
 class _EventSheetState extends State<EventSheet> {
   static const _loadFailure = 'Could not load the alert choices.';
   static const _saveFailure = 'Could not save the change.';
-  static const _joinFailure = 'Could not open the Teams link.';
+  static const _joinFailure = 'Could not open the meeting link.';
 
   late final EventSheetController _controller;
 
@@ -202,6 +203,7 @@ class _EventSheetState extends State<EventSheet> {
         : TimeText.range(m.startUtc, m.endUtc, tz.local);
     final organiser = m.organizer;
     final location = m.location;
+    final service = item.service;
 
     return [
       if (timeSource != null)
@@ -256,11 +258,13 @@ class _EventSheetState extends State<EventSheet> {
       ),
       if (organiser != null && organiser.isNotEmpty)
         _InfoRow(icon: Icons.person_outline, text: 'Organiser · $organiser'),
-      if (location != null && location.isNotEmpty)
+      if (location != null &&
+          location.isNotEmpty &&
+          !_isJoinLinkOf(service, location))
         _InfoRow(icon: Icons.place_outlined, text: location),
       if (m.seriesUid != null)
         const _InfoRow(icon: Icons.repeat, text: 'Part of a series'),
-      if (item.hasTeams)
+      if (service != null)
         Padding(
           padding: const EdgeInsets.only(top: TMinusSpacing.lg),
           child: FilledButton.icon(
@@ -268,7 +272,7 @@ class _EventSheetState extends State<EventSheet> {
             onPressed: _join,
             style: FilledButton.styleFrom(minimumSize: const Size(64, 56)),
             icon: const Icon(Icons.videocam_rounded),
-            label: const Text('Join Teams meeting'),
+            label: Text(_joinLabel(service)),
           ),
         ),
     ];
@@ -401,6 +405,20 @@ class _EventSheetState extends State<EventSheet> {
     );
   }
 }
+
+/// The Join button's text for a meeting of [service].
+String _joinLabel(MeetingService service) => switch (service) {
+  MeetingService.teams => 'Join Teams meeting',
+  MeetingService.googleMeet => 'Join Google Meet',
+  MeetingService.zoom => 'Join Zoom meeting',
+  MeetingService.webex => 'Join Webex meeting',
+};
+
+/// Whether [location] is only the join link of [service]. Outlook writes the
+/// bare Meet link into LOCATION, and the Join button already offers it, so the
+/// place row would repeat it. False for a meeting without a service.
+bool _isJoinLinkOf(MeetingService? service, String location) =>
+    service != null && meetingServiceOf(location.trim()) == service;
 
 /// An icon and one line of text, like "Organiser · Thandi M.".
 class _InfoRow extends StatelessWidget {

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ics_core/ics_core.dart' show MeetingService;
 import 'package:tminus/core/engine/alarm_engine.dart';
 import 'package:tminus/core/model/alert_history_entry.dart';
 import 'package:tminus/core/model/event_occurrence.dart';
@@ -763,7 +764,35 @@ void main() {
       joinUrl: 'https://teams.microsoft.com/l/meetup-join/abc',
     );
 
-    expect(itemOf(teams).hasTeams, isTrue);
-    expect(itemOf(feedOcc('room', local(6, 10))).hasTeams, isFalse);
+    expect(itemOf(teams).service, MeetingService.teams);
+    expect(itemOf(feedOcc('room', local(6, 10))).service, isNull);
+  });
+
+  test('the service of a meeting is the one its join link belongs to', () {
+    final links = {
+      MeetingService.teams: 'https://teams.microsoft.com/l/meetup-join/abc',
+      MeetingService.googleMeet: 'https://meet.google.com/abc-defg-hij',
+      MeetingService.zoom: 'https://example.zoom.us/j/12345678901',
+      MeetingService.webex: 'https://example.webex.com/meet/someone',
+    };
+
+    for (final MapEntry(key: service, value: link) in links.entries) {
+      expect(
+        itemOf(feedOcc('m', local(6, 10), joinUrl: link)).service,
+        service,
+        reason: link,
+      );
+    }
+  });
+
+  test('a meeting with no join link, or one that no service owns, has no '
+      'service', () {
+    expect(itemOf(feedOcc('room', local(6, 10))).service, isNull);
+    expect(
+      itemOf(
+        feedOcc('other', local(6, 10), joinUrl: 'https://example.test/join/1'),
+      ).service,
+      isNull,
+    );
   });
 }

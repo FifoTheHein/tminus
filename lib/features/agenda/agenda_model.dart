@@ -1,3 +1,4 @@
+import 'package:ics_core/ics_core.dart' show MeetingService, meetingServiceOf;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../core/model/event_occurrence.dart';
@@ -59,8 +60,10 @@ class AgendaItem {
   /// card hides it.
   bool showsToggle(DateTime now) => meeting.startUtc.isAfter(now);
 
-  /// "Teams" when there is a join link, else the location (brief §2).
-  bool get hasTeams => meeting.joinUrl != null;
+  /// The service of the meeting's join link; null when it has none. A meeting
+  /// with a service shows the service's name instead of the location (brief
+  /// §2) and gets a Join button on the event sheet.
+  MeetingService? get service => meetingServiceOf(meeting.joinUrl);
 }
 
 class AgendaDay {

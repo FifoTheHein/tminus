@@ -183,7 +183,7 @@ class RulesEngine {
       final p = rules.profile(r.profileId);
       if (p != null && r.matches(o)) {
         final what = r.field == RuleField.hasJoinLink
-            ? 'Teams link'
+            ? 'meeting link'
             : '"${r.pattern}"';
         return _Decision(
           p,

@@ -219,7 +219,7 @@ void main() {
     expect(inSprint(find.byKey(const Key('headsUpChip'))), findsOneWidget);
     expect(inSprint(find.byKey(const Key('alarmChip'))), findsOneWidget);
     expect(inSprint(find.text('Meeting · default')), findsOneWidget);
-    expect(inSprint(find.byType(TeamsBadge)), findsOneWidget);
+    expect(inSprint(find.byType(MeetingBadge)), findsOneWidget);
     expect(t.widget<Switch>(toggleOf(sprint)).value, isTrue);
 
     // A room instead of Teams, and the Important-style card without a badge.
@@ -227,7 +227,7 @@ void main() {
         find.descendant(of: cardOf(demo), matching: what);
     expect(inDemo(find.text('14:00–15:00')), findsOneWidget);
     expect(inDemo(find.text('Boardroom 2')), findsOneWidget);
-    expect(inDemo(find.byType(TeamsBadge)), findsNothing);
+    expect(inDemo(find.byType(MeetingBadge)), findsNothing);
 
     // A tentative meeting is Silent: no chips, the toggle off, the reason why.
     Finder inTalk(Finder what) =>
@@ -249,6 +249,82 @@ void main() {
     // All fine: no banner and no stale chip.
     expect(find.byType(NoticeBanner), findsNothing);
     expect(find.byKey(const Key('feedStaleChip')), findsNothing);
+    await h.dispose(t);
+  });
+
+  testWidgets('a meeting with a join link shows its service as a badge, in '
+      'place of its location', (t) async {
+    tallScreen(t);
+    // One invented link per service. The Zoom meeting has a place too, and the
+    // Meet meeting has its own link as its location, as an Outlook invite does.
+    final meet = occ(
+      uid: 'meet',
+      title: 'Design review',
+      start: local(6, 11, 30),
+      joinUrl: 'https://meet.google.com/abc-defg-hij',
+      location: 'https://meet.google.com/abc-defg-hij',
+    );
+    final zoom = occ(
+      uid: 'zoom',
+      title: 'Vendor call',
+      start: local(6, 13),
+      joinUrl: 'https://example.zoom.us/j/12345678901',
+      location: 'Boardroom 2',
+    );
+    final webex = occ(
+      uid: 'webex',
+      title: 'Partner sync',
+      start: local(6, 15, 30),
+      joinUrl: 'https://example.webex.com/meet/someone',
+    );
+    final h = await pumpApp(
+      t,
+      now: now,
+      seed: (h) => seedFeed([sprint, meet, zoom, demo, webex]),
+    );
+
+    Finder inCard(EventOccurrence meeting, Finder what) =>
+        find.descendant(of: cardOf(meeting), matching: what);
+
+    // Each meeting wears the name of its own service, and no other.
+    const labels = ['Teams', 'Google Meet', 'Zoom', 'Webex'];
+    for (final (meeting, label) in [
+      (sprint, 'Teams'),
+      (meet, 'Google Meet'),
+      (zoom, 'Zoom'),
+      (webex, 'Webex'),
+    ]) {
+      final badge = inCard(meeting, find.byType(MeetingBadge));
+      expect(badge, findsOneWidget, reason: label);
+      expect(
+        find.descendant(of: badge, matching: find.text(label)),
+        findsOneWidget,
+        reason: label,
+      );
+      // All four share the one video icon.
+      expect(
+        find.descendant(
+          of: badge,
+          matching: find.byIcon(Icons.videocam_rounded),
+        ),
+        findsOneWidget,
+        reason: label,
+      );
+      for (final other in labels.where((l) => l != label)) {
+        expect(
+          inCard(meeting, find.text(other)),
+          findsNothing,
+          reason: '$label card shows $other',
+        );
+      }
+    }
+
+    // The badge and the location are never both on a card: the badge wins when
+    // there is a link, and the location shows when there is none.
+    expect(inCard(zoom, find.text('Boardroom 2')), findsNothing);
+    expect(inCard(meet, find.textContaining('meet.google.com')), findsNothing);
+    expect(inCard(demo, find.text('Boardroom 2')), findsOneWidget);
+    expect(inCard(demo, find.byType(MeetingBadge)), findsNothing);
     await h.dispose(t);
   });
 

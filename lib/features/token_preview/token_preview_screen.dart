@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:ics_core/ics_core.dart' show MeetingService;
 import 'package:provider/provider.dart';
 
 import '../../app/theme/tminus_theme.dart';
@@ -428,7 +429,10 @@ class _SampleEventCardState extends State<_SampleEventCard> {
                       runSpacing: 6,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        _Badge(icon: Icons.videocam_rounded, label: 'Teams'),
+                        _Badge(
+                          icon: Icons.videocam_rounded,
+                          label: MeetingService.teams.label,
+                        ),
                         const _AlertChip(offset: '−10', alarm: false),
                         const _AlertChip(offset: '−1', alarm: true),
                       ],

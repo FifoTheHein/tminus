@@ -50,7 +50,9 @@ class AlarmActivity : ComponentActivity() {
                     onJoin = ::join,
                     onDismiss = { id -> actions().dismiss(listOf(id)) },
                     onDismissAll = { actions().dismissAll(alerts.map { it.id }) },
-                    onSnooze = { option -> actions().snooze(alerts.map { it.id }, option) },
+                    // armNow: the screen closes with the snooze and nothing would keep the process alive
+                    // for a queued alarm.
+                    onSnooze = { option -> actions().snooze(alerts.map { it.id }, option, armNow = true) },
                 ),
             )
         }

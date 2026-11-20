@@ -35,12 +35,9 @@ class AlarmEngineChannel internal constructor(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
-                "applyPlan" -> result.success(actions.applyPlan(EngineJson.parsePlan(call.mapArgs())).toMap())
+                "applyPlan" -> applyPlan(EngineJson.parsePlan(call.mapArgs()), result)
                 "getHealth" -> result.success(health())
-                "testAlarm" -> {
-                    testAlarm(call.mapArgs())
-                    result.success(null)
-                }
+                "testAlarm" -> testAlarm(call.mapArgs(), result)
                 "openPermissionSettings" -> {
                     openPermissionSettings(call.mapArgs())
                     result.success(null)
@@ -84,6 +81,26 @@ class AlarmEngineChannel internal constructor(
         stopListening = null
     }
 
+    /**
+     * Answers once every alarm call the plan caused has run, so success still means "armed" and a call
+     * that threw reaches Dart as `engine_error`. The alarm calls run on AlarmCalls' thread, so the
+     * answer goes back through the main thread. A bad plan was already refused (`bad_args`) by the
+     * caller, before anything was posted.
+     */
+    private fun applyPlan(plan: List<PlannedAlert>, result: MethodChannel.Result) {
+        actions.applyPlan(plan) { outcome ->
+            onMainThread {
+                outcome.onSuccess { applied ->
+                    result.success(applied.toMap())
+                }.onFailure { e ->
+                    // The class only: the failure can carry a package name or a plan's event text.
+                    Log.e(TAG, "alarm_engine.applyPlan failed: ${e.javaClass.simpleName}")
+                    result.error("engine_error", null, null)
+                }
+            }
+        }
+    }
+
     private fun MethodCall.mapArgs(): Map<*, *> =
         arguments as? Map<*, *> ?: throw IllegalArgumentException("$method expects a map argument")
 
@@ -120,7 +137,13 @@ class AlarmEngineChannel internal constructor(
         return calendar.instances(ids, from, to)
     }
 
-    private fun testAlarm(args: Map<*, *>) {
+    /**
+     * Stores the test alert and posts its arm, then answers once the arm has run, so success still means
+     * "armed" and an arm that threw reaches Dart as `engine_error` (the Health screen and onboarding show
+     * that). The arm runs on AlarmCalls' thread, so the answer goes back through the main thread. Bad
+     * arguments are refused (`bad_args`) by the caller, before anything is posted.
+     */
+    private fun testAlarm(args: Map<*, *>, result: MethodChannel.Result) {
         val strength = Strength.fromWire(args["strength"] as? String ?: throw IllegalArgumentException("strength missing"))
         val delaySec = (args["delaySec"] as? Number)?.toLong() ?: throw IllegalArgumentException("delaySec missing")
         require(delaySec >= 0) { "delaySec must not be negative" }
@@ -146,6 +169,17 @@ class AlarmEngineChannel internal constructor(
         )
         val t = store.update { s -> EngineReducer.addTest(s, alert).let { it.state to it } }
         t.toArm.forEach(scheduler::arm)
+        AlarmCalls.whenIdle { failure ->
+            onMainThread {
+                if (failure == null) {
+                    result.success(null)
+                } else {
+                    // The class only: the failure can carry a package name.
+                    Log.e(TAG, "alarm_engine.testAlarm failed: ${failure.javaClass.simpleName}")
+                    result.error("engine_error", null, null)
+                }
+            }
+        }
     }
 
     private fun openPermissionSettings(args: Map<*, *>) {

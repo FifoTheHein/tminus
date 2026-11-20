@@ -1,6 +1,7 @@
 package io.github.fifothehein.tminus.engine
 
 import android.content.Context
+import java.util.concurrent.atomic.AtomicReference
 
 /** Shows and removes alert UI. AndroidAlertPresenter (Task 10) is the real one; tests use a fake. */
 interface AlertPresenter {
@@ -27,6 +28,8 @@ interface AlertPresenter {
  * Every alarm and user action: updates PlanStore and AlarmManager, queues the engine event and
  * tells the presenter. Call on the main thread. Every stop path (snooze, dismiss, acknowledge,
  * missed) silences its ids first, so a ringing alert stops even if the state no longer lists it.
+ * The scheduler's alarm calls are posted to AlarmCalls and run after the action returns, in the
+ * order the action issued them. The one exception is a snooze made with `armNow`.
  */
 class EngineActions(
     context: Context,
@@ -37,10 +40,29 @@ class EngineActions(
 ) {
     private val appContext: Context = context.applicationContext
 
-    /** The `applyPlan` channel method: diffs and arms the plan, then [reconcile]s overdue alerts. */
-    fun applyPlan(incoming: List<PlannedAlert>): ApplyResult {
+    /**
+     * The `applyPlan` channel method: diffs the plan and posts its alarm calls, then [reconcile]s
+     * overdue alerts, all on the caller's thread. [onDone] runs on AlarmCalls' thread once every alarm
+     * call posted so far has run: with the counts, or with the failure of a call that threw. So
+     * success still means "armed". An exception from the diff or from [reconcile] is thrown here
+     * instead, and [onDone] is not called.
+     */
+    fun applyPlan(incoming: List<PlannedAlert>, onDone: (Result<ApplyResult>) -> Unit) {
         rewind()
-        return scheduler.applyPlan(incoming).also { reconcile() }
+        val counts = AtomicReference<ApplyResult?>(null)
+        scheduler.applyPlan(incoming) { counts.set(it) }
+        reconcile()
+        AlarmCalls.whenIdle { failure ->
+            val applied = counts.get()
+            onDone(
+                when {
+                    failure != null -> Result.failure(failure)
+                    applied != null -> Result.success(applied)
+                    // No failure was kept, yet the counts never came: another marker took the failure.
+                    else -> Result.failure(IllegalStateException("applyPlan did not report its counts"))
+                },
+            )
+        }
     }
 
     /** App start, boot, app update and time changes: arms every future alert, then [reconcile]s. */
@@ -136,8 +158,14 @@ class EngineActions(
         return t.affected
     }
 
-    /** [option] null means each alert's notification default (roadmap §5.1). Past choices become +1 min. */
-    fun snooze(alertIds: Collection<String>, option: SnoozeOption?) {
+    /**
+     * [option] null means each alert's notification default (roadmap §5.1). Past choices become +1 min.
+     * The snooze alarms are posted to AlarmCalls, or, with [armNow], armed on the caller's thread before
+     * the action returns. The alarm screen passes it: the screen closes with the snooze and nothing would
+     * keep the process alive for a queued alarm. A notification's Snooze keeps the queue, because its
+     * receiver holds the broadcast open until the queue has run.
+     */
+    fun snooze(alertIds: Collection<String>, option: SnoozeOption?, armNow: Boolean = false) {
         presenter.silence(alertIds)
         val now = clock()
         val t = transition { s ->
@@ -146,7 +174,7 @@ class EngineActions(
                 SnoozeOptions.untilOrNextMinute(chosen, now, a.event.startUtcMs)
             }
         }
-        t.toArm.forEach(scheduler::arm)
+        t.toArm.forEach { if (armNow) scheduler.armNow(it) else scheduler.arm(it) }
         t.affected.zip(t.toArm).forEach { (alert, snooze) ->
             emit(EngineEvent.of(EngineEventType.SNOOZED, alert, now, snooze.fireAtUtcMs))
         }

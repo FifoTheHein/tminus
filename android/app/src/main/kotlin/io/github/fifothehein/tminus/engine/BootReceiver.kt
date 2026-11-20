@@ -6,7 +6,8 @@ import android.content.Intent
 
 /**
  * Re-arms every alarm after a reboot (before and after the first unlock) and after an app update
- * (spec §7). Reads only device-protected storage, so it works in direct boot.
+ * (spec §7). Reads only device-protected storage, so it works in direct boot. The alarm calls run
+ * on AlarmCalls' thread, and the broadcast stays open until they have.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -20,7 +21,9 @@ class BootReceiver : BroadcastReceiver() {
                 recoverPresented()
                 rearmAll()
             }
+            else -> return
         }
+        finishWhenAlarmCallsIdle()
     }
 
     companion object {

@@ -5,7 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 
-/** AlarmManager's target for every alert alarm, and for boot recovery's alarm. */
+/**
+ * AlarmManager's target for every alert alarm, and for boot recovery's alarm. What an alarm cancels
+ * or re-arms runs on AlarmCalls' thread, and the broadcast stays open until it has.
+ */
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
@@ -13,7 +16,9 @@ class AlarmReceiver : BroadcastReceiver() {
             // Boot recovery's alarm: rings again what was ringing at reboot.
             ACTION_RECOVER -> EngineActions.create(context).recoverPresented()
             ACTION_RETRY_RINGING -> retryRinging(context, intent.getStringArrayListExtra(EXTRA_ALERT_IDS) ?: return)
+            else -> return
         }
+        finishWhenAlarmCallsIdle()
     }
 
     /**

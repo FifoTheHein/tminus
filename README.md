@@ -84,35 +84,3 @@ Outlook and Teams are trademarks of Microsoft. Google Calendar and Google Meet a
 T-Minus is in a closed test on Google Play (version 1.0.2, 20 November 2026). It is not on the public Play Store yet. To try it, see [Join the Alpha test](#join-the-alpha-test).
 
 Bugs and questions go to [GitHub issues](https://github.com/FifoTheHein/tminus/issues). [The privacy policy](https://fifothehein.github.io/tminus/privacy/) is on GitHub Pages.
-
-## For developers
-
-T-Minus is an Android app. The UI is Flutter (Dart), and the alarm engine is native Kotlin (AlarmManager, a foreground service and a Compose alarm screen), so alarms ring without Flutter running. It reads published ICS feeds and calendars already on the phone, so Google calendars synced to the phone already work. Phase 2 only checks setups with several Google accounts and fills any gaps. Commands, the architecture and the rules that are easy to break are in [CLAUDE.md](CLAUDE.md).
-
-### Build status
-
-Plans 1 to 7 are built:
-
-- Plan 1: the ICS parser (`ics_core`).
-- Plan 2: the domain model, storage, rules and planner.
-- Plan 3: the native alarm engine.
-- Plan 4: sources and sync.
-- Plan 4b: merging of meetings found in more than one source.
-- Plan 5: the app screens.
-- Plan 6: Play readiness (a signed release build, the privacy policy and a demo feed on GitHub Pages, the store listing and Play declarations, the `systemExempted` ringing service, and the meeting cache moved out of Android's backup).
-- Plan 7: join links for Google Meet, Zoom and Webex (the Join button, the Agenda badge and the "Has meeting link" keyword rule work for them as they do for Teams, and the app names the meeting service).
-
-Between Plans 5 and 6, the phone calendar picker started to group calendars by account, and the app got its own launcher icon and in-app logo.
-
-Version 1.0.2 (build 3), which carries Plan 7, was published on Google Play internal testing on 20 November 2026 and promoted the same day to the closed testing track (Alpha), together with an updated full description (`docs/play/listing.md`) that names Google Meet, Zoom and Webex. Alpha's testers are a Google Group. Internal testing was paused the same day, so releases now go to Alpha ([docs/play/release.md](docs/play/release.md)). The app is not in production: the production release is a later step.
-
-### Documents
-
-- Implementation roadmap: [docs/superpowers/plans/2026-10-06-tminus-roadmap.md](docs/superpowers/plans/2026-10-06-tminus-roadmap.md)
-- Design spec: [docs/superpowers/specs/2026-10-06-tminus-design.md](docs/superpowers/specs/2026-10-06-tminus-design.md)
-- Play readiness (Plan 6): [docs/superpowers/plans/2026-11-14-plan-6-play-readiness.md](docs/superpowers/plans/2026-11-14-plan-6-play-readiness.md)
-- Join links (Plan 7): [docs/superpowers/plans/2026-11-19-plan-7-meeting-links.md](docs/superpowers/plans/2026-11-19-plan-7-meeting-links.md)
-- Calendar picker grouping: [spec](docs/superpowers/specs/2026-11-13-calendar-grouping-design.md) · [plan](docs/superpowers/plans/2026-11-13-calendar-grouping.md)
-- Design brief (screens and visuals): [docs/design-brief.md](docs/design-brief.md)
-- Mockups and design system: [docs/design/](docs/design/README.md) · [Claude Design project](https://claude.ai/design/p/b3ee1986-af3e-4399-9aeb-efd063edfd49)
-- Releasing (versioning, signing, checks, upload to Play): [docs/play/release.md](docs/play/release.md)

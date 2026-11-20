@@ -7,10 +7,28 @@ import 'package:flutter_test/flutter_test.dart';
 // no config it serves every file in it, the plans and specs included.
 // `docs/_config.yml` keeps everything but the public pages out of the site.
 
-/// The pages the site serves, as paths under `docs/`: the home page, the
-/// privacy policy and the demo feed that Play's reviewers add. A new public page
-/// is added here, and is left out of the `exclude:` list.
-const _publicPages = ['index.md', 'privacy.md', 'play/demo.ics'];
+/// The files the site serves, as paths under `docs/`: the home page with its
+/// stylesheet, fonts, the app icon and the screenshots, the privacy policy and the demo feed
+/// that Play's reviewers add. A new public file is added here, and is left out
+/// of the `exclude:` list.
+const _publicPages = [
+  'index.html',
+  'assets/site.css',
+  'assets/fonts/ibm-plex-sans-regular.woff',
+  'assets/fonts/ibm-plex-sans-semibold.woff',
+  'assets/fonts/OFL.txt',
+  'play/icon-512.png',
+  'play/screenshots/1-agenda.png',
+  'play/screenshots/2-event-sheet.png',
+  'play/screenshots/3-alarm.png',
+  'play/screenshots/4-profiles.png',
+  'play/screenshots/5-quiet-sheet.png',
+  'play/screenshots/6-health.png',
+  'play/screenshots/7-agenda-light.png',
+  'play/screenshots/8-alarm-light.png',
+  'privacy.md',
+  'play/demo.ics',
+];
 
 /// A relative path of plain names. The `exclude:` entries must look like this,
 /// because the test compares them as text and does not read Jekyll's globs.
@@ -103,10 +121,7 @@ void main() {
       'play/listing.md',
       'play/declarations.md',
       'play/release.md',
-      'play/icon-512.png',
       'play/feature-graphic.png',
-      'play/screenshots',
-      'play/screenshots/1-agenda.png',
     ]) {
       expect(
         _excluded(path, entries),

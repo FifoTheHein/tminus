@@ -129,6 +129,34 @@ object EngineReducer {
         )
     }
 
+    /**
+     * The clock went back past alerts that had already fired: an alert in [EngineState.presented] whose fire
+     * time is ahead again leaves `presented` (its screen or notification must go) and returns to the plan,
+     * snoozes or tests, so it rings again at its time. PlanDiff skips presented alerts, so without this
+     * nothing would re-arm it while Dart still plans it (issue #27). One whose id is already scheduled
+     * (its meeting moved) is only withdrawn: the scheduled copy wins.
+     */
+    fun rewind(state: EngineState, nowUtcMs: Long): Transition {
+        val ahead = state.presented.filter { it.fireAtUtcMs > nowUtcMs }
+        if (ahead.isEmpty()) return Transition(state)
+        val scheduledIds = state.scheduled.map { it.id }.toSet()
+        val back = ahead.filterNot { it.id in scheduledIds }
+        val (tests, rest) = back.partition { it.isTest }
+        val (snoozes, plan) = rest.partition { it.id.endsWith(SNOOZE_SUFFIX) }
+        val aheadIds = ahead.map { it.id }.toSet()
+        return Transition(
+            state = state.copy(
+                plan = state.plan + plan,
+                snoozes = state.snoozes + snoozes,
+                tests = state.tests + tests,
+                presented = state.presented.filterNot { it.id in aheadIds },
+            ),
+            affected = ahead,
+            withdrawn = ahead,
+            toArm = back,
+        )
+    }
+
     fun addTest(state: EngineState, alert: PlannedAlert): Transition = Transition(
         state = state.copy(tests = state.tests.filterNot { it.id == alert.id } + alert),
         affected = listOf(alert),

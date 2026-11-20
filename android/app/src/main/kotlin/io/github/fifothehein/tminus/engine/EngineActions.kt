@@ -38,10 +38,28 @@ class EngineActions(
     private val appContext: Context = context.applicationContext
 
     /** The `applyPlan` channel method: diffs and arms the plan, then [reconcile]s overdue alerts. */
-    fun applyPlan(incoming: List<PlannedAlert>): ApplyResult = scheduler.applyPlan(incoming).also { reconcile() }
+    fun applyPlan(incoming: List<PlannedAlert>): ApplyResult {
+        rewind()
+        return scheduler.applyPlan(incoming).also { reconcile() }
+    }
 
     /** App start, boot, app update and time changes: arms every future alert, then [reconcile]s. */
-    fun rearmAll(): Int = scheduler.rearmAll().also { reconcile() }
+    fun rearmAll(): Int {
+        rewind()
+        return scheduler.rearmAll().also { reconcile() }
+    }
+
+    /**
+     * After the clock goes back, presented alerts whose fire time is ahead again lose their screen or
+     * notification and are armed to ring at their time ([EngineReducer.rewind]). No event is queued: Dart
+     * still plans them, and they fire (and are recorded) again when they come due.
+     */
+    private fun rewind() {
+        val t = transition { EngineReducer.rewind(it, clock()) }
+        if (t.withdrawn.isEmpty()) return
+        withdraw(t.withdrawn)
+        t.toArm.forEach(scheduler::arm)
+    }
 
     /**
      * LOCKED_BOOT_COMPLETED / BOOT_COMPLETED. Android 15+ refused the previous mediaPlayback type from
@@ -90,9 +108,11 @@ class EngineActions(
      * an update, a reboot) has no screen or notification any more. If its event has not ended it is
      * presented again, group by group, without a second `fired` event; otherwise it is reported
      * missed. Alerts that are still ringing or still have their heads-up posted are left alone.
-     * Call it before [rearmAll], so alerts that [reconcile] fires are not presented twice.
+     * Call it before [rearmAll], so alerts that [reconcile] fires are not presented twice. Alerts whose
+     * fire time is ahead again (the clock went back) are re-armed instead ([rewind]).
      */
     fun recoverPresented(ringLater: Boolean = false) {
+        rewind()
         val now = clock()
         val orphans = store.read().presented.filterNot(presenter::isShowing)
         if (orphans.isEmpty()) return

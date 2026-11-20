@@ -183,7 +183,7 @@ void main() {
           applied = ((call.arguments as Map)['alerts'] as List)
               .cast<Map<Object?, Object?>>();
           return {'armed': applied!.length, 'cancelled': 0, 'kept': 0};
-        case 'drainEvents':
+        case 'peekEvents':
           return <Object?>[];
       }
       return null;

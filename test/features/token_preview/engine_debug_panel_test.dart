@@ -53,7 +53,7 @@ void main() {
           'alarmStreamMuted': false,
           'upcoming': upcoming,
         },
-        'drainEvents' => drained,
+        'peekEvents' => drained,
         _ => null,
       };
     });
@@ -198,7 +198,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Drained 1: fired'), findsOneWidget);
 
-    // The recorder is the one caller of drainEvents, so the drained event is
+    // The recorder is the one caller of peekEvents, so the drained event is
     // stored by it rather than lost to the panel.
     final stored = await tester.runAsync(
       () => getIt<AlertHistoryRepository>().recent(),
@@ -213,10 +213,9 @@ void main() {
     tester,
   ) async {
     await pumpPanel(tester);
-    // The engine de-duplicates: events the live stream delivered are dropped when
-    // drained again, so the panel itself must remember them. The native side still
-    // returns the same two events (same dedup keys) from drainEvents, and the
-    // recorder hands back only the rows it newly stored, which is none here.
+    // The panel remembers what it saw live. The native side returns the same
+    // two events (same dedup keys) from peekEvents, and the recorder, which is
+    // not listening here, stores them on the drain: the line lists each once.
     final live = [event('fired'), event('dismissed')];
     drained = live;
     await tester.runAsync(() async {

@@ -8,7 +8,8 @@ import 'sync_service.dart';
 
 /// Spec §7 "App foreground": syncs in the UI isolate at app start and on
 /// every resume, unless a sync (from any isolate) finished in the last
-/// [minGap] (Plan 4 decision). Pull-to-refresh (Plan 5) calls
+/// [minGap] (Plan 4 decision). A last sync that finished "in the future" (the
+/// clock was set back) does not count. Pull-to-refresh (Plan 5) calls
 /// [SyncService.run] directly and always syncs.
 class ForegroundSync {
   ForegroundSync({required this.sync, UtcClock? clock})
@@ -36,7 +37,10 @@ class ForegroundSync {
   Future<SyncReport?> _syncIfDue() async {
     try {
       final last = await sync.lastFinished();
-      if (last != null && clock().difference(last) < minGap) return null;
+      final since = last == null ? null : clock().difference(last);
+      // A finish time in the future means the clock went back: without the
+      // isNegative check every resume would skip until the clock caught up.
+      if (since != null && !since.isNegative && since < minGap) return null;
       return await sync.run(SyncTrigger.foreground);
     } catch (e) {
       // The type only: an error message can carry a row's values or a feed

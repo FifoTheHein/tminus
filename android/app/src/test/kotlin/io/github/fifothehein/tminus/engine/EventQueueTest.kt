@@ -44,6 +44,29 @@ class EventQueueTest {
     }
 
     @Test
+    fun `remove drops only the acked events and keeps the rest in order`() {
+        (1..4).forEach { queue.append(event(it)) }
+        queue.remove(setOf(event(1).dedupKey, event(3).dedupKey, "fired|unknown|0"))
+        assertEquals(listOf("a2", "a4"), queue.peek().map { it.alertId })
+        queue.append(event(5)) // appends still work after a rewrite
+        assertEquals(listOf("a2", "a4", "a5"), queue.peek().map { it.alertId })
+    }
+
+    @Test
+    fun `removing every event empties the queue`() {
+        queue.append(event(1))
+        queue.remove(setOf(event(1).dedupKey))
+        assertTrue(queue.peek().isEmpty())
+        queue.remove(setOf(event(1).dedupKey)) // nothing queued: a no-op
+        assertTrue(queue.peek().isEmpty())
+    }
+
+    @Test
+    fun `dedupKey matches the Dart key`() {
+        assertEquals("snoozed|a2|${NOW + 2}", event(2, EngineEventType.SNOOZED).dedupKey)
+    }
+
+    @Test
     fun `an unreadable line is skipped`() {
         queue.append(event(1))
         queue.file.appendText("{\"type\":\"fired\",\"alertId\"\n") // torn write

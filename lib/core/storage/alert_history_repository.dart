@@ -14,7 +14,8 @@ class AlertHistoryRepository {
   static const ackWindow = Duration(hours: 24);
 
   /// Inserts [entry] unless the same (type, alertId, atUtc) is already stored
-  /// (an event can arrive both live and from `drainEvents`). The first row
+  /// (an event can arrive both live and from `pendingEvents`, and a drain
+  /// offers it again until it is acked). The first row
   /// wins (decision 24). Returns true when a row was inserted. One
   /// `INSERT OR IGNORE` on the unique key, so a concurrent duplicate from
   /// another connection returns false instead of throwing (decision 14).

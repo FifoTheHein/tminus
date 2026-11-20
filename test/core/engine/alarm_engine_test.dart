@@ -169,29 +169,27 @@ void main() {
   });
 
   test(
-    'drainEvents parses events and drops duplicates within and across drains',
+    'pendingEvents parses events, drops duplicates within one call and offers '
+    'them again until they are acked',
     () async {
-      var drain = 0;
-      reply((_) {
-        drain++;
-        return drain == 1
-            ? [
-                eventJson('fired', 'a', 1),
-                eventJson('fired', 'a', 1),
-                eventJson('dismissed', 'a', 2),
-              ]
-            : [eventJson('dismissed', 'a', 2), eventJson('missed', 'b', 3)];
-      });
+      reply(
+        (_) => [
+          eventJson('fired', 'a', 1),
+          eventJson('fired', 'a', 1),
+          eventJson('dismissed', 'a', 2),
+        ],
+      );
       final engine = AlarmEngine();
 
-      final first = await engine.drainEvents();
-      final second = await engine.drainEvents();
+      final first = await engine.pendingEvents();
+      final second = await engine.pendingEvents();
 
       expect(first.map((e) => e.type), [
         EngineEventType.fired,
         EngineEventType.dismissed,
       ]);
-      expect(second.map((e) => e.type), [EngineEventType.missed]);
+      expect(second.map((e) => e.dedupKey), first.map((e) => e.dedupKey));
+      expect(calls.map((c) => c.method), ['peekEvents', 'peekEvents']);
       expect(
         first.first.atUtc,
         DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
@@ -199,9 +197,23 @@ void main() {
     },
   );
 
+  test('ackEvents sends the dedup keys of the stored events', () async {
+    reply((_) => null);
+    final engine = AlarmEngine();
+    await engine.ackEvents([
+      EngineEvent.fromJson(eventJson('fired', 'a', 1)),
+      EngineEvent.fromJson(eventJson('dismissed', 'a', 2)),
+    ]);
+    expect(calls.single.method, 'ackEvents');
+    expect((calls.single.arguments as Map)['keys'], [
+      'fired|a|1',
+      'dismissed|a|2',
+    ]);
+  });
+
   test('snoozed events carry snoozeUntilUtc', () async {
     reply((_) => [eventJson('snoozed', 'a', 5, snoozeUntilMs: 1790000300000)]);
-    final event = (await AlarmEngine().drainEvents()).single;
+    final event = (await AlarmEngine().pendingEvents()).single;
     expect(
       event.snoozeUntilUtc,
       DateTime.fromMillisecondsSinceEpoch(1790000300000, isUtc: true),
@@ -209,41 +221,41 @@ void main() {
     expect(event.dedupKey, 'snoozed|a|5');
   });
 
-  test(
-    'events reach every listener once, and drain skips what was streamed',
-    () async {
-      messenger.setMockStreamHandler(
-        events,
-        MockStreamHandler.inline(
-          onListen: (arguments, sink) {
-            sink.success(eventJson('fired', 'a', 1));
-            sink.success(eventJson('fired', 'a', 1));
-            sink.success(eventJson('dismissed', 'a', 2));
-          },
-        ),
-      );
-      reply((_) => [eventJson('fired', 'a', 1), eventJson('missed', 'b', 3)]);
-      final engine = AlarmEngine();
-      final first = <EngineEvent>[];
-      final second = <EngineEvent>[];
-      final s1 = engine.events.listen(first.add);
-      final s2 = engine.events.listen(second.add);
+  test('events reach every listener once, and pending events still include '
+      'what was streamed', () async {
+    messenger.setMockStreamHandler(
+      events,
+      MockStreamHandler.inline(
+        onListen: (arguments, sink) {
+          sink.success(eventJson('fired', 'a', 1));
+          sink.success(eventJson('fired', 'a', 1));
+          sink.success(eventJson('dismissed', 'a', 2));
+        },
+      ),
+    );
+    reply((_) => [eventJson('fired', 'a', 1), eventJson('missed', 'b', 3)]);
+    final engine = AlarmEngine();
+    final first = <EngineEvent>[];
+    final second = <EngineEvent>[];
+    final s1 = engine.events.listen(first.add);
+    final s2 = engine.events.listen(second.add);
 
-      await pumpEventQueue();
+    await pumpEventQueue();
 
-      expect(first.map((e) => e.type), [
-        EngineEventType.fired,
-        EngineEventType.dismissed,
-      ]);
-      expect(second.map((e) => e.type), [
-        EngineEventType.fired,
-        EngineEventType.dismissed,
-      ]);
-      expect((await engine.drainEvents()).map((e) => e.alertId), ['b']);
-      await s1.cancel();
-      await s2.cancel();
-    },
-  );
+    expect(first.map((e) => e.type), [
+      EngineEventType.fired,
+      EngineEventType.dismissed,
+    ]);
+    expect(second.map((e) => e.type), [
+      EngineEventType.fired,
+      EngineEventType.dismissed,
+    ]);
+    // A streamed event may not have reached history yet: the queue keeps
+    // it until it is acked, so pendingEvents offers it too.
+    expect((await engine.pendingEvents()).map((e) => e.alertId), ['a', 'b']);
+    await s1.cancel();
+    await s2.cancel();
+  });
 
   test('a platform error surfaces as PlatformException', () async {
     reply(

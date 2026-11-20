@@ -231,7 +231,7 @@ void main() {
       engineCalls.add(call);
       return switch (call.method) {
         'applyPlan' => applyAnswer(call),
-        'drainEvents' => () {
+        'peekEvents' => () {
           final drained = List.of(queuedEvents);
           queuedEvents.clear();
           return drained;

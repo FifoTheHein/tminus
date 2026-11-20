@@ -14,7 +14,8 @@ import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Engine events waiting for Dart, one JSON object per line, in device-protected storage.
- * Every event is appended, whether or not it was also streamed live (roadmap §3).
+ * Every event is appended, whether or not it was also streamed live, and stays until Dart acks it
+ * with [remove] once it is in `alert_history` (roadmap §3), so a failed write in Dart loses nothing.
  */
 class EventQueue(context: Context) {
     internal val file = File(File(context.createDeviceProtectedStorageContext().filesDir, PlanStore.DIR_NAME), FILE_NAME)
@@ -51,6 +52,33 @@ class EventQueue(context: Context) {
         val events = parse(readLinesLocked())
         file.delete()
         events
+    }
+
+    /**
+     * Removes the events whose [EngineEvent.dedupKey] is in [keys] (Dart's `ackEvents`); events
+     * queued since Dart peeked stay. Unreadable lines go too: no one can ever deliver them. Rewrites
+     * via a synced temp file and an atomic rename, like the trim in [append].
+     */
+    fun remove(keys: Set<String>) = synchronized(LOCK) {
+        if (!file.exists()) return@synchronized
+        val kept = readLinesLocked().filter { line ->
+            val event = try {
+                EngineJson.eventFromJson(JSONObject(line))
+            } catch (e: Exception) {
+                null
+            }
+            event != null && event.dedupKey !in keys
+        }
+        if (kept.isEmpty()) {
+            file.delete()
+            return@synchronized
+        }
+        FileOutputStream(tempFile).use { out ->
+            out.write(kept.joinToString(separator = "\n", postfix = "\n").toByteArray(Charsets.UTF_8))
+            out.flush()
+            out.fd.sync()
+        }
+        Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
     }
 
     private fun endsMidLineLocked(): Boolean {

@@ -32,8 +32,8 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
   StreamSubscription<EngineEvent>? _events;
 
   /// Events the live stream delivered since the last drain, in arrival order. The
-  /// engine hands each event to either the live stream or `drainEvents()`, never
-  /// both, so the panel keeps what it received live for the drain line to show.
+  /// recorder stores live events as they arrive, so a drain reports only rows
+  /// it newly stored: the panel keeps what it received live for the drain line.
   final List<EngineEvent> _pending = [];
 
   @override
@@ -103,15 +103,22 @@ class _EngineDebugPanelState extends State<EngineDebugPanel>
     return '${strength == AlertStrength.alarm ? 'Alarm' : 'Heads-up'} in ${_label(_delay)}';
   }
 
-  /// Drains through the recorder, the one caller of `drainEvents` (Plan 4),
+  /// Drains through the recorder, the one caller of `pendingEvents` (Plan 4),
   /// so what the panel drains still reaches `alert_history`. The line lists
   /// the events seen live since the last drain, then the rows this drain
   /// recorded.
   Future<String> _drain() async {
     final recorded = await getIt<EngineEventRecorder>().drainNow();
+    // The queue keeps live events until they are acked, so the drain can store
+    // one the panel already lists: show it once.
+    final live = {for (final e in _pending) e.dedupKey};
     final types = [
       for (final e in _pending) e.type.name,
-      for (final e in recorded) e.type.name,
+      for (final e in recorded)
+        if (!live.contains(
+          '${e.type.name}|${e.alertId}|${e.atUtc.millisecondsSinceEpoch}',
+        ))
+          e.type.name,
     ];
     _pending.clear();
     if (types.isEmpty) return 'No new engine events';

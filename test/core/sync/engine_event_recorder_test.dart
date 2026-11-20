@@ -19,11 +19,15 @@ import '../storage/test_database.dart';
 class _FlakyHistory extends AlertHistoryRepository {
   _FlakyHistory(super.db);
 
+  /// Writes that succeed before the failures start.
+  int passes = 0;
   int failures = 0;
 
   @override
   Future<bool> record(AlertHistoryEntry entry) async {
-    if (failures > 0) {
+    if (passes > 0) {
+      passes--;
+    } else if (failures > 0) {
       failures--;
       throw StateError('database is locked (https://example.test/s3cr3t.ics)');
     }
@@ -82,11 +86,20 @@ void main() {
     history = AlertHistoryRepository(db);
     await OccurrenceRepository(db).replaceForSource('work', [meeting]);
     queued = [];
+    // Like EventQueue: peekEvents leaves the queue alone, ackEvents removes
+    // the events whose dedup keys it is given.
     messenger.setMockMethodCallHandler(method, (call) async {
-      if (call.method != 'drainEvents') return null;
-      final drained = List.of(queued);
-      queued.clear();
-      return drained;
+      switch (call.method) {
+        case 'peekEvents':
+          return List.of(queued);
+        case 'ackEvents':
+          final keys = ((call.arguments as Map)['keys'] as List).toSet();
+          queued.removeWhere(
+            (e) =>
+                keys.contains('${e['type']}|${e['alertId']}|${e['atUtcMs']}'),
+          );
+      }
+      return null;
     });
     recorder = EngineEventRecorder(
       engine: AlarmEngine(),
@@ -286,9 +299,11 @@ void main() {
       expect(logged.single, isNot(contains('s3cr3t')));
       expect(recorder.isListening, isTrue);
 
-      // The failed drain does not hold up the next one.
+      // The failed drain does not hold up the next one, and the event it
+      // could not write is still queued for it.
       queued.add(json('dismissed', 'a', 2000));
-      expect(await recorder.drainNow(), hasLength(1));
+      expect(await recorder.drainNow(), hasLength(2));
+      expect(queued, isEmpty);
     },
   );
 
@@ -325,4 +340,67 @@ void main() {
       AlertEventType.dismissed,
     ]);
   });
+  test('a write that fails mid-drain loses nothing: what was stored is acked, '
+      'the rest is offered again', () async {
+    final flaky = _FlakyHistory(db)
+      ..passes = 1
+      ..failures = 1;
+    recorder = EngineEventRecorder(
+      engine: AlarmEngine(),
+      history: flaky,
+      occurrences: OccurrenceRepository(db),
+    );
+    queued.addAll([
+      json('fired', 'a', 1000),
+      json('dismissed', 'a', 2000),
+      json('missed', 'b', 3000),
+    ]);
+
+    await expectLater(recorder.drainNow(), throwsStateError);
+
+    expect((await history.recent()).map((r) => r.type), [AlertEventType.fired]);
+    expect(queued.map((e) => e['type']), ['dismissed', 'missed']);
+
+    expect(await recorder.drainNow(), hasLength(2));
+    expect(queued, isEmpty);
+    expect((await history.recent()).map((r) => r.type).toSet(), {
+      AlertEventType.fired,
+      AlertEventType.dismissed,
+      AlertEventType.missed,
+    });
+  });
+
+  test(
+    'a live event whose write failed is recorded by the next drain',
+    () async {
+      final flaky = _FlakyHistory(db);
+      recorder = EngineEventRecorder(
+        engine: AlarmEngine(),
+        history: flaky,
+        occurrences: OccurrenceRepository(db),
+      );
+      late MockStreamHandlerEventSink sink;
+      messenger.setMockStreamHandler(
+        events,
+        MockStreamHandler.inline(onListen: (args, s) => sink = s),
+      );
+      final logged = <String>[];
+      final realDebugPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => logged.add(message ?? '');
+      addTearDown(() => debugPrint = realDebugPrint);
+      await recorder.start();
+
+      // The live write fails. Kotlin queued the event as well as streaming it.
+      flaky.failures = 1;
+      sink.success(json('dismissed', 'a', 1000));
+      queued.add(json('dismissed', 'a', 1000));
+      await waitUntil(() => logged.isNotEmpty);
+
+      // The engine already saw it live, but it never reached history, so the
+      // drain must not skip it.
+      expect(await recorder.drainNow(), hasLength(1));
+      expect((await history.recent()).single.type, AlertEventType.dismissed);
+      expect(queued, isEmpty);
+    },
+  );
 }

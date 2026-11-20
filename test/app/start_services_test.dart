@@ -61,7 +61,7 @@ void main() {
           return {'armed': 0, 'cancelled': 0, 'kept': 0};
         case 'getHealth':
           return healthyEngine();
-        case 'drainEvents':
+        case 'peekEvents':
           return <Object?>[];
       }
       return null;
@@ -142,7 +142,7 @@ void main() {
     final asked = calls.indexOf('sync.installId');
     for (final later in [
       'sync.acquireLock',
-      'engine.drainEvents',
+      'engine.peekEvents',
       'engine.getHealth',
       'events.listen',
     ]) {
@@ -174,7 +174,7 @@ void main() {
     await waitUntil(
       () =>
           getIt<HealthMonitor>().report != null &&
-          calls.contains('engine.drainEvents'),
+          calls.contains('engine.peekEvents'),
       timeout: const Duration(seconds: 10),
     );
     await pumpEventQueue(times: 100);

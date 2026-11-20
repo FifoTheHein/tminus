@@ -23,6 +23,9 @@ data class EngineEvent(
     val atUtcMs: Long,
     val snoozeUntilUtcMs: Long? = null,
 ) {
+    /** Dart's `EngineEvent.dedupKey`: what `ackEvents` names an event by (roadmap §3). */
+    val dedupKey: String get() = "${type.wire}|$alertId|$atUtcMs"
+
     /** The EngineEvent JSON of roadmap §3, as a codec-friendly map. */
     fun toMap(): Map<String, Any?> = mapOf(
         "type" to type.wire,

@@ -79,7 +79,7 @@ T-Minus is an Android app. The UI is Flutter (Dart), and the alarm engine is nat
 
 ### Build status
 
-Plans 1 to 6 are built:
+Plans 1 to 7 are built:
 
 - Plan 1: the ICS parser (`ics_core`).
 - Plan 2: the domain model, storage, rules and planner.
@@ -88,16 +88,18 @@ Plans 1 to 6 are built:
 - Plan 4b: merging of meetings found in more than one source.
 - Plan 5: the app screens.
 - Plan 6: Play readiness (a signed release build, the privacy policy and a demo feed on GitHub Pages, the store listing and Play declarations, the `systemExempted` ringing service, and the meeting cache moved out of Android's backup).
+- Plan 7: join links for Google Meet, Zoom and Webex (the Join button, the Agenda badge and the "Has meeting link" keyword rule work for them as they do for Teams, and the app names the meeting service).
 
 Between Plans 5 and 6, the phone calendar picker started to group calendars by account, and the app got its own launcher icon and in-app logo.
 
-The app is on Google Play internal testing (1.0.1, 18 November 2026), and its store listing is in Play review. It is not in production: the closed test and the production release are a later step.
+The app is on Google Play internal testing (1.0.1, 18 November 2026), and its store listing is in Play review. It is not in production: the closed test and the production release are a later step. Plan 7 reaches Play with the 1.0.2 release, which is still to come.
 
 ### Documents
 
 - Implementation roadmap: [docs/superpowers/plans/2026-10-06-tminus-roadmap.md](docs/superpowers/plans/2026-10-06-tminus-roadmap.md)
 - Design spec: [docs/superpowers/specs/2026-10-06-tminus-design.md](docs/superpowers/specs/2026-10-06-tminus-design.md)
 - Play readiness (Plan 6): [docs/superpowers/plans/2026-11-14-plan-6-play-readiness.md](docs/superpowers/plans/2026-11-14-plan-6-play-readiness.md)
+- Join links (Plan 7): [docs/superpowers/plans/2026-11-19-plan-7-meeting-links.md](docs/superpowers/plans/2026-11-19-plan-7-meeting-links.md)
 - Calendar picker grouping: [spec](docs/superpowers/specs/2026-11-13-calendar-grouping-design.md) · [plan](docs/superpowers/plans/2026-11-13-calendar-grouping.md)
 - Design brief (screens and visuals): [docs/design-brief.md](docs/design-brief.md)
 - Mockups and design system: [docs/design/](docs/design/README.md) · [Claude Design project](https://claude.ai/design/p/b3ee1986-af3e-4399-9aeb-efd063edfd49)

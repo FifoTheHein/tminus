@@ -26,6 +26,18 @@
 
 T-Minus turns your calendar meetings into alarms you can't miss, and can always stop.
 
+## Join the Alpha test
+
+T-Minus is in a closed test on Google Play, and anyone can join. Use the Google account that your phone's Play Store uses for every step.
+
+1. Join the [t-minus-testers group](https://groups.google.com/g/t-minus-testers). You are let in straight away, with no approval.
+2. Open the [opt-in page](https://play.google.com/apps/testing/io.github.fifothehein.tminus) on your phone, or on a computer signed in to the same account, and tap **Become a tester**.
+3. Install [T-Minus from Google Play](https://play.google.com/store/apps/details?id=io.github.fifothehein.tminus).
+
+After you join the group, it can take a few minutes before the opt-in page lets you in. If it says you can't join yet, wait a little and try again.
+
+Please keep T-Minus installed for at least 14 days: Google needs that from testers before the app can be released to everyone. T-Minus needs Android 8 or later. Report problems and ideas in [GitHub issues](https://github.com/FifoTheHein/tminus/issues), and leave the group at any time to stop testing.
+
 ## Add your calendars
 
 - Pick a calendar already on your phone, for example from a Google, Samsung, Outlook or Exchange account, or paste a calendar link (Outlook, Google Calendar or any ICS link).
@@ -69,14 +81,7 @@ Outlook and Teams are trademarks of Microsoft. Google Calendar and Google Meet a
 
 ## Availability
 
-T-Minus is in a closed test on Google Play (version 1.0.2, 20 November 2026). It is not on the public Play Store yet.
-
-To become a tester:
-
-1. Join the [t-minus-testers group](https://groups.google.com/g/t-minus-testers) with the Google account your phone's Play Store uses.
-2. Open the [opt-in page](https://play.google.com/apps/testing/io.github.fifothehein.tminus), tap **Become a tester**, then install T-Minus from Google Play.
-
-Access can take a few minutes to come through after you join the group.
+T-Minus is in a closed test on Google Play (version 1.0.2, 20 November 2026). It is not on the public Play Store yet. To try it, see [Join the Alpha test](#join-the-alpha-test).
 
 Bugs and questions go to [GitHub issues](https://github.com/FifoTheHein/tminus/issues). [The privacy policy](https://fifothehein.github.io/tminus/privacy/) is on GitHub Pages.
 

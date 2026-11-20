@@ -1,6 +1,7 @@
 ---
 title: Privacy policy
 permalink: /privacy/
+layout: page
 ---
 
 # T-Minus privacy policy

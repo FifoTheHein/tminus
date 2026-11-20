@@ -2,13 +2,13 @@
 
 How a release build of T-Minus is versioned, signed, checked and uploaded to Google Play. The store listing is in [listing.md](listing.md), and the answers for Play Console's forms are in [declarations.md](declarations.md).
 
-The first release goes to the internal testing track. A later release changes the version (below) and repeats the same steps.
+Releases go to the closed testing track **Alpha**, whose testers are the Google Group [t-minus-testers](https://groups.google.com/g/t-minus-testers). The internal testing track carried releases 1.0.0 to 1.0.2 and was paused on 20 November 2026, because it accepts only email lists and the group is the one tester list. A later release changes the version (below) and repeats the same steps.
 
 ## Versioning
 
 `pubspec.yaml` holds the version as `<name>+<code>`, for example `1.0.0+1`. Flutter passes the name to Android as `versionName` and the code as `versionCode`.
 
-- **The build number** (the part after `+`) goes up by one for every upload to any Play track, internal testing included. Play refuses a version code that an earlier upload already used. The first upload is `1.0.0+1`.
+- **The build number** (the part after `+`) goes up by one for every upload to any Play track. Play refuses a version code that an earlier upload already used. The first upload is `1.0.0+1`.
 - **The version name** follows semver: `MAJOR.MINOR.PATCH`. A fix raises the patch number and a new feature raises the minor number. Several uploads can share one name, because only the build number has to change.
 - Edit `pubspec.yaml` in the commit that prepares the release, and build from that commit. Do not set the version with `--build-name` or `--build-number` for a release: the repository should say what was uploaded.
 
@@ -127,15 +127,26 @@ Expected: `Verification successful` from `zipalign`, and every library listed wi
 
 A library that shows `0x1000` blocks the upload. Find the package that ships it and write down its name and version. Fix it by upgrading that package within the pins in `android/app/build.gradle.kts` and `pubspec.yaml`, or ask before moving a pin.
 
-## Upload to internal testing
+## Upload to closed testing (Alpha)
 
-1. In Play Console: Testing, then Internal testing, then **Create new release**.
-2. On the first upload only, accept Play App Signing (Google holds the app signing key, and ours is the upload key).
-3. Upload `app-release.aab`. The first upload is version `1.0.0+1`.
-4. Play refuses a debug-signed bundle here. If that happens, `android/key.properties` was missing: see the signature check above.
-5. Write the release notes, then review and start the rollout. The first release's note is "First internal test build."
-6. Open App bundle explorer for the new version. R8's mapping file (`mapping.txt`) is inside the bundle, so there is nothing to upload by hand, but check that Play lists it and the native debug symbols. If either is missing, upload `build/app/outputs/mapping/release/mapping.txt` for that version from the release's page.
-7. Testers: add Google accounts to the internal testing list, then open the opt-in link on the phone.
+Play Console is under the second Google account in the browser (`/u/1/` in its links).
+
+1. In Play Console: Test and release, then Testing, then Closed testing. Open **Closed testing - Alpha** with Manage track, then **Create new release**. Do not upload to Internal testing: that track is paused.
+2. Upload `app-release.aab`. Play App Signing was accepted on the first upload (1.0.0), so it is not asked again.
+3. Play refuses a debug-signed bundle here. If that happens, `android/key.properties` was missing: see the signature check above.
+4. Write the release notes, then review and start the rollout. Send the release for review on the Publishing overview page if Play asks. An Alpha release goes through Play's review, so testers get it hours or days later, not minutes.
+5. Open App bundle explorer for the new version. R8's mapping file (`mapping.txt`) is inside the bundle, so there is nothing to upload by hand, but check that Play lists it and the native debug symbols. If either is missing, upload `build/app/outputs/mapping/release/mapping.txt` for that version from the release's page.
+
+### Testers
+
+Alpha's Testers tab names the Google Group `t-minus-testers@googlegroups.com`, and its feedback link is the GitHub issues page. A new tester:
+
+1. Joins [the group](https://groups.google.com/g/t-minus-testers) with the Google account that their phone's Play Store uses.
+2. Opens the opt-in page, <https://play.google.com/apps/testing/io.github.fifothehein.tminus>, taps **Become a tester**, then installs T-Minus from Play.
+
+Play checks group membership when the tester opens the opt-in page. A new member usually gets access within a few minutes, and now and then only after a few hours. Until then the page says they cannot join.
+
+Production needs 12 testers opted in to a closed test for 14 days in a row (personal developer accounts created after 13 November 2023), so the Alpha testers are also what opens production access.
 
 The Play Console forms (App content, the foreground service declaration and the rest) are answered from [declarations.md](declarations.md).
 
@@ -145,6 +156,6 @@ The debug build and the Play build share one application id, so two copies can n
 
 1. On the debug build, open Settings and choose **Export settings** (profiles, rules and sources, without their links). Save the file somewhere that outlives the uninstall, for example Downloads.
 2. Uninstall the debug build.
-3. Install the Play build from the internal testing link.
+3. Install the Play build through the Alpha opt-in page (Testers, above).
 4. Go through onboarding, then open Settings and choose **Import settings**.
 5. Paste each calendar link again and pick each phone calendar again. The export holds neither.

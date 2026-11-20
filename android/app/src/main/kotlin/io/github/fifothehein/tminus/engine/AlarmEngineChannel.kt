@@ -45,7 +45,12 @@ class AlarmEngineChannel internal constructor(
                     openPermissionSettings(call.mapArgs())
                     result.success(null)
                 }
-                "drainEvents" -> result.success(EventQueue(appContext).drain().map { it.toMap() })
+                // Issue #27: Dart acks only what it stored, so a failed write stays queued.
+                "peekEvents" -> result.success(EventQueue(appContext).peek().map { it.toMap() })
+                "ackEvents" -> {
+                    EventQueue(appContext).remove(call.mapArgs().keyList())
+                    result.success(null)
+                }
                 // Plan 4: the device calendar source (roadmap §3 table).
                 "queryDeviceCalendars" -> result.success(calendar.calendars())
                 "queryInstances" -> result.success(queryInstances(call.mapArgs()))
@@ -81,6 +86,12 @@ class AlarmEngineChannel internal constructor(
 
     private fun MethodCall.mapArgs(): Map<*, *> =
         arguments as? Map<*, *> ?: throw IllegalArgumentException("$method expects a map argument")
+
+    /** `ackEvents`' `keys`: the dedup keys of the events Dart stored. */
+    private fun Map<*, *>.keyList(): Set<String> =
+        (this["keys"] as? List<*> ?: throw IllegalArgumentException("ackEvents expects keys"))
+            .map { it as? String ?: throw IllegalArgumentException("ackEvents keys must be strings") }
+            .toSet()
 
     private fun health(): Map<String, Any?> {
         val notifications = appContext.getSystemService(NotificationManager::class.java)

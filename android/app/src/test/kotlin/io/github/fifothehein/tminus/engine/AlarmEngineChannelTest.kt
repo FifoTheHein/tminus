@@ -12,6 +12,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.github.fifothehein.tminus.LoggedErrors
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -163,11 +164,18 @@ class AlarmEngineChannelTest {
     }
 
     @Test
-    fun `drainEvents returns queued events as maps and clears the queue`() {
+    fun `peekEvents returns queued events as maps until ackEvents removes them`() {
         val event = EngineEvent(EngineEventType.FIRED, "a", "src|a|occ", NOW + MINUTE_MS, NOW)
+        val later = event.copy(type = EngineEventType.DISMISSED, atUtcMs = NOW + 1)
         EventQueue(app).append(event)
-        assertEquals(listOf(event.toMap()), call("drainEvents").value)
-        assertEquals(emptyList<Any>(), call("drainEvents").value)
+        assertEquals(listOf(event.toMap()), call("peekEvents").value)
+        assertEquals(listOf(event.toMap()), call("peekEvents").value) // peeking leaves the queue alone
+
+        EventQueue(app).append(later) // queued after Dart peeked: not acked
+        val ack = call("ackEvents", mapOf("keys" to listOf(event.dedupKey)))
+        assertFalse(ack.notImplemented)
+        assertNull(ack.errorCode)
+        assertEquals(listOf(later.toMap()), call("peekEvents").value)
     }
 
     private class Sink : EventChannel.EventSink {

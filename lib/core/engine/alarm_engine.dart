@@ -10,9 +10,10 @@ export 'engine_models.dart';
 
 /// Typed client for the native `alarm_engine` channel (roadmap §3).
 ///
-/// Each engine event reaches Dart once per [AlarmEngine]: whichever of [events]
-/// or [drainEvents] sees an event first delivers it, and the other drops it
-/// (de-duplicated on type, alertId and atUtcMs).
+/// [events] delivers each live event once per [AlarmEngine] (de-duplicated on
+/// type, alertId and atUtcMs). The native queue keeps every event, streamed or
+/// not, until [ackEvents] removes it, so [pendingEvents] offers an event again
+/// until whoever stores it acks it: a failed write loses nothing.
 class AlarmEngine {
   AlarmEngine({MethodChannel? methodChannel, EventChannel? eventChannel})
     : _method = methodChannel ?? const MethodChannel(methodChannelName),
@@ -54,16 +55,25 @@ class AlarmEngine {
   Future<void> openPermissionSettings(PermissionKind kind) =>
       _method.invokeMethod<void>('openPermissionSettings', {'kind': kind.name});
 
-  /// Events queued natively that this instance has not delivered yet. Clears the native queue.
-  Future<List<EngineEvent>> drainEvents() async {
+  /// Every event queued natively, oldest first, without duplicates. The queue
+  /// is left as it is: pass the events once they are stored to [ackEvents].
+  Future<List<EngineEvent>> pendingEvents() async {
     final raw =
-        await _method.invokeListMethod<Object?>('drainEvents') ??
+        await _method.invokeListMethod<Object?>('peekEvents') ??
         const <Object?>[];
+    final keys = <String>{};
     return [
       for (final event in raw.map(_parse))
-        if (_firstSeen(event)) event,
+        if (keys.add(event.dedupKey)) event,
     ];
   }
+
+  /// Removes [events] from the native queue. Events queued since
+  /// [pendingEvents] stay.
+  Future<void> ackEvents(Iterable<EngineEvent> events) =>
+      _method.invokeMethod<void>('ackEvents', {
+        'keys': [for (final e in events) e.dedupKey],
+      });
 
   /// Live events. Every listener shares one native subscription, so de-duplication runs once.
   Stream<EngineEvent> get events {

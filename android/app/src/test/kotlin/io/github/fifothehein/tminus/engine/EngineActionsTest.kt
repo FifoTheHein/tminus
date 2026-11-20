@@ -125,6 +125,54 @@ class EngineActionsTest {
     }
 
     @Test
+    fun `after the clock goes back, a fired alert that was not stopped rings again and a stopped one does not`() {
+        // Issue #27: the clock is moved forward, the heads-up and the alarm fire, the alarm is stopped,
+        // then the clock is set back. The heads-up was still presented, so nothing re-armed it.
+        val start = NOW + HOUR
+        val headsUp = alert("h", start - 10 * MINUTE_MS, strength = Strength.HEADS_UP, occurrenceKey = "K", start = start)
+        val alarm = alert("a", start - MINUTE_MS, occurrenceKey = "K", start = start)
+        actions.applyPlan(listOf(headsUp, alarm))
+        now = start - 30_000
+        actions.fire("h")
+        actions.fire("a")
+        listOf(headsUp, alarm).forEach { scheduler.cancel(it.id) } // delivered alarms are gone
+        actions.dismiss(listOf("a"))
+        events()
+        presenter.withdrawn.clear()
+
+        now = NOW // the clock is set back: TimeChangeReceiver calls rearmAll
+        actions.rearmAll()
+
+        assertTrue(store.read().presented.isEmpty())
+        assertEquals(listOf(headsUp), presenter.withdrawn)
+        assertEquals(listOf("h"), store.read().scheduled.map { it.id })
+        assertTrue(scheduler.isArmed(headsUp))
+        assertFalse(scheduler.isArmed(alarm))
+        assertTrue(events().isEmpty())
+
+        actions.applyPlan(listOf(headsUp, alarm)) // the next sync plans both again
+        assertEquals(listOf("h"), store.read().scheduled.map { it.id })
+        assertTrue(scheduler.isArmed(headsUp))
+        assertFalse(scheduler.isArmed(alarm))
+    }
+
+    @Test
+    fun `applyPlan and recoverPresented also re-arm a presented alert whose fire time is ahead again`() {
+        val h = alert("h", NOW + HOUR, strength = Strength.HEADS_UP)
+        store.write(EngineState(presented = listOf(h)))
+        actions.applyPlan(listOf(h))
+        assertEquals(listOf("h"), store.read().plan.map { it.id })
+        assertTrue(scheduler.isArmed(h))
+
+        scheduler.cancel(h.id)
+        store.write(EngineState(presented = listOf(h)))
+        actions.recoverPresented()
+        assertTrue(presenter.presented.isEmpty()) // not shown again: it rings at its time
+        assertEquals(listOf("h"), store.read().plan.map { it.id })
+        assertTrue(scheduler.isArmed(h))
+    }
+
+    @Test
     fun `rearmAll rings overdue alerts, reports ended ones missed and drops handled ones`() {
         val start = NOW + 5 * MINUTE_MS
         val due = alert("due", NOW - MINUTE_MS, occurrenceKey = "K", start = start)

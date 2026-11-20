@@ -66,6 +66,15 @@ void main() {
     expect(sync.runs, isEmpty);
   });
 
+  test(
+    'syncs when the last sync finished in the future (the clock went back)',
+    () async {
+      sync.finishedAt = now.add(const Duration(hours: 5));
+      expect(await foreground.maybeSync(), isNotNull);
+      expect(sync.runs, [SyncTrigger.foreground]);
+    },
+  );
+
   test('a resume while a foreground sync runs joins it', () async {
     final release = Completer<void>();
     sync.gate = release.future;

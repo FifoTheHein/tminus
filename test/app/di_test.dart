@@ -73,7 +73,7 @@ void main() {
       }
       return switch (c.method) {
         'applyPlan' => {'armed': 0, 'cancelled': 0, 'kept': 0},
-        'drainEvents' => <Object?>[],
+        'peekEvents' => <Object?>[],
         _ => null,
       };
     });

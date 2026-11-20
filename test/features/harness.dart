@@ -232,7 +232,7 @@ Future<Harness> pumpApp(
     return switch (c.method) {
       'applyPlan' => {'armed': 0, 'cancelled': 0, 'kept': 0},
       'getHealth' => h.health,
-      'drainEvents' => <Object?>[],
+      'peekEvents' => <Object?>[],
       'queryDeviceCalendars' => h.deviceCalendars,
       'queryInstances' => <Object?>[],
       _ => null,

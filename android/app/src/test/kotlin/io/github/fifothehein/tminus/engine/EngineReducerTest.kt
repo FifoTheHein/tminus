@@ -159,4 +159,45 @@ class EngineReducerTest {
         assertEquals(listOf("fresh"), pruned.dismissed.map { it.alertId })
         assertEquals(listOf("recent"), pruned.presented.map { it.id })
     }
+    @Test
+    fun `rewind puts presented alerts whose fire time is ahead again back on the schedule`() {
+        // The clock went back past alerts that had already fired (issue #27).
+        val headsUp = alert("h", NOW + HOUR, strength = Strength.HEADS_UP)
+        val snooze = alert("s:s", NOW + 2 * HOUR)
+        val test = alert("test-1", NOW + 3 * HOUR, occurrenceKey = "test|1")
+        val past = alert("p", NOW - MINUTE_MS)
+        val other = alert("o", NOW + 4 * HOUR)
+        val t = EngineReducer.rewind(
+            EngineState(plan = listOf(other), presented = listOf(headsUp, snooze, test, past)),
+            NOW,
+        )
+
+        assertEquals(listOf("p"), t.state.presented.map { it.id })
+        assertEquals(listOf("o", "h"), t.state.plan.map { it.id })
+        assertEquals(listOf("s:s"), t.state.snoozes.map { it.id })
+        assertEquals(listOf("test-1"), t.state.tests.map { it.id })
+        assertEquals(setOf("h", "s:s", "test-1"), t.withdrawn.map { it.id }.toSet())
+        assertEquals(setOf("h", "s:s", "test-1"), t.toArm.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `rewind leaves an alert that is already scheduled under its id to the schedule`() {
+        // The meeting moved after it fired: the plan's copy at the new time wins.
+        val moved = alert("m", NOW + 2 * HOUR)
+        val stale = alert("m", NOW + HOUR)
+        val t = EngineReducer.rewind(EngineState(plan = listOf(moved), presented = listOf(stale)), NOW)
+
+        assertTrue(t.state.presented.isEmpty())
+        assertEquals(listOf(moved), t.state.plan)
+        assertEquals(listOf(stale), t.withdrawn)
+        assertTrue(t.toArm.isEmpty())
+    }
+
+    @Test
+    fun `rewind changes nothing while every presented alert fired in the past`() {
+        val state = EngineState(presented = listOf(alert("a", NOW), alert("b", NOW - HOUR)))
+        val t = EngineReducer.rewind(state, NOW)
+        assertSame(state, t.state)
+        assertTrue(t.withdrawn.isEmpty())
+    }
 }

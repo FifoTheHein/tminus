@@ -321,7 +321,8 @@ class PlannedAlert {
 | `getHealth` | — | `{"notificationsEnabled": bool, "ringingChannelEnabled": bool, "canUseFullScreenIntent": bool, "canScheduleExactAlarms": bool, "ignoringBatteryOptimizations": bool, "alarmStreamMuted": bool, "upcoming": [{"id", "fireAtUtcMs", "strength", "title"} × ≤5]}` |
 | `testAlarm` | `{"strength": "headsUp"\|"alarm", "delaySec": int}` | `null` |
 | `openPermissionSettings` | `{"kind": "notifications"\|"fullScreenIntent"\|"exactAlarm"\|"batteryOptimization"\|"alarmVolume"}` | `null` |
-| `drainEvents` | — | `[EngineEvent JSON, …]` (queued while Flutter wasn't running; queue is cleared) |
+| `peekEvents` | — | `[EngineEvent JSON, …]` oldest first; the queue is left as it is (issue #27 replaced `drainEvents`, which cleared it) |
+| `ackEvents` | `{"keys": ["type\|alertId\|atUtcMs", …]}` | `null`; removes those events from the queue, keeps any queued since |
 | `queryDeviceCalendars` | — | `[{"id": String, "name": String, "accountName": String?, "color": int (opaque ARGB), "visible": bool, "accountType": String?, "ownerAccount": String?, "accessLevel": int?, "syncEvents": bool, "primary": bool?}, …]`; when the provider leaves a column empty, `accountType`, `ownerAccount`, `accessLevel` and `primary` are `null` and `syncEvents` is `true`; error `permission_denied` |
 | `queryInstances` | `{"calendarIds": [String], "fromUtcMs": int, "toUtcMs": int}` | `[{"eventId": String, "calendarId": String, "beginMs": int, "endMs": int, "allDay": bool, "title": String?, "location": String?, "description": String?, "organizer": String?, "availability": int, "selfAttendeeStatus": int, "status": int?, "originalId": String?, "originalInstanceTimeMs": int?, "recurring": bool}, …]` by begin; errors `permission_denied`, `calendar_missing` (Plan 4), `calendar_not_synced` (Plan 6) |
 
@@ -330,7 +331,7 @@ EventChannel `alarm_engine/events` streams the same EngineEvent JSON live:
 
 A single `dismissed` event identifies the alert by `alertId` and the meeting's `startUtcMs`. Because `id = idFor(occurrenceKey, offsetMinutes)` and `fireAt = start − offset`, the pair (alertId, startUtcMs) names the same alert instance as Kotlin's (alertId, fireAtUtcMs). Dart keys single dismissals by (alertId, startUtcMs); no fire time is needed in the event.
 
-Every event is also appended to the native queue file, so `drainEvents` returns everything Dart has not yet drained, whether or not it was also streamed live. Dart de-duplicates on `(type, alertId, atUtcMs)`.
+Every event is also appended to the native queue file, whether or not it was also streamed live, and stays there until Dart acks it. A drain peeks, stores each event in `alert_history` (insert-or-ignore on `(type, alertId, atUtcMs)`, so an event seen live is harmless), then acks the ones it stored. A failed write stops the drain, and the unstored events are offered again by the next one.
 
 ### `tminus_sync` channel (Plan 4 implements both sides)
 

@@ -98,7 +98,7 @@ void main() {
         case 'applyPlan':
           plans.add((c.arguments as Map)['alerts'] as List<Object?>);
           return {'armed': 0, 'cancelled': 0, 'kept': 0};
-        case 'drainEvents':
+        case 'peekEvents':
           return <Object?>[];
       }
       return null;

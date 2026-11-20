@@ -270,6 +270,20 @@ const _brokenEncodings = [
   'https://example.zoom.us/j/12345678901?pwd=%zz',
 ];
 
+/// Texts that hold no join link, of every kind: nothing at all, plain words, a
+/// page of the old Hangouts, the pages on the four hosts that are not join links
+/// and the links that only look like join links.
+final _noJoinLink = <String?>[
+  null,
+  '',
+  '   ',
+  'Agenda: budget and hiring',
+  'https://hangouts.google.com/hangouts/_/abcdefghijklmnop',
+  ..._otherPages,
+  for (final row in _table)
+    if (row.service == null) row.input,
+];
+
 /// [text] is no join link: the finder gives null wherever it stands, and no
 /// service is named.
 void _expectNoLink(String text) {
@@ -873,19 +887,176 @@ void main() {
       });
     });
 
-    group('the conference value is searched before both', () {
-      for (final service in MeetingService.values) {
-        test('a ${service.label} link', () {
-          final others = [
-            for (final other in MeetingService.values)
-              if (other != service) _samples[other]!,
-          ];
+    group('the conference value is searched last', () {
+      // Google adds a Meet link to the conference property on its own, so a
+      // link in the text is the one that the organiser meant.
+      test('a link that the organiser pasted beats the Meet link Google added', () {
+        const meet = 'https://meet.google.com/abc-defg-hij';
+        const teams =
+            'https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0';
+        const zoom = 'https://example.zoom.us/j/12345678901';
+        // Outlook's form: a label, then the link in angle brackets.
+        expect(
+          extractJoinUrl(
+            'Click here to join the meeting<$teams>\n',
+            null,
+            conference: meet,
+          ),
+          teams,
+        );
+        // The form of a pasted invite in an HTML description.
+        expect(
+          extractJoinUrl(
+            '<a href="$teams">Join the meeting now</a>',
+            null,
+            conference: meet,
+          ),
+          teams,
+        );
+        expect(
+          extractJoinUrl('Dial in with Zoom: $zoom\n', null, conference: meet),
+          zoom,
+        );
+        // Google's own block after the pasted link: inside the description the
+        // earliest link still wins.
+        expect(
+          extractJoinUrl(
+            'Click here to join the meeting<$teams>\n\n'
+            'Join with Google Meet: $meet\n',
+            null,
+            conference: meet,
+          ),
+          teams,
+        );
+      });
+
+      group('a link in the description wins', () {
+        for (final conference in MeetingService.values) {
+          for (final inDescription in MeetingService.values) {
+            if (inDescription == conference) continue;
+            test('${inDescription.label} in the description, '
+                '${conference.label} in the conference value', () {
+              expect(
+                extractJoinUrl(
+                  _samples[inDescription],
+                  null,
+                  conference: _samples[conference],
+                ),
+                _samples[inDescription],
+              );
+            });
+          }
+        }
+      });
+
+      group('a link in the location wins', () {
+        for (final conference in MeetingService.values) {
+          for (final inLocation in MeetingService.values) {
+            if (inLocation == conference) continue;
+            test('${inLocation.label} in the location, '
+                '${conference.label} in the conference value', () {
+              expect(
+                extractJoinUrl(
+                  null,
+                  _samples[inLocation],
+                  conference: _samples[conference],
+                ),
+                _samples[inLocation],
+              );
+            });
+          }
+        }
+      });
+
+      test('a link of the same service in the text wins too', () {
+        // Each entry is the conference value, then a different link of the
+        // same service in the text.
+        const pairs = <String, String>{
+          'https://teams.microsoft.com/meet/1234567890123':
+              'https://teams.microsoft.com/meet/3456789012345?p=AbCd',
+          'https://meet.google.com/abc-defg-hij':
+              'https://meet.google.com/qrs-tuvw-xyz',
+          'https://us06web.zoom.us/j/12345678901?pwd=abc':
+              'https://example.zoom.us/j/98765432109',
+          'https://example.webex.com/meet/someone':
+              'https://example.webex.com/join/someone',
+        };
+        for (final pair in pairs.entries) {
           expect(
-            extractJoinUrl(others[0], others[1], conference: _samples[service]),
-            _samples[service],
+            extractJoinUrl(pair.value, null, conference: pair.key),
+            pair.value,
+            reason: 'description: ${pair.value}, conference: ${pair.key}',
           );
-        });
-      }
+          expect(
+            extractJoinUrl(null, pair.value, conference: pair.key),
+            pair.value,
+            reason: 'location: ${pair.value}, conference: ${pair.key}',
+          );
+        }
+      });
+
+      test('with a link in all three, the order is description, location, '
+          'conference value', () {
+        for (final inDescription in MeetingService.values) {
+          for (final inLocation in MeetingService.values) {
+            for (final conference in MeetingService.values) {
+              if ({inDescription, inLocation, conference}.length < 3) continue;
+              expect(
+                extractJoinUrl(
+                  _samples[inDescription],
+                  _samples[inLocation],
+                  conference: _samples[conference],
+                ),
+                _samples[inDescription],
+                reason:
+                    '${inDescription.label} in the description, '
+                    '${inLocation.label} in the location, '
+                    '${conference.label} in the conference value',
+              );
+            }
+          }
+        }
+      });
+
+      test('the location beats the conference value when the description '
+          'holds no join link', () {
+        for (final inLocation in MeetingService.values) {
+          for (final conference in MeetingService.values) {
+            if (inLocation == conference) continue;
+            for (final description in _noJoinLink) {
+              expect(
+                extractJoinUrl(
+                  description,
+                  _samples[inLocation],
+                  conference: _samples[conference],
+                ),
+                _samples[inLocation],
+                reason:
+                    'description: $description, '
+                    '${inLocation.label} in the location, '
+                    '${conference.label} in the conference value',
+              );
+            }
+          }
+        }
+      });
+
+      group('the conference link is used when the text has no join link', () {
+        for (final service in MeetingService.values) {
+          test('a ${service.label} link', () {
+            final link = _samples[service];
+            for (final description in _noJoinLink) {
+              for (final location in _noJoinLink) {
+                expect(
+                  extractJoinUrl(description, location, conference: link),
+                  link,
+                  reason: 'description: $description, location: $location',
+                );
+              }
+            }
+          });
+        }
+      });
 
       test('it is searched like any other text', () {
         expect(
@@ -898,26 +1069,52 @@ void main() {
         );
       });
 
+      test('the earliest link in it wins, wrapped or not', () {
+        final wrapped = safeLinks(
+          'https%3A%2F%2Fus02web.zoom.us%2Fj%2F98765432109%3Fpwd%3Ddef456',
+        );
+        final meet = _samples[MeetingService.googleMeet];
+        final zoom = _samples[MeetingService.zoom];
+        expect(
+          extractJoinUrl(null, null, conference: '$zoom and then $meet'),
+          zoom,
+        );
+        expect(
+          extractJoinUrl(
+            null,
+            null,
+            conference: 'Zoom <$wrapped> or Meet $meet',
+          ),
+          'https://us02web.zoom.us/j/98765432109?pwd=def456',
+        );
+        expect(
+          extractJoinUrl(
+            null,
+            null,
+            conference: 'Meet $meet or Zoom <$wrapped>',
+          ),
+          meet,
+        );
+      });
+
       test('a value with no join link is skipped', () {
         final zoom = _samples[MeetingService.zoom];
         final teams = _samples[MeetingService.teams];
-        for (final conference in [
-          null,
-          '',
-          '   ',
-          'no link here',
-          'https://hangouts.google.com/hangouts/_/abcdefghijklmnop',
-          'https://zoom.us/download',
-        ]) {
+        for (final conference in _noJoinLink) {
           expect(
             extractJoinUrl(zoom, teams, conference: conference),
             zoom,
-            reason: 'description after: $conference',
+            reason: 'description, with this conference value: $conference',
           );
           expect(
             extractJoinUrl(null, teams, conference: conference),
             teams,
-            reason: 'location after: $conference',
+            reason: 'location, with this conference value: $conference',
+          );
+          expect(
+            extractJoinUrl(null, null, conference: conference),
+            isNull,
+            reason: 'alone: $conference',
           );
         }
       });

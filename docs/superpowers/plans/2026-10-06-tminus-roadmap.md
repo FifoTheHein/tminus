@@ -108,7 +108,7 @@ class IcsOccurrence {
   final String? location;
   final String? organizer;         // CN if present, else mailto address
   final String? description;
-  final String? joinUrl;           // a Teams, Google Meet, Zoom or Webex join link: the first in X-GOOGLE-CONFERENCE, then DESCRIPTION, then LOCATION
+  final String? joinUrl;           // a Teams, Google Meet, Zoom or Webex join link: the first in DESCRIPTION, then LOCATION, then X-GOOGLE-CONFERENCE
   final DateTime startUtc;
   final DateTime endUtc;
   final bool allDay;               // DATE values; start/end = local midnight in deviceZone, as UTC

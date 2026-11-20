@@ -131,7 +131,7 @@ The window is **now − 1 h to now + 7 days**.
 - Drops `STATUS:CANCELLED` events and titles prefixed `Canceled:` / `Cancelled:`.
 - Reads `X-MICROSOFT-CDO-BUSYSTATUS` → `free | tentative | busy | oof`.
 - Extracts one join link per meeting, a Microsoft Teams, Google Meet, Zoom or Webex link (`extractJoinUrl`). `meetingServiceOf` names the service from the link's host and path.
-  - It looks in Google's `X-GOOGLE-CONFERENCE` property first (ICS feeds only), then DESCRIPTION, then LOCATION. Inside one text the earliest link wins, whatever its service.
+  - It looks in DESCRIPTION first, then LOCATION, then Google's `X-GOOGLE-CONFERENCE` property (ICS feeds only). The text comes first because Google adds a Meet link to the property on its own, while the link in the text is the one the organiser wrote. Inside one text the earliest link wins, whatever its service.
   - It recognises these forms, `https` only: Teams `teams.microsoft.com/l/meetup-join/...` and `teams.microsoft.com/meet/...`, and `/meet/<digits>` on `teams.cloud.microsoft` and `teams.live.com`; Google Meet `meet.google.com/xxx-xxxx-xxx`; Zoom `/j/<digits>`, `/my/<name>` and `/w/<digits>` on `zoom.us`, `zoom.com` and their subdomains; Webex `j.php?MTID=<id>`, `/meet/<id>` and `/join/<id>` on subdomains of `webex.com`. Any other page on those hosts, such as `zoom.us/download`, is not a join link.
   - A link inside an Outlook Safe Links or Google redirect wrapper (`https://www.google.com/url?q=...`) is unwrapped and decoded.
 - Parses each event separately: one malformed VEVENT is skipped and logged, and the rest of the feed still parses.

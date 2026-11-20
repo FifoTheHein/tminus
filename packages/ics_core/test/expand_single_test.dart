@@ -242,10 +242,21 @@ END:VEVENT''');
       );
     });
 
-    test('Google Meet: the conference property comes before the text', () {
+    test('Google Meet: a link in the text comes before the conference', () {
+      // The conference property holds a Meet link, and the description has a
+      // Zoom link of its own: the text is searched first.
       expect(
-        link('google-conference-first'),
-        'https://meet.google.com/abc-defg-hij',
+        link('google-text-first'),
+        'https://example.zoom.us/j/12345678901?pwd=abc',
+      );
+    });
+
+    test('Google Meet: a Teams link pasted into the HTML text wins', () {
+      // The conference property holds the Meet link that Google added, and the
+      // organiser pasted a Teams invite into the description.
+      expect(
+        link('google-pasted-teams'),
+        'https://teams.microsoft.com/l/meetup-join/19%3ameeting_PASTED%40thread.v2/0?context=%7b%22Tid%22%3a%22t%22%7d',
       );
     });
 
@@ -318,7 +329,8 @@ END:VEVENT''');
           'google-meet': MeetingService.googleMeet,
           'google-html': MeetingService.googleMeet,
           'google-conference-only': MeetingService.googleMeet,
-          'google-conference-first': MeetingService.googleMeet,
+          'google-text-first': MeetingService.zoom,
+          'google-pasted-teams': MeetingService.teams,
           'google-old-conference': MeetingService.zoom,
           'google-zoom-redirect': MeetingService.zoom,
           'zoom-semicolon': MeetingService.zoom,

@@ -111,7 +111,7 @@ void main() {
       ...more,
     ];
 
-    test('X-GOOGLE-CONFERENCE is searched before the text and location', () {
+    test('X-GOOGLE-CONFERENCE is searched after the text and location', () {
       final e = parseVevent(
         event(
           lines([
@@ -121,7 +121,36 @@ void main() {
           ]),
         ),
       );
-      expect(e.joinUrl, 'https://meet.google.com/abc-defg-hij');
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
+    });
+
+    test('a Teams link in the text beats the Meet link of the conference', () {
+      // Google adds the Meet link on its own; the organiser pasted the Teams
+      // invite into the description, and that is the meeting to join.
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij',
+            r'DESCRIPTION:Join on your computer\, mobile app or room device\nClick here to join the meeting<https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0>\nMeeting ID: 123 456 789 0\n',
+          ]),
+        ),
+      );
+      expect(
+        e.joinUrl,
+        'https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0',
+      );
+    });
+
+    test('a Zoom link only in the location beats the Meet conference', () {
+      final e = parseVevent(
+        event(
+          lines([
+            'X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij',
+            'LOCATION:https://example.zoom.us/j/12345678901',
+          ]),
+        ),
+      );
+      expect(e.joinUrl, 'https://example.zoom.us/j/12345678901');
     });
 
     test('a conference value that is no join link is skipped', () {

@@ -33,12 +33,20 @@ DTSTART:20261013T120000Z
 DTEND:20261013T123000Z
 END:VEVENT
 BEGIN:VEVENT
-UID:google-conference-first
+UID:google-text-first
 SUMMARY:Customer call
 X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij
 DESCRIPTION:Dial in with Zoom instead: https://example.zoom.us/j/12345678901?pwd=abc\n
 DTSTART:20261013T130000Z
 DTEND:20261013T133000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:google-pasted-teams
+SUMMARY:Supplier review
+X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij
+DESCRIPTION:<b>Microsoft Teams meeting</b><br><a href="https://teams.microsoft.com/l/meetup-join/19%3ameeting_PASTED%40thread.v2/0?context=%7b%22Tid%22%3a%22t%22%7d">Join the meeting now</a><br>Meeting ID: 123 456 789 0<br>
+DTSTART:20261013T133000Z
+DTEND:20261013T140000Z
 END:VEVENT
 BEGIN:VEVENT
 UID:google-old-conference

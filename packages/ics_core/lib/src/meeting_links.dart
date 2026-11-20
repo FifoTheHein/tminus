@@ -11,8 +11,10 @@ enum MeetingService {
   final String label;
 }
 
-/// The join link of a meeting, from [conference] (Google's own property),
-/// then [description], then [location]; null if none holds one.
+/// The join link of a meeting, from [description], then [location], then
+/// [conference] (Google's own property); null if none holds one. The
+/// conference value comes last because Google adds a Meet link to it on its
+/// own, while a link in the text is the one the organiser wrote.
 ///
 /// Recognises Microsoft Teams, Google Meet, Zoom and Webex links, `https`
 /// only (see [meetingServiceOf]). Inside one text the earliest link wins,
@@ -32,7 +34,7 @@ String? extractJoinUrl(
   String? location, {
   String? conference,
 }) {
-  for (final text in [conference, description, location]) {
+  for (final text in [description, location, conference]) {
     final url = text == null ? null : _firstLink(text);
     if (url != null) {
       return url;

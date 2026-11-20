@@ -45,8 +45,9 @@ class IcsOccurrence {
   final String? description;
 
   /// The meeting's join link: a Microsoft Teams, Google Meet, Zoom or Webex
-  /// link. The first one in X-GOOGLE-CONFERENCE (Google's own property), then
-  /// DESCRIPTION, then LOCATION; inside one text the earliest wins.
+  /// link. The first one in DESCRIPTION, then LOCATION, then
+  /// X-GOOGLE-CONFERENCE (Google's own property); inside one text the
+  /// earliest wins.
   final String? joinUrl;
   final DateTime startUtc;
   final DateTime endUtc;

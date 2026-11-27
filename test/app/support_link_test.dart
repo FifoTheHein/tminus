@@ -22,7 +22,7 @@ final _coffee = RegExp(
 );
 
 /// A link to the website or the GitHub repo, both of which now show the coffee
-/// link. The `[^\s'"`)]*` takes the rest of the link.
+/// link. The character class after the host takes the rest of the link.
 final _ownSite = RegExp(
   r'https?://(fifothehein\.github\.io|github\.com/fifothehein)[^\s'
   "'"
@@ -115,11 +115,27 @@ void main() {
     expect(_slice(html, '<header', '</header>'), isNot(contains(_coffee)));
   });
 
-  test('FUNDING.yml names Buy Me a Coffee', () {
-    final funding = const LineSplitter().convert(
-      File('.github/FUNDING.yml').readAsStringSync(),
+  test('the privacy page the app opens links nowhere but the issues page', () {
+    // The home page one tap away would put the coffee link one tap further.
+    // The template keeps only its skip link, its stylesheet and its icon.
+    final template = _read('docs/_layouts/page.html');
+    final anchors = RegExp(r'<a\b[^>]*>').allMatches(template);
+    expect(
+      [for (final a in anchors) a.group(0)],
+      ['<a class="skip" href="#main">'],
+      reason: 'docs/_layouts/page.html',
     );
 
-    expect(funding, contains('buy_me_a_coffee: fifothehein'));
+    final policy = _read('docs/privacy.md');
+    expect(policy, isNot(contains(RegExp(r'\]\(|href=|<a\b'))));
+    for (final match in _ownSite.allMatches(policy)) {
+      expect(match.group(0), startsWith(issuesUrl), reason: 'docs/privacy.md');
+    }
+  });
+
+  test('the repo has no FUNDING.yml', () {
+    // It would put a Sponsor button on the issues page the privacy policy
+    // names.
+    expect(File('.github/FUNDING.yml').existsSync(), isFalse);
   });
 }

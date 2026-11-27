@@ -75,3 +75,9 @@ Temporarily add `<!-- buymeacoffee -->` to `docs/_layouts/page.html` and run aga
 - [ ] **Step 6: Run the tests.** Run `flutter test test/app/support_link_test.dart test/app/pages_config_test.dart test/no_em_dash_test.dart`. Expected: all pass.
 - [ ] **Step 7: Check it in the browser.** Open `docs/index.html` at 375px and at desktop width, in light and dark. Expected: no horizontal scroll, the button sits inside the gutter, and the footer wraps cleanly.
 - [ ] **Step 8: Full check and commit.** Run `flutter analyze` (expect `No issues found!`) and `flutter test`. Commit the spec, the plan, the test and the files above with `git commit -F <file>`, with no Claude trailers.
+
+## Built differently from this plan
+
+- **No FUNDING.yml.** The final review found that the privacy page the app opens linked the home page (one tap from the coffee button), and that the issues page the policy names would show a Sponsor button. The owner chose to cut that route: `docs/_layouts/page.html` lost its menu, its back link and its footer links (the brand is plain text), and `.github/FUNDING.yml` was removed. The README section stays.
+- **A stronger guard test.** `test/app/support_link_test.dart` also matches the words "buy me a coffee" and the `coff.ee` and `bmc.link` short links. It scans `assets/` and `packages/ics_core/lib/`, fails if the app links the website or the repo other than through `privacyPolicyUrl` and `issuesUrl`, fails if the privacy template or policy gains a link, and fails if FUNDING.yml comes back.
+- **#support CSS.** The section has 56px padding and a smaller heading than the sections above it, so it reads as a closing note.

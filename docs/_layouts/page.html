@@ -11,30 +11,24 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
+<!-- The app opens this page. It links nowhere else on the site, because the
+     home page carries a donation link and Google Play rejects apps
+     that lead to donations (test/app/support_link_test.dart). -->
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="../"><img src="../play/icon-512.png" alt="" width="32" height="32">T-Minus</a>
-    <nav aria-label="Main">
-      <a class="opt" href="../#features">Features</a>
-      <a class="opt" href="../privacy/">Privacy</a>
-      <a class="cta" href="../#join">Join the test</a>
-    </nav>
+    <span class="brand"><img src="../play/icon-512.png" alt="" width="32" height="32">T-Minus</span>
   </div>
 </header>
 
 <main id="main" class="doc">
-  <a class="back" href="../">&larr; Back to T-Minus</a>
 {{ content }}
 </main>
 
 <footer>
   <div class="wrap">
     <div class="row">
-      <a class="brand" href="../"><img src="../play/icon-512.png" alt="" width="26" height="26">T-Minus</a>
-      <a href="../privacy/">Privacy policy</a>
-      <a href="https://github.com/FifoTheHein/tminus/issues">Report a problem or an idea</a>
-      <a href="https://github.com/FifoTheHein/tminus">Source on GitHub</a>
+      <span class="brand"><img src="../play/icon-512.png" alt="" width="26" height="26">T-Minus</span>
     </div>
     <p>T-Minus is an independent app and is not affiliated with or endorsed by Microsoft, Google or the owners of Zoom and Webex.</p>
   </div>

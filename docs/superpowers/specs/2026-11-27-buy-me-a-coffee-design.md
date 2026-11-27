@@ -51,12 +51,20 @@ December 2025 cover US users only. So:
    - It is a plain link styled with `site.css`. There is no Buy Me a Coffee widget
      or script (the page promises no analytics, and shareable HTML stays
      self-contained) and no QR code (most visitors are on a phone already).
-2. **Privacy page:** no change. A test fails if `buymeacoffee` appears in
-   `docs/privacy.md` or `docs/_layouts/page.html`, or anywhere under `lib/`,
-   `android/app/src/main/` or in `docs/play/listing.md`.
+2. **Privacy page:** no change. `test/app/support_link_test.dart` fails if a
+   Buy Me a Coffee link (its domain or the `coff.ee` and `bmc.link` short
+   links) or the words "buy me a coffee" appear in `docs/privacy.md`,
+   `docs/_layouts/page.html`, or anything that ships in the app (`lib/`,
+   `android/app/src/main/`, `assets/`, `packages/ics_core/lib/`). It fails if
+   a coffee link appears in `docs/play/listing.md`. It also fails if the app
+   links the website or the repo anywhere other than `privacyPolicyUrl` and
+   `issuesUrl`, because a Website or Source button would be the rejected
+   approach 3.
 3. **GitHub repo:**
-   - `.github/FUNDING.yml` with `buy_me_a_coffee: fifothehein`, which shows a
-     Sponsor button on the repo page.
+   - `.github/FUNDING.yml` with `buy_me_a_coffee: fifothehein`. GitHub shows
+     the Sponsor button only once the file is on the default branch and a
+     repo admin ticks Settings > General > Features > Sponsorships (a manual
+     step).
    - The README gets a short Support section that uses the same wording as the
      home page.
 4. **Listing note:** `docs/play/listing.md` gets a one-line note saying that the

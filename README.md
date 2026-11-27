@@ -131,4 +131,8 @@ T-Minus is in a closed test on Google Play (version 1.0.2, 20 November 2026). It
 
 Bugs and questions go to [GitHub issues](https://github.com/FifoTheHein/tminus/issues). The [website](https://fifothehein.github.io/tminus/) and [the privacy policy](https://fifothehein.github.io/tminus/privacy/) are on GitHub Pages.
 
+## Support
+
+T-Minus has no ads, no subscriptions and no tracking. If it gets you to your meetings on time, you can [☕ buy me a coffee](https://buymeacoffee.com/fifothehein).
+
 <sub>Outlook and Teams are trademarks of Microsoft. Google Calendar, Google Meet and Google Play are trademarks of Google. Zoom and Webex are trademarks of their owners. T-Minus is an independent app and is not affiliated with or endorsed by Microsoft, Google or the owners of Zoom and Webex.</sub>

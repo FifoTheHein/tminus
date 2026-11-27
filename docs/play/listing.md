@@ -87,6 +87,8 @@ Outlook and Teams are trademarks of Microsoft. Google Calendar and Google Meet a
 
 The privacy policy URL is entered under App content, not here (see declarations.md).
 
+The website's Support section (Buy Me a Coffee) is left out of the listing on purpose: Play's Payments policy rejects donation links. It also stays out of the app and the privacy policy page, and `test/app/support_link_test.dart` checks that.
+
 ## Graphics
 
 | Asset | File | Format | Made by |

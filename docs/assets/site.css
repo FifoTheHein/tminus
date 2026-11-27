@@ -234,6 +234,12 @@ section.alt { background: var(--container-low); border-block: 1px solid var(--ou
 .note.wait { background: var(--warn-container); color: var(--on-warn-container); }
 .note.ok { background: var(--ok-container); color: var(--on-ok-container); }
 
+/* Support: a quiet closing section, smaller than the ones above it */
+#support { padding: 56px 0; }
+#support .section-head { margin-bottom: 0; }
+#support .section-head h2 { font-size: clamp(24px, 3vw, 30px); }
+.support-btn { margin-top: 22px; }
+
 /* A text page (the privacy policy) */
 .doc { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; }
 .doc h1 { font-size: clamp(32px, 5vw, 44px); margin-bottom: 18px; }
